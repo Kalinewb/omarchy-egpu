@@ -1,0 +1,16 @@
+#!/bin/bash
+# Fake steam. `-shutdown` ends the fake Steam processes (pgrep.txt) unless
+# $EGPU_FAKE_DIR/steam-ignores-shutdown exists; no arguments starts it.
+printf 'steam %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+f="$EGPU_FAKE_DIR/pgrep.txt"
+case "$*" in
+  -shutdown)
+    [[ -e $EGPU_FAKE_DIR/steam-ignores-shutdown || ! -e $f ]] && exit 0
+    grep -vE '^(steam|steamwebhelper) ' "$f" >"$f.tmp"
+    mv -f "$f.tmp" "$f"
+    ;;
+  "")
+    printf 'steam 4242\nsteamwebhelper 4243\n' >>"$f"
+    ;;
+esac
+exit 0

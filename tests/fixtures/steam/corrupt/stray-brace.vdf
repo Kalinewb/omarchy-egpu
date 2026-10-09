@@ -1,0 +1,102 @@
+"UserLocalConfigStore"
+{
+	"Broadcast"
+	{
+		"Permissions"		"1"
+	}
+	// a comment Steam never writes; kept byte for byte
+	"system"
+	{
+		"InGameOverlayShowFPSHotKey"		"Shift\tKEY_BACKSPACE"
+		"BareKey"		bare_value
+		"Conditional"		"1"		[$LINUX]
+		"Url"		"https://example.invalid/a//b"
+	}
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"100"
+					{
+						"LastPlayed"		"1700000100"
+						"Playtime"		"12"
+					}
+					"101"
+					{
+						"LaunchOptions"		""
+					}
+					"102"
+					{
+						"LastPlayed"		"1700000102"
+						"LaunchOptions"		"-novid -fullscreen"
+					}
+					"103"
+					{
+						"LaunchOptions"		"gamemoderun %command% -dx11"
+					}
+					"104"
+					{
+						"LaunchOptions"		"PROTON_LOG=1 %command%"
+						"Playtime"		"3"
+					}
+					"105"
+					{
+						"LaunchOptions"		"__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%"
+					}
+					"106"
+					{
+						"LaunchOptions"		"OMARCHY_EGPU=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=mesa %command%"
+					}
+					"107"
+					{
+						"LaunchOptions"		"OMARCHY_EGPU=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%"
+					}
+					"108"
+					{
+						"LaunchOptions"		"DXVK_CONFIG=\"dxgi.maxFrameRate = 60\" WINEDLLOVERRIDES=\"dinput8=n,b\" %command% -dir C:\\Games\\Fixture"
+					}
+					"109"
+					{
+						"LaunchOptions"		"%command% -name \"Ærøskøbing ™ 🎮\""
+					}
+					"110"
+					{
+						"launchoptions"		"-windowed"
+					}
+					"111"
+					{
+						"LaunchOptions"		" -novid  "
+					}
+					"112"
+					{
+					}
+					"113"
+					{
+						"LaunchOptions"		"-arg\tvalue"
+					}
+					"114"
+					{
+						"LaunchOptions"		"OMARCHY_EGPU=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only PROTON_ENABLE_NVAPI=1 gamemoderun %command%"
+					}
+					"115"
+					{
+						"LaunchOptions"		"QT_QPA_PLATFORM=xcb __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only VKD3D_FILTER_DEVICE_NAME=\"RTX 4070 SUPER\" %command%"
+					}
+				}
+				"LastPlayedTimesSyncTime"		"1700000000"
+			}
+		}
+	}
+	"Apps"
+	{
+		"200"
+		{
+			"UseSteamControllerConfig"		"2"
+		}
+	}
+}
+}

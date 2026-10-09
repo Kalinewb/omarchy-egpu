@@ -1,0 +1,11 @@
+"AppState"
+{
+	"appid"		"111"
+	"Universe"		"1"
+	"name"		"Shape 111 spaces"
+	"StateFlags"		"4"
+	"installdir"		"Shape111"
+	"UserConfig"
+	{
+	}
+}

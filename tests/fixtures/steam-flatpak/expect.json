@@ -1,0 +1,4 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".steam.running == true"],
+  "health_levels": { "steam.options": "info", "steam.stale": "ok", "steam.pending": "ok", "steam.flatpak_gl": "ok" },
+  "health_checks": ["map(select(.id == \"steam.flatpak_gl\"))[0].title | test(\"nvidia-580-178-04\")"] }

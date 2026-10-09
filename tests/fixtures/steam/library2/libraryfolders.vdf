@@ -1,0 +1,13 @@
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"@ROOT@"
+		"label"		""
+	}
+	"1"
+	{
+		"path"		"@LIB2@"
+		"label"		"games"
+	}
+}

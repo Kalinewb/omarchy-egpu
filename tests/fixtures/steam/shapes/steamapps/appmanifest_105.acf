@@ -1,0 +1,11 @@
+"AppState"
+{
+	"appid"		"105"
+	"Universe"		"1"
+	"name"		"Shape 105 manual"
+	"StateFlags"		"4"
+	"installdir"		"Shape105"
+	"UserConfig"
+	{
+	}
+}

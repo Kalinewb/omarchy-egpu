@@ -1,0 +1,8 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".steam.running == false", ".health_summary.errors == 0"],
+  "health_levels": { "steam.options": "warn", "steam.stale": "info", "steam.pending": "ok" },
+  "health_checks": ["map(select(.id == \"steam.flatpak_gl\")) == []",
+                    "map(select(.id == \"steam.options\"))[0].title | test(\"106\")",
+                    "map(select(.id == \"steam.options\"))[0].detail | test(\"105, 115\")",
+                    "map(select(.id == \"steam.stale\"))[0].title | test(\"^2 game\")",
+                    "map(select(.id == \"steam.stale\"))[0].fix.kind == \"user\""] }

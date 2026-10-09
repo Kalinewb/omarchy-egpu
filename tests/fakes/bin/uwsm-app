@@ -1,0 +1,5 @@
+#!/bin/bash
+# Fake uwsm-app: logs, then runs the command after `--`.
+printf 'uwsm-app %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+[[ ${1:-} == -- ]] && shift
+exec "$@"

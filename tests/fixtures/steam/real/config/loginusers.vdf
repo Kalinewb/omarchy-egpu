@@ -1,0 +1,36 @@
+"users"
+{
+	"76561198060265729"
+	{
+		"AccountName"		"fixture_one"
+		"PersonaName"		"Player One"
+		"RememberPassword"		"1"
+		"WantsOfflineMode"		"0"
+		"SkipOfflineModeWarning"		"0"
+		"AllowAutoLogin"		"1"
+		"MostRecent"		"0"
+		"Timestamp"		"1700000001"
+	}
+	"76561198060265730"
+	{
+		"AccountName"		"fixture_two"
+		"PersonaName"		"Player Two"
+		"RememberPassword"		"1"
+		"WantsOfflineMode"		"0"
+		"SkipOfflineModeWarning"		"0"
+		"AllowAutoLogin"		"0"
+		"MostRecent"		"0"
+		"Timestamp"		"1700000002"
+	}
+	"76561198060265731"
+	{
+		"AccountName"		"fixture_three"
+		"PersonaName"		"Player Three"
+		"RememberPassword"		"1"
+		"WantsOfflineMode"		"0"
+		"SkipOfflineModeWarning"		"0"
+		"AllowAutoLogin"		"1"
+		"MostRecent"		"1"
+		"Timestamp"		"1700000003"
+	}
+}

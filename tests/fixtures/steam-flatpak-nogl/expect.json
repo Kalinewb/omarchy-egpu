@@ -1,0 +1,4 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".steam.running == false"],
+  "health_levels": { "steam.options": "info", "steam.stale": "ok", "steam.flatpak_gl": "warn" },
+  "health_checks": ["map(select(.id == \"steam.flatpak_gl\"))[0].detail | test(\"flatpak install flathub org.freedesktop.Platform.GL.nvidia-\")"] }

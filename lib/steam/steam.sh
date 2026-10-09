@@ -236,7 +236,7 @@ steam_games_json() {
         if .seen[$g.appid] then . else .seen[$g.appid] = true | .out += [$g] end)
     | .out
     | map(select(.appid as $a | ($t.appids | index($a)) | not))
-    | map(select(.name as $n | all($t.name_prefixes[]; ($n | startswith(.)) | not)))
+    | map(select(.name as $n | all($t.name_prefixes[]; . as $p | $n | startswith($p) | not)))
     | sort_by(.name | ascii_downcase)' "${files[@]}"
 }
 
@@ -345,9 +345,12 @@ _steam_lock() {
 
 _steam_utc() { date -u +%Y%m%dT%H%M%S.%3NZ; }
 
+# Keep the newest 20. STEAM_PROTECT_BACKUP names one that must survive (the
+# backup being restored, which may be the oldest).
 _steam_prune_backups() {
   local dir="$STEAM_BACKUPS/$1" old
-  mapfile -t old < <(find "$dir" -maxdepth 1 -name 'localconfig-*.vdf' -printf '%f\n' 2>/dev/null | sort | head -n -"$STEAM_KEEP_BACKUPS")
+  mapfile -t old < <(find "$dir" -maxdepth 1 -name 'localconfig-*.vdf' -printf '%f\n' 2>/dev/null | sort |
+    head -n -"$STEAM_KEEP_BACKUPS" | grep -vxF -- "${STEAM_PROTECT_BACKUP:-/}")
   for f in "${old[@]}"; do rm -f -- "${dir:?}/$f"; done
 }
 
@@ -724,6 +727,7 @@ steam_restore() {
     return 1
   fi
   out=$(_vdf stage --from "$real" --file "$S_FILE") || { printf '%s\n' "$out"; return 1; }
+  STEAM_PROTECT_BACKUP=${real##*/}
   backup=$(_steam_commit "$(jq -r .tmp <<<"$out")" "$(jq -r .sha256 <<<"$out")") || { printf '%s\n' "$backup"; return 1; }
   # What the engine recorded no longer describes the file.
   _steam_backend

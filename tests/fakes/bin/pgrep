@@ -1,7 +1,8 @@
 #!/bin/bash
 # Fake pgrep: `pgrep [-u uid] -x NAME` looks NAME up in $EGPU_FAKE_DIR/pgrep.txt
 # ("NAME PID" per line). Anything else is refused, so the engine cannot drift
-# to a form the fake does not model.
+# to a form the fake does not model. An executable $EGPU_FAKE_DIR/pgrep-hook
+# runs first with NAME: tests use it to change the world between two checks.
 name=''
 while (( $# )); do
   case $1 in
@@ -12,4 +13,5 @@ while (( $# )); do
   shift
 done
 [[ -n $name ]] || exit 2
+[[ -x $EGPU_FAKE_DIR/pgrep-hook ]] && "$EGPU_FAKE_DIR/pgrep-hook" "$name"
 awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }' "$EGPU_FAKE_DIR/pgrep.txt" 2>/dev/null

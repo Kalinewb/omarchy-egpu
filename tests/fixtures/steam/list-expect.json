@@ -1,0 +1,19 @@
+{
+  "_comment": "E6a: what `steam list` must show for each account of fixtures/steam/real (sanitised copies of the user's three accounts; manifests partly synthetic). Games are per install, options per account. Tools are hidden by appid or name prefix.",
+  "order": ["383870", "1674200", "534380", "675010", "1262540", "250820"],
+  "names": { "383870": "Firewatch", "1262540": "Need for Speed™", "250820": "SteamVR" },
+  "hidden": ["1070560", "1391110", "228980", "1493710", "1628350", "3658110"],
+  "default_account": "100000003",
+  "accounts": {
+    "100000001": { "persona": "Player One",
+      "states": { "383870": "off", "1674200": "off", "534380": "off", "675010": "off", "1262540": "off", "250820": "off" },
+      "options": {} },
+    "100000002": { "persona": "Player Two",
+      "states": { "383870": "off", "1674200": "off", "534380": "off", "675010": "off", "1262540": "off", "250820": "manual" },
+      "options": { "250820": "QT_QPA_PLATFORM=xcb __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only VKD3D_FILTER_DEVICE_NAME=\"RTX 4070 SUPER\" %command%" } },
+    "100000003": { "persona": "Player Three",
+      "states": { "383870": "manual", "1674200": "manual", "534380": "manual", "675010": "manual", "1262540": "manual", "250820": "off" },
+      "options": { "383870": "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%",
+                   "534380": "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only VKD3D_FILTER_DEVICE_NAME=\"RTX 4070 SUPER\" %command%" } }
+  }
+}

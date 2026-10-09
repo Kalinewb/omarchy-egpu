@@ -1,0 +1,16 @@
+#!/bin/bash
+# Fake flatpak.
+#   ps --columns=application                  $EGPU_FAKE_DIR/flatpak-ps.txt
+#   list --runtime --columns=application      $EGPU_FAKE_DIR/flatpak-runtimes.txt
+#   run com.valvesoftware.Steam -shutdown     empties flatpak-ps.txt
+#   run com.valvesoftware.Steam               lists it in flatpak-ps.txt
+printf 'flatpak %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+case "$*" in
+  "ps --columns=application") cat "$EGPU_FAKE_DIR/flatpak-ps.txt" 2>/dev/null ;;
+  "list --runtime --columns=application") cat "$EGPU_FAKE_DIR/flatpak-runtimes.txt" 2>/dev/null ;;
+  "run com.valvesoftware.Steam -shutdown")
+    [[ -e $EGPU_FAKE_DIR/steam-ignores-shutdown ]] || : >"$EGPU_FAKE_DIR/flatpak-ps.txt" ;;
+  "run com.valvesoftware.Steam") echo com.valvesoftware.Steam >>"$EGPU_FAKE_DIR/flatpak-ps.txt" ;;
+  *) exit 1 ;;
+esac
+exit 0

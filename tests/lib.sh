@@ -263,6 +263,47 @@ fx_gpu_proc() {
 EOF
 }
 
+# ---------------------------------------------------------------- steam
+
+# Steam data lives in tests/fixtures/steam/ (sanitised copies of real files
+# plus synthetic shapes, plan-engine.md §13). It is copied under $HOME, which
+# the runner points into the scenario's temp dir: the real ~/.local/share/Steam
+# is never read or written.
+FX_STEAM="$EGPU_TEST_REPO/tests/fixtures/steam"
+
+# fx_steam_root <set> [dest]: copy fixtures/steam/<set> (real, shapes) to a
+# Steam root (default: the native one under $HOME) and fill in @ROOT@.
+fx_steam_root() {
+  local set=$1 dest=${2:-$HOME/.local/share/Steam} f
+  [[ $dest == "$HOME"/* || $dest == "$FX_ROOT"/* ]] || return 1
+  mkdir -p -- "$dest"
+  cp -r -- "$FX_STEAM/$set/." "$dest/"
+  for f in "$dest"/config/libraryfolders.vdf "$dest"/steamapps/libraryfolders.vdf; do
+    [[ -e $f ]] && sed -i "s|@ROOT@|$dest|g" "$f"
+  done
+  return 0
+}
+
+# fx_steam_library2 <root>: a second library with a duplicate manifest.
+fx_steam_library2() {
+  local root=$1 lib="$HOME/games/SteamLibrary"
+  mkdir -p -- "$lib" "$root/steamapps"
+  cp -r -- "$FX_STEAM/library2/steamapps" "$lib/"
+  sed -e "s|@ROOT@|$root|g" -e "s|@LIB2@|$lib|g" "$FX_STEAM/library2/libraryfolders.vdf" >"$root/steamapps/libraryfolders.vdf"
+}
+
+# The native Steam client and its web helper are running.
+fx_steam_running() { printf 'steam 4242\nsteamwebhelper 4243\n' >>"$EGPU_FAKE_DIR/pgrep.txt"; }
+
+# Flatpak Steam: fx_flatpak_steam <running:yes|no> [runtime ...]
+fx_flatpak_steam() {
+  local running=$1
+  shift
+  : >"$EGPU_FAKE_DIR/flatpak-ps.txt"
+  [[ $running == yes ]] && echo com.valvesoftware.Steam >"$EGPU_FAKE_DIR/flatpak-ps.txt"
+  printf '%s\n' org.freedesktop.Platform org.gnome.Platform "$@" >"$EGPU_FAKE_DIR/flatpak-runtimes.txt"
+}
+
 # ---------------------------------------------------------------- bundles
 
 # A machine with nothing wrong and no eGPU: every health row ok/info, apart

@@ -1,0 +1,4 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".steam.running == true"],
+  "health_levels": { "steam.options": "warn", "steam.stale": "ok", "steam.pending": "ok" },
+  "health_checks": ["map(select(.id == \"steam.stale\"))[0].title | test(\"which is ready\")"] }

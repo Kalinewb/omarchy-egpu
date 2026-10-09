@@ -1,0 +1,26 @@
+"AppState"
+{
+	"appid"		"675010"
+	"Universe"		"1"
+	"name"		"Fixture Game 675010"
+	"StateFlags"		"4"
+	"installdir"		"Fixture675010"
+	"LastUpdated"		"1700000000"
+	"LastPlayed"		"0"
+	"SizeOnDisk"		"1000000"
+	"StagingSize"		"0"
+	"buildid"		"1"
+	"LastOwner"		"76561198060265731"
+	"AutoUpdateBehavior"		"0"
+	"AllowOtherDownloadsWhileRunning"		"0"
+	"ScheduledAutoUpdate"		"0"
+	"InstalledDepots"
+	{
+	}
+	"UserConfig"
+	{
+	}
+	"MountedConfig"
+	{
+	}
+}

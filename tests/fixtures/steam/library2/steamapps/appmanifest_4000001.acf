@@ -1,0 +1,11 @@
+"AppState"
+{
+	"appid"		"4000001"
+	"Universe"		"1"
+	"name"		"Second Library Game"
+	"StateFlags"		"4"
+	"installdir"		"Shape4000001"
+	"UserConfig"
+	{
+	}
+}

@@ -2,8 +2,9 @@
 
 # tests/run.sh — the engine's test suite. Plain bash; bats is not assumed.
 #
-#   tests/run.sh               every scenario, then the watcher tests
-#   tests/run.sh absent ...    only these scenarios ("watch" for the watcher)
+#   tests/run.sh               every scenario, the Steam gate tests, then the watcher
+#   tests/run.sh absent ...    only these scenarios ("watch" for the watcher,
+#                              "steam" for the Steam module, tests/steam.sh)
 #
 # Each scenario in fixtures/<name>/ has:
 #   setup.sh      builds the fake machine with tests/lib.sh (sysfs, /dev,
@@ -52,7 +53,7 @@ bad() { echo "fail $*" >>"$RESULTS"; echo "  ${RED}FAIL${RESET}  $*"; }
 # The plain tools the engine, the fakes and the fixtures may use.
 SYSTOOLS=(bash sh env cat ls readlink basename dirname realpath timeout flock sleep date mv cp
   mktemp grep sed awk find sort head tail tr cut wc stat mkdir rm rmdir touch kill pkill jq
-  python3 mkfifo paste uname ln chmod seq tee uniq xargs id true false printf compgen)
+  python3 mkfifo paste uname ln chmod seq tee uniq xargs id true false printf compgen cmp)
 mkdir -p "$WORK/sysbin"
 for t in "${SYSTOOLS[@]}"; do
   p=$(type -P "$t") || continue
@@ -325,15 +326,27 @@ test_watch() {
   wait "$wpid" 2>/dev/null
 }
 
+# ---------------------------------------------------------------- steam
+
+# shellcheck source=tests/steam.sh
+source "$TESTS/steam.sh"
+
 # ---------------------------------------------------------------- main
 
-mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do d=${d%/}; [[ $d == watch-sequence ]] || echo "$d"; done)
+# Scenarios are the fixture dirs with an expect.json; fixtures/steam holds the
+# Steam data the steam tests copy.
+mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do
+  d=${d%/}
+  [[ $d != watch-sequence && -r $d/expect.json ]] && echo "$d"
+done)
 targets=("$@")
-(( ${#targets[@]} )) || targets=("${ALL[@]}" watch)
+(( ${#targets[@]} )) || targets=("${ALL[@]}" steam watch)
 
 for s in "${targets[@]}"; do
   if [[ $s == watch ]]; then
     (test_watch)
+  elif [[ $s == steam ]]; then
+    test_steam
   elif [[ -d $TESTS/fixtures/$s && -r $TESTS/fixtures/$s/expect.json ]]; then
     (run_scenario "$s")
   else

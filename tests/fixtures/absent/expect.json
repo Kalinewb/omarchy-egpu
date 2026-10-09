@@ -4,5 +4,6 @@
                     ".steam.running == false", ".last_event == null"],
   "health_levels": { "bolt.daemon": "ok", "bolt.device": "ok", "boot.modules_load_mask": "ok", "hypr.links": "ok",
                      "hypr.order": "ok", "system.helper": "ok", "tools.vulkaninfo": "ok", "driver.modeset": "info",
-                     "kernel.modprobe_options": "ok", "kernel.nouveau_blacklist": "ok", "diag.kernel_params": "info" },
-  "health_checks": ["map(select(.level == \"error\")) == []"] }
+                     "kernel.modprobe_options": "ok", "kernel.nouveau_blacklist": "ok", "diag.kernel_params": "info",
+                     "steam.options": "skipped", "steam.stale": "skipped", "steam.pending": "ok" },
+  "health_checks": ["map(select(.level == \"error\")) == []", "map(select(.id == \"steam.flatpak_gl\")) == []"] }

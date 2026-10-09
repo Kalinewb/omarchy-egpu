@@ -14,7 +14,8 @@
 # Fails when:
 #   - any script does not parse, or
 #   - shellcheck reports anything at severity error, or
-#   - the manifest or a profile is not valid JSON, or
+#   - a Python file does not parse (lib/steam/vdf.py, dev/, tests/), or
+#   - the manifest, a profile or lib/steam/tools.json is not valid JSON, or
 #   - the repo contains a symlink (`omarchy plugin update` would roll back
 #     every later update; plan-gui.md §2).
 
@@ -68,18 +69,32 @@ else
   echo "  ${DIM}skip  shellcheck is not installed (bash -n only)${RESET}"
 fi
 
+# Python: syntax only, without writing __pycache__ into the plugin dir (it is
+# watched once installed).
+pybad=()
+while IFS= read -r f; do
+  [[ -f $f ]] || continue
+  python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], "rb").read(), sys.argv[1])' "$f" 2>/dev/null || pybad+=("$f")
+done < <(list_files | grep -E '\.py$')
+if (( ${#pybad[@]} )); then
+  echo "  ${RED}FAIL${RESET}  Python syntax errors: ${pybad[*]}"
+  failures=$((failures + 1))
+else
+  echo "  ${GREEN}pass${RESET}  $(list_files | grep -cE '\.py$') Python files parse"
+fi
+
 echo
 echo "${BOLD}Data${RESET}"
 jbad=()
 while IFS= read -r f; do
   [[ -f $f ]] || continue
   jq -e . "$f" >/dev/null 2>&1 || jbad+=("$f")
-done < <(list_files | grep -E '^(manifest\.json|profiles/.*\.json|tests/schema/.*\.json)$')
+done < <(list_files | grep -E '^(manifest\.json|profiles/.*\.json|tests/schema/.*\.json|lib/steam/tools\.json|tests/fixtures/.*\.json)$')
 if (( ${#jbad[@]} )); then
   echo "  ${RED}FAIL${RESET}  invalid JSON: ${jbad[*]}"
   failures=$((failures + 1))
 else
-  echo "  ${GREEN}pass${RESET}  manifest, profiles and schema are valid JSON"
+  echo "  ${GREEN}pass${RESET}  manifest, profiles, schema, tools.json and fixture JSON are valid"
 fi
 
 links=$(find . -path ./.git -prune -o -type l -print)
