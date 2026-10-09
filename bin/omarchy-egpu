@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# omarchy-egpu — the engine. omarchy-egpu <module> <verb> [args]
+#
+#   status [--json|--human]     one status document (plan-engine.md §5)
+#   status watch                JSON-lines stream + $XDG_RUNTIME_DIR/omarchy-egpu/status.json
+#   health [--json|--human]     setup/health rows (§9)
+#
+# JSON on stdout, prose on stderr. Exit codes (§1.1): 0 ok, 1 refused or
+# failed ({"error":...} on stdout), 3 busy. The panel and the notch run only
+# this; every decision lives here.
+#
+# Later phases add: device (connect/eject/holders/rescan), display, steam,
+# config, health fix/bundle.
+
+set -uo pipefail
+
+EGPU_LIB="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../lib" && pwd)"
+export EGPU_LIB
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: omarchy-egpu <module> <verb> [args]
+  status [--json|--human]
+  status watch
+  health [--json|--human]
+USAGE
+}
+
+module=${1:-}
+[[ $# -gt 0 ]] && shift
+
+case $module in
+  status)
+    # shellcheck source=lib/status.sh
+    source "$EGPU_LIB/status.sh"
+    status_main "$@"
+    ;;
+  health)
+    # shellcheck source=lib/health.sh
+    source "$EGPU_LIB/health.sh"
+    health_main "$@"
+    ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    printf '{"error":"usage"}\n'
+    exit 1
+    ;;
+esac

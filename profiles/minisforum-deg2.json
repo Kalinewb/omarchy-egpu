@@ -1,0 +1,25 @@
+{
+  "id": "minisforum-deg2",
+  "match": { "bolt_vendor": "Micro Computer (HK) Tech. Ltd.", "bolt_name": "TBGAA" },
+  "hints": [
+    { "when": "authorized_no_pci",
+      "text": "Check the dock's mode switch is set to TBT, not OCuLink." },
+    { "when": "plugged_unauthorized",
+      "text": "The DEG2 waits for authorization. Enroll it once with policy auto so it is authorized on every plug-in." },
+    { "when": "needs_relogin",
+      "text": "The HDMI monitor needs a new session to appear. Offloading apps to the eGPU works now." },
+    { "when": "held_after_eject",
+      "text": "The driver is still loaded with no card. Log out before plugging the eGPU in again." },
+    { "when": "smi_hung",
+      "text": "nvidia-smi is stuck in the kernel. Do not unplug; save your work and log out or reboot." }
+  ],
+  "log_noise": [
+    { "match": "JMicron", "subsystem": "scsi",
+      "why": "Empty M.2 slot: its USB bridge logs SCSI errors. Harmless." }
+  ],
+  "link": { "note": "2.5 GT/s x4 right after connect is normal for this enclosure." },
+  "kernel_params_optional": [
+    "pcie_ports=native",
+    "pci=assign-busses,hpbussize=0x33,realloc,hpmmiosize=128M,hpmmioprefsize=16G"
+  ]
+}

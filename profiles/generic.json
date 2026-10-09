@@ -1,0 +1,19 @@
+{
+  "id": "generic",
+  "match": null,
+  "hints": [
+    { "when": "authorized_no_pci",
+      "text": "The enclosure is authorized but no GPU appeared. Check that the card has power and is seated, and that the enclosure is in Thunderbolt/USB4 mode." },
+    { "when": "plugged_unauthorized",
+      "text": "The enclosure waits for authorization. Authorize it in Setup, or enroll it once so it is authorized on every plug-in." },
+    { "when": "needs_relogin",
+      "text": "The HDMI monitor needs a new session to appear. Offloading apps to the eGPU works now." },
+    { "when": "held_after_eject",
+      "text": "The driver is still loaded with no card. Log out before plugging the eGPU in again." },
+    { "when": "smi_hung",
+      "text": "nvidia-smi is stuck in the kernel. Do not unplug; save your work and log out or reboot." }
+  ],
+  "log_noise": [],
+  "link": null,
+  "kernel_params_optional": []
+}
