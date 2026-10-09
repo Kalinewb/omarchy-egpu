@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # Ready with the HDMI monitor lit by the compositor.
 fx_base_healthy
 fx_hypr_links card1

@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # This laptop at E0 (dev/e0-facts.md): DEG2 + 4070 SUPER ready; HDMI-A-2
 # connected but Hyprland never lit it (secondary renderer failed) although it
 # holds card1; stale modules-load mask; nvidia_drm parameters root-only;

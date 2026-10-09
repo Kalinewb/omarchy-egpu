@@ -81,6 +81,7 @@ setup_scenario() {
     case ${f##*/} in setup.sh | expect.json) ;; *) cp -r -- "$f" "$EGPU_FAKE_DIR/" ;; esac
   done
   mkdir -p "$FX_ROOT/sys/bus/pci/devices" "$FX_ROOT/sys/module" "$FX_ROOT/dev/dri" "$FX_ROOT/proc" "$FX_ROOT/etc"
+  # shellcheck disable=SC2123  # deliberate: setup sees only the plain tools
   if ! (PATH="$WORK/sysbin"; source "$TESTS/lib.sh" && source "$dir/setup.sh"); then
     bad "$name: fixture setup failed"
     return 1

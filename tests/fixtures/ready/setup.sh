@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # Ready and idle: modules loaded, nvidia-smi answers, no monitor, no apps.
 fx_base_healthy
 fx_hypr_links card1

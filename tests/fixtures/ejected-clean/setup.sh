@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # A clean eject: GPU removed, modules unloaded, enclosure still connected.
 fx_base_healthy
 fx_deg2 authorized true

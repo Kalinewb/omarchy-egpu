@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # Only the modules-load problem (§9.2), on an otherwise healthy machine, with
 # the eGPU ready: one health error turns ready into attention.
 fx_base_healthy

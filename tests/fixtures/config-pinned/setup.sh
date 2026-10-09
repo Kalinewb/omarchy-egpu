@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # config.json pins a different card; the attached 4070 SUPER is not the eGPU.
 fx_base_healthy
 fx_deg2 authorized true

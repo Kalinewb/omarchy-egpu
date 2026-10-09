@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # Watcher scenario: starts with no eGPU; watch-script.sh (run by the fake
 # udevadm monitor) then plugs the DEG2 in, lets bolt authorize it, brings the
 # 4070 SUPER up, connects an HDMI monitor the compositor does not pick up, and

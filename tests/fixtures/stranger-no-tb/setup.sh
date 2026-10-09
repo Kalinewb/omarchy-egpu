@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # A stranger's laptop: Intel iGPU only, no Thunderbolt controller, no bolt,
 # no NVIDIA driver, no system half, no Hyprland running. Every row must still
 # answer (first-run Setup, plan-gui.md §5.5).

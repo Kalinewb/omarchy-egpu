@@ -486,12 +486,12 @@ status_watch() {
     boltctl monitor >"$_WATCH_FIFO" 2>/dev/null {lockfd}>&- &
     _WATCH_PRODUCERS+=($!)
   fi
-  # Hyprland's socket is busy (every focus change); only monitor and reload
-  # events matter here.
+  # Hyprland's socket. socat writes straight into the fifo (no pipeline), so
+  # $! is socat itself and dies with the watcher; its noise (every focus
+  # change) is dropped in the loop below.
   local sock="${XDG_RUNTIME_DIR:-}/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-}/.socket2.sock"
   if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -S $sock ]] && command -v socat >/dev/null 2>&1; then
-    socat -U - "UNIX-CONNECT:$sock" 2>/dev/null {lockfd}>&- |
-      grep --line-buffered -E '^(monitoradded|monitorremoved|configreloaded)' >"$_WATCH_FIFO" {lockfd}>&- &
+    socat -U - "UNIX-CONNECT:$sock" >"$_WATCH_FIFO" 2>/dev/null {lockfd}>&- &
     _WATCH_PRODUCERS+=($!)
   fi
 
@@ -511,6 +511,11 @@ status_watch() {
     wait_ms=$(( due - now ))
     if (( wait_ms > 0 )); then
       if IFS= read -r -t "$(printf '%d.%03d' $((wait_ms / 1000)) $((wait_ms % 1000)))" -u "$infd" line; then
+        # Hyprland events look like "name>>data"; only monitors and reloads
+        # can change eGPU state.
+        if [[ $line =~ ^[a-z0-9]+\>\> && ! $line =~ ^(monitoradded|monitorremoved|configreloaded) ]]; then
+          continue
+        fi
         now=$(now_ms)
         if (( !dirty )); then dirty=1; first_dirty=$now; fi
         deadline=$(( now + debounce_ms ))

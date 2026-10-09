@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # GPU bound to nvidia, but nvidia_drm not loaded yet (udev rule not run).
 fx_base_healthy
 fx_hypr_links card1

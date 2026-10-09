@@ -43,7 +43,7 @@ fx_pci() {
   done
 }
 
-fx_pci_remove() { rm -rf -- "$FX_PCI/$1"; }
+fx_pci_remove() { rm -rf -- "${FX_PCI:?}/${1:?}"; }
 
 # fx_lspci <bdf> <vendor name> <device name>: a -vmm block for the lspci fake.
 fx_lspci() {
@@ -155,6 +155,7 @@ fx_helper() {
 }
 
 # The udev links of §10.3.
+# shellcheck disable=SC2120  # fixtures pass the external card; they are sourced, not followed
 fx_hypr_links() {
   mkdir -p -- "$FX_ROOT/dev/dri"
   ln -sfn card0 "$FX_ROOT/dev/dri/omarchy-egpu-primary"

@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # A discrete Arc in an enclosure, next to the Intel iGPU: the intel stub
 # takes the removable one and never the boot VGA iGPU.
 fx_base_healthy

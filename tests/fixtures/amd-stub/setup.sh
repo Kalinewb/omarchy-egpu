@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # An AMD card in an unknown enclosure: detected by the amdgpu stub.
 fx_base_healthy
 fx_bolt aaaaaaaa-0000-0000-0000-000000000002 "Razer" "Core X" authorized true iommu

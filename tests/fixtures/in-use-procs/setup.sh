@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # Ready, two apps on the eGPU (one graphics, one compute), Steam running.
 fx_base_healthy
 fx_hypr_links card1

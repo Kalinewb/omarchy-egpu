@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # nvidia-smi stuck in D state (open-module/GSP rmapiLockAcquire hang): the
 # guard reports smi_hung after its timeout and leaves the process alone.
 fx_base_healthy

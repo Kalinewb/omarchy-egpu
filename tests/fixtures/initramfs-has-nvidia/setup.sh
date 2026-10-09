@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # /boot readable (some machines), one image carrying nvidia, and an
 # mkinitcpio drop-in that adds it (Omarchy's installer writes one).
 fx_base_healthy

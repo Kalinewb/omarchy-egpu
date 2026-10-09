@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # As this-machine's display state, but the card node was just created: within
 # 5 s of hot-add the compositor may still be opening it, so no relogin yet.
 fx_base_healthy

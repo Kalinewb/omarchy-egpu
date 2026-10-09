@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # After an eject: GPU removed from PCI, enclosure still connected, but the
 # compositor kept a reference so the modules stayed loaded (O2).
 fx_base_healthy

@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # The eject job is running: it holds $EGPU_RUN/lock and names itself.
 fx_base_healthy
 fx_deg2 authorized true

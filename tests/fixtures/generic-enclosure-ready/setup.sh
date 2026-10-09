@@ -1,3 +1,4 @@
+# shellcheck shell=bash  # sourced by tests/run.sh after tests/lib.sh
 # An enclosure no profile knows, authorized, with the GPU ready behind it.
 # Status remembers the enclosure, so later "authorized, no GPU" is recognised.
 fx_base_healthy
