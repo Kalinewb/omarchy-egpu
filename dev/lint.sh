@@ -109,8 +109,7 @@ fi
 echo
 echo "${BOLD}QML${RESET}"
 if list_files | grep -q '\.qml$'; then
-  echo "  ${RED}FAIL${RESET}  QML files exist but qmllint is not wired in yet (gate G1)"
-  failures=$((failures + 1))
+  "$REPO/dev/lint-qml.sh" || failures=$((failures + 1))
 else
   echo "  ${DIM}skip  no QML yet${RESET}"
 fi
