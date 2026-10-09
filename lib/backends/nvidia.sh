@@ -10,6 +10,9 @@
 #   be_kms_params    {"modeset":bool|null,"fbdev":bool|null} from the live
 #                    module parameters; null when unloaded or unreadable
 #                    (nvidia_drm's are root-only on 580xx, dev/e0-facts.md)
+#   be_flatpak_gl_ext  the Flatpak GL extension Flatpak Steam needs for this
+#                    driver (health steam.flatpak_gl, §8.7); with --prefix the
+#                    id without the version
 
 # shellcheck disable=SC2034
 BE_STATUS=implemented
@@ -39,6 +42,17 @@ be_offload_env() {
 
 be_steam_extras() {
   jq -cn '[{key: "PROTON_ENABLE_NVAPI", value: "1", label: "NVAPI (DLSS)", id: "nvapi"}]'
+}
+
+# org.freedesktop.Platform.GL.nvidia-580-178-04 for driver 580.178.04. The
+# version is known only while the module is loaded; then nothing is printed.
+be_flatpak_gl_ext() {
+  local prefix=org.freedesktop.Platform.GL.nvidia- v
+  [[ ${1:-} == --prefix ]] && { echo "$prefix"; return 0; }
+  v=$(read_attr "$EGPU_SYS/module/nvidia/version") ||
+    v=$(sed -nE 's/.*Kernel Module +([0-9.]+).*/\1/p' "$EGPU_PROC/driver/nvidia/version" 2>/dev/null)
+  [[ $v =~ ^[0-9.]+$ ]] || return 0
+  echo "$prefix${v//./-}"
 }
 
 _nv_bool_param() {

@@ -1,0 +1,5 @@
+{
+  "_comment": "Steam apps that are not games: hidden from the Games list (plan-engine.md §8.1). An app is hidden when its appid is listed or its name starts with a prefix. Prefixes catch new Proton and runtime versions without a release.",
+  "appids": ["228980", "1070560", "1391110", "1628350", "1493710", "2180100", "1826330", "1161040"],
+  "name_prefixes": ["Proton ", "Steam Linux Runtime", "Steamworks Common Redistributables"]
+}

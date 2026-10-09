@@ -7,7 +7,7 @@
 # Every row answers on any machine, including one that has never seen an eGPU
 # (first-run Setup reads this list). Read-only: nothing here changes a file.
 # `health fix` and `health bundle` arrive with the phases that own the files
-# they touch. Steam rows (steam.*) arrive with the Steam module (E6).
+# they touch. The steam.* rows come from the Steam module (lib/steam/steam.sh).
 #
 # Row: {id, group, level: ok|info|warn|error|skipped, title, detail,
 #       fix: {kind: user|system|none, label}, value?}
@@ -15,6 +15,8 @@
 
 # shellcheck source=lib/common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
+# shellcheck source=lib/steam/steam.sh
+source "$EGPU_LIB/steam/steam.sh"
 
 SYSTEM_FIX="Install the system half"
 
@@ -392,6 +394,7 @@ health_rows() {
     _check_backend
     _check_hypr
     _check_tools_system
+    steam_health_rows
     _check_diag
   } | jq -s -c '.'
 }

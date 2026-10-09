@@ -263,9 +263,9 @@ status_collect() {
     fi
   fi
 
-  # ---- steam (E6 adds the Flatpak check)
+  # ---- steam (native processes, or Flatpak Steam when a Flatpak root exists)
   local steam_running=false
-  if user_pids steam >/dev/null || user_pids steamwebhelper >/dev/null; then steam_running=true; fi
+  steam_any_running && steam_running=true
 
   # ---- hints from the enclosure profile
   local conds=()
@@ -281,7 +281,9 @@ status_collect() {
         {id: .when, text: .text} ]' "${conds[@]}")
   fi
 
-  # ---- health summary
+  # ---- health summary. The steam rows read the phase from here instead of
+  # running status again.
+  EGPU_STATUS_PHASE=$phase
   if [[ -z $health ]]; then
     health=$(health_rows | jq -c '{errors: map(select(.level == "error")) | length,
                                    warnings: map(select(.level == "warn")) | length}')
@@ -458,6 +460,9 @@ status_watch() {
   local debounce_ms=${EGPU_DEBOUNCE_MS:-300} heartbeat_ms=$(( ${EGPU_HEARTBEAT_S:-5} * 1000 ))
   local gpu_ms=${EGPU_GPU_REFRESH_MS:-2000} health_ms=${EGPU_HEALTH_REFRESH_MS:-60000}
   mkdir -p -- "$EGPU_RUN" || { json_error busy '{"detail":"cannot create runtime dir"}'; return 1; }
+  # The first health run comes before the first status: the steam rows must
+  # not start a nested `status` for the phase (steam.stale is info only).
+  EGPU_STATUS_PHASE=${EGPU_STATUS_PHASE:-unknown}
 
   local lockfd
   exec {lockfd}>>"$EGPU_RUN/watch.lock"

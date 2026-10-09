@@ -5,13 +5,14 @@
 #   status [--json|--human]     one status document (plan-engine.md §5)
 #   status watch                JSON-lines stream + $XDG_RUNTIME_DIR/omarchy-egpu/status.json
 #   health [--json|--human]     setup/health rows (§9)
+#   steam <verb> [args]         per-game "Run on eGPU" in Steam (§8; lib/steam/steam.sh)
 #
 # JSON on stdout, prose on stderr. Exit codes (§1.1): 0 ok, 1 refused or
 # failed ({"error":...} on stdout), 3 busy. The panel and the notch run only
 # this; every decision lives here.
 #
-# Later phases add: device (connect/eject/holders/rescan), display, steam,
-# config, health fix/bundle.
+# Later phases add: device (connect/eject/holders/rescan), display, config,
+# health fix/bundle.
 
 set -uo pipefail
 
@@ -24,6 +25,10 @@ usage: omarchy-egpu <module> <verb> [args]
   status [--json|--human]
   status watch
   health [--json|--human]
+  steam roots | accounts [--root R] | list [--account A] [--root R] | status
+  steam set <appid> on|off [--nvapi on|off] [--adopt] [--account A] [--queue]
+  steam set-all on|off [--only-stale] [--account A] [--queue]
+  steam apply [--close] [--relaunch] | close | restore <accountid> <backup>
 USAGE
 }
 
@@ -40,6 +45,11 @@ case $module in
     # shellcheck source=lib/health.sh
     source "$EGPU_LIB/health.sh"
     health_main "$@"
+    ;;
+  steam)
+    # shellcheck source=lib/steam/steam.sh
+    source "$EGPU_LIB/steam/steam.sh"
+    steam_main "$@"
     ;;
   -h | --help | help)
     usage

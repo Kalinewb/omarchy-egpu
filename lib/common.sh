@@ -237,7 +237,7 @@ backend_load() {
   local f="$EGPU_LIB/backends/$1.sh"
   [[ $1 =~ ^[a-z0-9]+$ && -r $f ]] || return 1
   unset -f be_name be_detect be_kms_modules be_unload_modules be_dev_nodes \
-    be_verify be_offload_env be_steam_extras be_health be_kms_params
+    be_verify be_offload_env be_steam_extras be_health be_kms_params be_flatpak_gl_ext
   BE_STATUS=stub
   # shellcheck source=/dev/null
   source "$f"
