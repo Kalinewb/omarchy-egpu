@@ -1,0 +1,4 @@
+{ "phase": "ready", "summary_state": "in_use",
+  "status_checks": [".summary.line == \"eGPU in use · 2 apps\"", ".gpu.procs | length == 2",
+                    ".gpu.procs[0] == {\"pid\":4242,\"type\":\"G\",\"name\":\"/usr/bin/vkcube\",\"mem_mb\":12}",
+                    ".gpu.procs[1].name == \"/opt/some app/bin/worker\"", ".steam.running == true"] }

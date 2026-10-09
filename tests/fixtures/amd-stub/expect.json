@@ -1,0 +1,6 @@
+{ "phase": "bound", "summary_state": "attention",
+  "status_checks": [".backend == {\"name\":\"amdgpu\",\"supported\":false}", ".gpu.error == \"backend_stub\"",
+                    ".driver.bound == \"amdgpu\"", ".driver.modules == {}", ".summary.line == \"eGPU detected (amdgpu) · not supported yet\"",
+                    ".modules.held_after_eject == false", ".bolt.present == true"],
+  "health_levels": { "backend.supported": "warn" },
+  "health_checks": ["map(select(.id | startswith(\"driver.\"))) == []"] }

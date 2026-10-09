@@ -411,13 +411,17 @@ _status_events() {
     case $c in
       ejecting) printf 'eject_started\t{}\n' ;;
       ejected) [[ $p == ejecting ]] && printf 'eject_ready\t{}\n' || printf 'eject_ready\t{"external":true}\n' ;;
-      absent)
-        if [[ $p == ready || $p == bound ]]; then
-          printf 'yanked\t%s\n' "$(jq -cn --arg from "$p" '{from: $from}')"
-        fi
-        [[ $p != absent ]] && printf 'unplugged\t%s\n' "$(jq -cn --arg from "$p" '{from: $from}')"
-        ;;
     esac
+    # The GPU vanished while bound, without an eject: yanked. The enclosure
+    # may still be listed by bolt for a moment, so this does not wait for
+    # `absent`.
+    if [[ ($p == ready || $p == bound) && $c != ejecting && $c != ejected ]] &&
+      [[ $(jq -r '.pci.present' <<<"$cur") != true ]]; then
+      printf 'yanked\t%s\n' "$(jq -cn --arg from "$p" '{from: $from}')"
+    fi
+    if [[ $c == absent && $p != absent ]]; then
+      printf 'unplugged\t%s\n' "$(jq -cn --arg from "$p" '{from: $from}')"
+    fi
     if [[ $p == ejecting && ($c == ready || $c == bound) ]]; then
       printf 'eject_failed\t{}\n'
     fi
@@ -492,7 +496,7 @@ status_watch() {
   fi
 
   local seq=0 prev='' prev_key='' prev_phase='' cur cur_key last_event=null health='' health_at=0
-  local dirty=1 first_dirty=0 deadline=0 next_beat=0 next_gpu=0 now due wait_ms line
+  local dirty=1 first_dirty=0 deadline=0 next_beat=0 next_gpu=0 now started due wait_ms line
   local tmp="$EGPU_RUN/.watch.$$.doc"
   local name detail ev
 
@@ -515,7 +519,10 @@ status_watch() {
       continue
     fi
 
-    # Recompute. Health is re-read on every change and once a minute.
+    # Recompute. Health is re-read on every change and once a minute. The
+    # next heartbeat counts from the start, so a slow recompute (nvidia-smi)
+    # does not stretch the interval.
+    started=$now
     if [[ -z $health ]] || (( dirty || now - health_at >= health_ms )); then
       health=$(health_rows | jq -c '{errors: map(select(.level == "error")) | length,
                                      warnings: map(select(.level == "warn")) | length}')
@@ -552,10 +559,9 @@ status_watch() {
     fi
     write_atomic "$EGPU_RUN/status.json" <<<"$prev"
 
-    now=$(now_ms)
     dirty=0
-    next_beat=$(( now + heartbeat_ms ))
-    next_gpu=$(( now + gpu_ms ))
+    next_beat=$(( started + heartbeat_ms ))
+    next_gpu=$(( started + gpu_ms ))
   done
 }
 

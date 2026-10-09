@@ -1,0 +1,2 @@
+{ "events": ["plugged", "authorized", "ready", "monitor_added", "relogin_needed", "monitor_removed", "yanked", "unplugged"],
+  "summary_states": ["absent", "connecting", "ready", "attention", "absent"] }

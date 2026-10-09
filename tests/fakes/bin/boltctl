@@ -1,0 +1,43 @@
+#!/bin/bash
+# Fake boltctl. Renders $EGPU_FAKE_DIR/bolt.json in boltctl's own text format,
+# so the engine's parser is tested against the real shape (dev/e0-facts.md).
+#   bolt.json: {"daemon": true, "devices": [{uuid, name, vendor, status,
+#               generation, stored, policy}]}
+# `monitor` runs $EGPU_FAKE_DIR/bolt-monitor.sh if present, then idles.
+printf 'boltctl %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+f="$EGPU_FAKE_DIR/bolt.json"
+case ${1:-} in
+  list | info)
+    [[ -r $f ]] && [[ $(jq -r '.daemon != false' "$f") == true ]] || {
+      echo "boltctl: error: could not connect to boltd" >&2
+      exit 1
+    }
+    jq -r '.devices[]? |
+      " * \(.vendor) \(.name)",
+      "   |- type:          peripheral",
+      "   |- name:          \(.name)",
+      "   |- vendor:        \(.vendor)",
+      "   |- uuid:          \(.uuid)",
+      "   |- generation:    \(.generation // "USB4")",
+      "   |- status:        \(.status)",
+      (if .status != "disconnected" then
+        "   |  |- domain:     00000000-0000-0000-ffff-ffffffffffff",
+        "   |  |- rx speed:   40 Gb/s = 2 lanes * 20 Gb/s",
+        "   |  |- tx speed:   40 Gb/s = 2 lanes * 20 Gb/s",
+        "   |  `- authflags:  none" else empty end),
+      (if .status == "authorized" then "   |- authorized:    Fri 09 Oct 2026 09:02:32 PM UTC" else empty end),
+      (if .status != "disconnected" then "   |- connected:     Fri 09 Oct 2026 09:02:31 PM UTC" else empty end),
+      (if .stored then
+        "   `- stored:        Fri 25 Sep 2026 05:03:01 PM UTC",
+        "      |- policy:     \(.policy // "iommu")",
+        "      `- key:        no"
+       else "   `- stored:        no" end),
+      ""' "$f"
+    ;;
+  monitor)
+    echo "$$" >"$EGPU_FAKE_DIR/boltctl-monitor.pid"
+    [[ -x $EGPU_FAKE_DIR/bolt-monitor.sh ]] && "$EGPU_FAKE_DIR/bolt-monitor.sh"
+    exec sleep 3600
+    ;;
+  *) exit 0 ;;
+esac

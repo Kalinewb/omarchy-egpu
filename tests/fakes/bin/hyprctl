@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake hyprctl: `monitors all -j` prints $EGPU_FAKE_DIR/hypr/monitors.json.
+printf 'hyprctl %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+case "$*" in
+  "monitors all -j" | "-j monitors all" | "monitors -j")
+    cat "$EGPU_FAKE_DIR/hypr/monitors.json" 2>/dev/null || echo '[]'
+    ;;
+  *) exit 0 ;;
+esac

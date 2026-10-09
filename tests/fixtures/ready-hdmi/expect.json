@@ -1,0 +1,4 @@
+{ "phase": "ready", "summary_state": "in_use",
+  "status_checks": [".summary.line == \"eGPU in use · HDMI on\"", ".display.needs_relogin == false",
+                    "[.display.monitors[] | select(.connector == \"HDMI-A-2\")][0] == {\"connector\":\"HDMI-A-2\",\"card\":\"card1\",\"status\":\"connected\",\"enabled\":true,\"in_compositor\":true}",
+                    "[.display.monitors[] | select(.in_compositor | not)] | length == 3"] }

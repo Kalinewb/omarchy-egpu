@@ -1,0 +1,2 @@
+{ "phase": "authorized", "summary_state": "connecting",
+  "status_checks": [".pci.present == false", ".modules.held_after_eject == false"] }

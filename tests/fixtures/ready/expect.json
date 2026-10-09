@@ -1,0 +1,13 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".summary.line == \"eGPU ready · eject before unplugging\"", ".gpu.ok == true",
+                    ".gpu.name == \"NVIDIA GeForce RTX 4070 SUPER\"", ".gpu.temp_c == 29", ".gpu.mem_used_mb == 33",
+                    ".gpu.procs == []", ".driver.modeset == true", ".driver.fbdev == true",
+                    ".pci.bdf == \"0000:03:00.0\"", ".pci.functions == [\"0000:03:00.0\",\"0000:03:00.1\"]",
+                    ".pci.link.speed == \"16.0 GT/s PCIe\"", ".pci.link.width == \"4\"",
+                    ".pci.name == \"NVIDIA Corporation AD104 [GeForce RTX 4070 SUPER]\"",
+                    ".drm.card == \"card1\"", ".drm.card_bypath == \"pci-0000:03:00.0-card\"",
+                    ".drm.compositor_has_card == true", ".display.needs_relogin == false",
+                    ".health_summary.errors == 0"],
+  "health_levels": { "driver.modeset": "ok", "driver.fbdev": "info", "hypr.gpu_list": "info", "hypr.links": "ok" },
+  "health_checks": ["map(select(.id == \"hypr.gpu_list\"))[0].detail | test(\"card1 \\\\(pci-0000:03:00.0-card\\\\)\")"],
+  "shell": ["grep -q -- '--query-gpu=.* -i 0000:03:00.0' \"$EGPU_FAKE_LOG\""] }

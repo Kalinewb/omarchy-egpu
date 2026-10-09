@@ -1,0 +1,6 @@
+#!/bin/bash
+# Fake systemctl: `--user show-environment` prints $EGPU_FAKE_DIR/session-env.txt.
+printf 'systemctl %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+[[ "$*" == "--user show-environment" ]] || exit 1
+cat "$EGPU_FAKE_DIR/session-env.txt" 2>/dev/null
+exit 0

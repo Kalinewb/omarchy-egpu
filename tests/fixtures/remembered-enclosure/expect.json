@@ -1,0 +1,3 @@
+{ "phase": "authorized", "summary_state": "connecting",
+  "status_checks": [".bolt.present == true", ".hints[0].id == \"authorized_no_pci\"",
+                    ".hints[0].text | test(\"Thunderbolt/USB4 mode\")"] }

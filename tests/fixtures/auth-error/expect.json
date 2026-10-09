@@ -1,0 +1,3 @@
+{ "phase": "error", "summary_state": "error",
+  "status_checks": [".summary.line == \"eGPU error · Thunderbolt authorization failed\""],
+  "health_levels": { "bolt.device": "error" } }

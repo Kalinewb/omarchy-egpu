@@ -1,0 +1,5 @@
+{ "phase": "ready", "summary_state": "attention",
+  "status_checks": [".summary.line == \"eGPU ready · check setup (1 problem)\"", ".health_summary.errors == 1"],
+  "health_levels": { "boot.modules_load_mask": "error" },
+  "health_checks": ["map(select(.id == \"boot.modules_load_mask\"))[0].detail | test(\"/etc/modules-load.d/my-gpu.conf loads nvidia_drm\")",
+                    "map(select(.id == \"boot.modules_load_mask\"))[0].detail | test(\"nvidia-utils.conf\")"] }

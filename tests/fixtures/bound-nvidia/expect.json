@@ -1,0 +1,6 @@
+{ "phase": "bound", "summary_state": "connecting",
+  "status_checks": [".driver.bound == \"nvidia\"", ".driver.modules.nvidia_drm == false", ".driver.modules.nvidia == true",
+                    ".driver.modeset == null", ".gpu.ok == true", ".backend == {\"name\":\"nvidia\",\"supported\":true}",
+                    ".summary.line == \"Connecting… loading the driver\"", ".drm.link == \"/dev/dri/omarchy-egpu-external\""],
+  "health_levels": { "driver.modeset": "info", "hypr.session_env": "warn", "hypr.links": "ok" },
+  "health_checks": ["map(select(.id == \"driver.modeset\"))[0].value == \"unknown\""] }

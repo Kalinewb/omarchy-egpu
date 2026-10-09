@@ -1,0 +1,2 @@
+{ "phase": "absent", "summary_state": "attention",
+  "status_checks": [".modules.held_after_eject == true", ".summary.line == \"Log out before plugging the eGPU in again\""] }

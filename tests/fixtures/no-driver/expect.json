@@ -1,0 +1,3 @@
+{ "phase": "authorized", "summary_state": "connecting",
+  "status_checks": [".pci.present == true", ".driver.bound == null", ".gpu.ok == false",
+                    ".summary.line == \"Connecting… waiting for the driver\"", ".hints == []"] }

@@ -1,0 +1,2 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".bolt.present == false", ".hints == []"] }

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Fake vulkaninfo: present means installed. A scenario hides it with
+# absent-tools.
+printf 'vulkaninfo %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+echo "Devices:"

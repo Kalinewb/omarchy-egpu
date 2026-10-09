@@ -1,0 +1,4 @@
+{ "phase": "bound", "summary_state": "attention",
+  "status_checks": [".backend == {\"name\":\"intel\",\"supported\":false}", ".pci.bdf == \"0000:07:00.0\"",
+                    ".summary.line == \"eGPU detected (intel) · not supported yet\""],
+  "health_levels": { "backend.supported": "warn" } }

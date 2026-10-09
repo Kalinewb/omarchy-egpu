@@ -1,0 +1,5 @@
+{ "phase": "error", "summary_state": "error",
+  "status_checks": [".gpu.ok == false", ".gpu.error == \"smi_hung\"", ".gpu.state == \"D\"",
+                    ".summary.line | test(\"nvidia-smi hung\")", ".hints | map(.id) == [\"smi_hung\"]"],
+  "shell": ["p=$(head -n1 \"$EGPU_FAKE_DIR/smi-hang.pids\") && kill -0 \"$p\"",
+            "[ $(grep -c -- '--query-gpu' \"$EGPU_FAKE_LOG\") -ge 1 ] && ! grep -q -- '-d PIDS' \"$EGPU_FAKE_LOG\""] }

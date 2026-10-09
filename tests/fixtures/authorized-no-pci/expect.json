@@ -1,0 +1,4 @@
+{ "phase": "authorized", "summary_state": "connecting",
+  "status_checks": [".pci.present == false", ".summary.needs_action == true",
+                    ".hints[0].id == \"authorized_no_pci\"", ".hints[0].text | test(\"mode switch is set to TBT\")",
+                    ".bolt.profile == \"minisforum-deg2\""] }

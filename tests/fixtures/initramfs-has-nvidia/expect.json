@@ -1,0 +1,7 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".health_summary.errors == 2"],
+  "health_levels": { "boot.initramfs_nvidia": "error", "boot.mkinitcpio_conf": "error" },
+  "health_checks": ["map(select(.id == \"boot.initramfs_nvidia\"))[0].detail | test(\"^initramfs-linux.img contain\")",
+                    "map(select(.id == \"boot.initramfs_nvidia\"))[0].detail | test(\"fallback\") | not",
+                    "map(select(.id == \"boot.mkinitcpio_conf\"))[0].detail | test(\"nvidia.conf: nvidia\")"],
+  "shell": ["grep -q 'lsinitcpio -l .*initramfs-linux.img' \"$EGPU_FAKE_LOG\""] }

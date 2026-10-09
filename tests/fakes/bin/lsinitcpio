@@ -1,0 +1,6 @@
+#!/bin/bash
+# Fake lsinitcpio: `-l IMAGE` prints the image, which in fixtures is a text
+# file listing its members.
+printf 'lsinitcpio %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+[[ ${1:-} == -l && -r ${2:-} ]] || exit 1
+cat "$2"

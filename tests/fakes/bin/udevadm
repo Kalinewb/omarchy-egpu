@@ -1,0 +1,13 @@
+#!/bin/bash
+# Fake udevadm. `monitor ...` runs $EGPU_FAKE_DIR/watch-script.sh (which edits
+# the fixture tree and prints udev-like lines), then idles like the real one.
+printf 'udevadm %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+case ${1:-} in
+  monitor)
+    echo "$$" >"$EGPU_FAKE_DIR/udevadm-monitor.pid"
+    echo "monitor will print the received events for:"
+    [[ -x $EGPU_FAKE_DIR/watch-script.sh ]] && "$EGPU_FAKE_DIR/watch-script.sh"
+    exec sleep 3600
+    ;;
+  *) exit 0 ;;
+esac

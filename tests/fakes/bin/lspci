@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake lspci: `-vmm -s BDF` prints the block of $EGPU_FAKE_DIR/lspci.txt whose
+# Slot matches (blocks separated by blank lines, real -vmm format).
+slot=''
+while (( $# )); do
+  case $1 in -s) shift; slot=${1#0000:} ;; esac
+  shift
+done
+awk -v RS= -v s="$slot" '$0 ~ "(^|\n)Slot:\t" s "(\n|$)" { print; exit }' "$EGPU_FAKE_DIR/lspci.txt" 2>/dev/null

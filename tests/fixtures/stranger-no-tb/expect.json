@@ -1,0 +1,10 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".bolt.present == false", ".bolt.daemon == false", ".pci.present == false",
+                    ".backend.name == null", ".modules.held_after_eject == false", ".summary.line == \"No eGPU\"",
+                    ".drm.compositor_has_card == null", ".hints == []", ".health_summary.errors >= 2"],
+  "health_levels": { "bolt.daemon": "error", "system.helper": "error", "tools.vulkaninfo": "warn",
+                     "driver.flavour": "info", "hypr.order": "skipped", "boot.modules_load_mask": "ok",
+                     "boot.initramfs_nvidia": "skipped", "kernel.thunderbolt_early": "warn" },
+  "health_checks": ["map(select(.id == \"bolt.daemon\"))[0].title | test(\"No Thunderbolt\")",
+                    "map(select(.id == \"driver.flavour\"))[0].title | test(\"not installed\")",
+                    "map(select(.id | startswith(\"diag.\"))) == []"] }

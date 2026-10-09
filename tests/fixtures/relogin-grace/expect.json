@@ -1,0 +1,2 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".display.needs_relogin == false", ".drm.compositor_has_card == false"] }

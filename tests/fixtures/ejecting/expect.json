@@ -1,0 +1,2 @@
+{ "phase": "ejecting", "summary_state": "ejecting",
+  "status_checks": [".summary.line == \"Ejecting…\""] }

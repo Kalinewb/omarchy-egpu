@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kalinewb/omarchy-egpu/tests/schema/status-1.json",
+  "title": "omarchy-egpu status document, schema 1 (plan-engine.md §5)",
+  "description": "Additive fields do not bump `schema`; a rename, removal or changed meaning does. Objects therefore allow additional properties, and every field the plan names is required.",
+  "type": "object",
+  "required": ["schema", "seq", "written_at", "summary", "phase", "bolt", "pci", "backend", "driver", "gpu", "drm", "display", "modules", "steam", "hints", "health_summary", "last_event"],
+  "properties": {
+    "schema": { "const": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "written_at": { "type": "integer", "minimum": 1000000000000 },
+    "summary": {
+      "type": "object",
+      "required": ["state", "line", "needs_action"],
+      "properties": {
+        "state": { "enum": ["absent", "connecting", "ready", "in_use", "ejecting", "safe_to_unplug", "attention", "error"] },
+        "line": { "type": "string", "minLength": 1 },
+        "needs_action": { "type": "boolean" }
+      }
+    },
+    "phase": { "enum": ["absent", "plugged", "authorized", "bound", "ready", "ejecting", "ejected", "error"] },
+    "bolt": {
+      "type": "object",
+      "required": ["present", "uuid", "name", "vendor", "status", "policy", "stored", "profile"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "daemon": { "type": "boolean" },
+        "uuid": { "$ref": "#/definitions/nstring" },
+        "name": { "$ref": "#/definitions/nstring" },
+        "vendor": { "$ref": "#/definitions/nstring" },
+        "status": { "type": ["string", "null"], "enum": [null, "unknown", "disconnected", "connecting", "connected", "authorizing", "auth-error", "authorized"] },
+        "policy": { "$ref": "#/definitions/nstring" },
+        "stored": { "type": "boolean" },
+        "generation": { "$ref": "#/definitions/nstring" },
+        "profile": { "$ref": "#/definitions/nstring" }
+      }
+    },
+    "pci": {
+      "type": "object",
+      "required": ["bdf", "functions", "vendor", "device", "removable", "link"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "bdf": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/bdf" }] },
+        "functions": { "type": "array", "items": { "$ref": "#/definitions/bdf" } },
+        "vendor": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^0x[0-9a-f]{4}$" }] },
+        "device": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^0x[0-9a-f]{4}$" }] },
+        "name": { "$ref": "#/definitions/nstring" },
+        "removable": { "type": "boolean" },
+        "link": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["speed", "width", "max_speed", "max_width"],
+              "properties": {
+                "speed": { "type": "string" },
+                "width": { "$ref": "#/definitions/nstring" },
+                "max_speed": { "$ref": "#/definitions/nstring" },
+                "max_width": { "$ref": "#/definitions/nstring" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "required": ["name", "supported"],
+      "properties": {
+        "name": { "type": ["string", "null"], "enum": [null, "nvidia", "amdgpu", "intel"] },
+        "supported": { "type": "boolean" }
+      }
+    },
+    "driver": {
+      "type": "object",
+      "required": ["bound", "modules", "modeset", "fbdev"],
+      "properties": {
+        "bound": { "$ref": "#/definitions/nstring" },
+        "modules": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "modeset": { "type": ["boolean", "null"] },
+        "fbdev": { "type": ["boolean", "null"] }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "required": ["ok", "name", "temp_c", "util_pct", "mem_used_mb", "procs"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "error": { "type": "string" },
+        "name": { "$ref": "#/definitions/nstring" },
+        "version": { "$ref": "#/definitions/nstring" },
+        "temp_c": { "type": ["number", "null"] },
+        "util_pct": { "type": ["number", "null"] },
+        "mem_used_mb": { "type": ["number", "null"] },
+        "procs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pid", "name", "mem_mb"],
+            "properties": {
+              "pid": { "type": ["integer", "null"] },
+              "name": { "type": "string" },
+              "mem_mb": { "type": ["number", "null"] },
+              "type": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "drm": {
+      "type": "object",
+      "required": ["card_bypath", "link", "compositor_has_card"],
+      "properties": {
+        "card": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^card[0-9]+$" }] },
+        "card_bypath": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^pci-[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]-card$" }] },
+        "link": { "$ref": "#/definitions/nstring" },
+        "compositor_has_card": { "type": ["boolean", "null"] }
+      }
+    },
+    "display": {
+      "type": "object",
+      "required": ["monitors", "needs_relogin"],
+      "properties": {
+        "monitors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["connector", "status", "enabled"],
+            "properties": {
+              "connector": { "type": "string" },
+              "card": { "type": "string" },
+              "status": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "in_compositor": { "type": "boolean" }
+            }
+          }
+        },
+        "needs_relogin": { "type": "boolean" }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "required": ["held_after_eject"],
+      "properties": { "held_after_eject": { "type": "boolean" } }
+    },
+    "steam": {
+      "type": "object",
+      "required": ["running"],
+      "properties": { "running": { "type": "boolean" } }
+    },
+    "hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": { "id": { "type": "string" }, "text": { "type": "string" } }
+      }
+    },
+    "health_summary": {
+      "type": "object",
+      "required": ["errors", "warnings"],
+      "properties": {
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "last_event": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["seq", "type", "at"],
+          "properties": {
+            "seq": { "type": "integer", "minimum": 0 },
+            "type": { "type": "string" },
+            "at": { "type": "integer" }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "nstring": { "type": ["string", "null"] },
+    "bdf": { "type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$" }
+  }
+}

@@ -1,0 +1,8 @@
+{ "phase": "absent", "summary_state": "absent",
+  "status_checks": [".bolt.present == false", ".bolt.profile == \"minisforum-deg2\"", ".bolt.status == \"disconnected\"",
+                    ".pci.present == false", ".health_summary.errors == 0", ".summary.needs_action == false",
+                    ".steam.running == false", ".last_event == null"],
+  "health_levels": { "bolt.daemon": "ok", "bolt.device": "ok", "boot.modules_load_mask": "ok", "hypr.links": "ok",
+                     "hypr.order": "ok", "system.helper": "ok", "tools.vulkaninfo": "ok", "driver.modeset": "info",
+                     "kernel.modprobe_options": "ok", "kernel.nouveau_blacklist": "ok", "diag.kernel_params": "info" },
+  "health_checks": ["map(select(.level == \"error\")) == []"] }

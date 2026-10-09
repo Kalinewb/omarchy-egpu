@@ -1,0 +1,6 @@
+{ "phase": "plugged", "summary_state": "connecting",
+  "status_checks": [".bolt.present == true", ".bolt.status == \"connected\"", ".bolt.stored == false",
+                    ".summary.needs_action == true", ".summary.line == \"TBGAA needs authorizing\"",
+                    ".hints | map(.id) == [\"plugged_unauthorized\"]", ".pci.present == false"],
+  "health_levels": { "bolt.device": "warn" },
+  "health_checks": ["map(select(.id == \"bolt.device\"))[0].fix.kind == \"user\""] }

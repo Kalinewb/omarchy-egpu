@@ -1,0 +1,32 @@
+#!/bin/bash
+# Fake nvidia-smi.
+#   --query-gpu=...   prints $EGPU_FAKE_DIR/smi.csv
+#   -q -d PIDS        prints $EGPU_FAKE_DIR/smi-pids.txt (or "Processes : None")
+# With $EGPU_FAKE_DIR/smi-hang present it hangs instead: it writes a /proc
+# stat line in state D for its own pid into the fixture's proc tree, then
+# sleeps, so the engine's hang guard sees the rmapiLockAcquire case.
+printf 'nvidia-smi %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+if [[ -e $EGPU_FAKE_DIR/smi-hang ]]; then
+  mkdir -p "$EGPU_PROC/$$"
+  echo "$$ (nvidia-smi) D 1 $$ $$ 0 -1 4194560" >"$EGPU_PROC/$$/stat"
+  echo "$$" >>"$EGPU_FAKE_DIR/smi-hang.pids"
+  exec sleep 600
+fi
+case "$*" in
+  *--query-gpu=*)
+    [[ -r $EGPU_FAKE_DIR/smi.csv ]] || { echo "No devices were found"; exit 6; }
+    cat "$EGPU_FAKE_DIR/smi.csv"
+    ;;
+  *"-d PIDS"*)
+    echo "==============NVSMI LOG=============="
+    echo "Attached GPUs                             : 1"
+    echo "GPU 00000000:03:00.0"
+    if [[ -s $EGPU_FAKE_DIR/smi-pids.txt ]]; then
+      echo "    Processes"
+      cat "$EGPU_FAKE_DIR/smi-pids.txt"
+    else
+      echo "    Processes                             : None"
+    fi
+    ;;
+  *) exit 0 ;;
+esac

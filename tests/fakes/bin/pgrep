@@ -1,0 +1,15 @@
+#!/bin/bash
+# Fake pgrep: `pgrep [-u uid] -x NAME` looks NAME up in $EGPU_FAKE_DIR/pgrep.txt
+# ("NAME PID" per line). Anything else is refused, so the engine cannot drift
+# to a form the fake does not model.
+name=''
+while (( $# )); do
+  case $1 in
+    -u) shift ;;
+    -x) shift; name=${1:-} ;;
+    *) echo "fake pgrep: unsupported $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+[[ -n $name ]] || exit 2
+awk -v n="$name" '$1 == n { print $2; found = 1 } END { exit !found }' "$EGPU_FAKE_DIR/pgrep.txt" 2>/dev/null

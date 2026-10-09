@@ -1,0 +1,3 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".bolt.present == true", ".bolt.profile == \"generic\"", ".bolt.name == \"GPU Box\""],
+  "shell": ["grep -qx 99999999-0000-0000-0000-000000000001 \"$EGPU_STATE/enclosures\""] }
