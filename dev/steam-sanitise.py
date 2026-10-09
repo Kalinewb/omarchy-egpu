@@ -218,10 +218,12 @@ def verify(raw, out):
                 data = open(p, "rb").read()
             except OSError:
                 continue
-            low = data.lower()
             for n in needles:
                 nb = n.encode()
-                if nb in data or (len(n) < 12 and nb.lower() in low and not n.isdigit()):
+                # Exact bytes anywhere; short names also as a whole word in
+                # any case (a substring would flag ordinary words).
+                if nb in data or (len(n) < 12 and not n.isdigit() and
+                                  re.search(rb"(?<![A-Za-z0-9])" + re.escape(nb) + rb"(?![A-Za-z0-9])", data, re.I)):
                     bad.append((p, n if len(n) < 24 else n[:20] + "..."))
     return bad
 
