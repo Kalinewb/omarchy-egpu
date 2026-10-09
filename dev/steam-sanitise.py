@@ -31,6 +31,7 @@ import random
 import re
 import sys
 
+sys.dont_write_bytecode = True  # no __pycache__ in lib/ (the plugin dir is watched)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "steam"))
 import vdf  # noqa: E402
 
