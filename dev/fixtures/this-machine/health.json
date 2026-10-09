@@ -211,6 +211,39 @@
     }
   },
   {
+    "id": "steam.pending",
+    "group": "steam",
+    "level": "ok",
+    "title": "No queued Steam changes",
+    "detail": "",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "steam.options",
+    "group": "steam",
+    "level": "skipped",
+    "title": "Steam launch options",
+    "detail": "Steam is not installed.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "steam.stale",
+    "group": "steam",
+    "level": "skipped",
+    "title": "Games set to the eGPU",
+    "detail": "Steam is not installed.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
     "id": "diag.kernel_params",
     "group": "diag",
     "level": "info",
