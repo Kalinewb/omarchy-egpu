@@ -7,10 +7,12 @@
   "license": "MIT",
   "description": "Connect, use and safely eject an external GPU: apps on the eGPU, a monitor on its HDMI port, and per-game Steam switches.",
   "kinds": [
-    "bar-widget"
+    "bar-widget",
+    "service"
   ],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "Panel.qml",
+    "service": "Service.qml"
   },
   "barWidget": {
     "displayName": "eGPU",

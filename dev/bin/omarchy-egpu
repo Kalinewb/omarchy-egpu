@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# Stub engine for developing the panel (plan-gui.md §9). It answers the verbs
+# the real bin/omarchy-egpu answers, from dev/fixtures/<name>/*.json, which
+# dev/make-fixtures.sh made by running the real engine on a fake machine.
+#
+#   OMARCHY_EGPU_DEV_BIN=<repo>/dev/bin           makes the panel call this
+#   OMARCHY_EGPU_DEV_FIXTURE=ready                which fixture to answer from
+#   OMARCHY_EGPU_DEV_FIXTURE=absent,ready,...     `status watch` steps through
+#                                                 them, one every
+#   OMARCHY_EGPU_DEV_STEP_S=4                     seconds (then stays on the last)
+#   OMARCHY_EGPU_DEV_FIXTURES=<dir>               another fixtures directory
+#
+# The status file goes to $EGPU_RUN like the real engine's, but its default is
+# $XDG_RUNTIME_DIR/omarchy-egpu-dev, never the real directory: a stub that
+# overwrote the real watcher's file would make the bar lie about the hardware.
+# The panel uses the same default when OMARCHY_EGPU_DEV_BIN is set.
+#
+# Verbs a later engine phase adds (device, display, steam, ...) answer exactly
+# as the real engine does today: {"error":"usage"}, exit 1.
+
+set -uo pipefail
+
+DEV=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+FIXTURES=${OMARCHY_EGPU_DEV_FIXTURES:-$DEV/fixtures}
+RUN=${EGPU_RUN:-${XDG_RUNTIME_DIR:-/run/user/$UID}/omarchy-egpu-dev}
+IFS=, read -r -a NAMES <<<"${OMARCHY_EGPU_DEV_FIXTURE:-absent}"
+STEP_S=${OMARCHY_EGPU_DEV_STEP_S:-4}
+
+now_ms() { date +%s%3N; }
+
+# doc <fixture> <seq> [last_event json]: the fixture's status, stamped now.
+doc() {
+  local f="$FIXTURES/$1/status.json"
+  [[ -r $f ]] || { printf '{"error":"no_fixture","fixture":"%s"}\n' "$1"; return 1; }
+  jq -c --argjson seq "$2" --argjson at "$(now_ms)" --argjson ev "${3:-null}" \
+    '.seq = $seq | .written_at = $at | (if $ev != null then .last_event = $ev else . end)' "$f"
+}
+
+write_file() { # atomic, like the real watcher (plan-engine.md §5.1)
+  local tmp
+  tmp=$(mktemp "$RUN/.status.XXXXXX") || return 1
+  printf '%s\n' "$1" >"$tmp" && mv -f "$tmp" "$RUN/status.json"
+}
+
+watch() {
+  mkdir -p "$RUN"
+  exec 9>"$RUN/watch.lock"
+  flock -n 9 || { printf '{"error":"busy"}\n'; exit 3; }
+  trap 'exit 0' TERM INT
+  local i=0 seq=1 ev=null cur next_step next_beat now
+  cur=$(doc "${NAMES[0]}" "$seq") || exit 1
+  printf '{"type":"status",%s\n' "${cur#\{}"
+  write_file "$cur"
+  next_step=$(( $(now_ms) + STEP_S * 1000 ))
+  next_beat=$(( $(now_ms) + 5000 ))
+  while :; do
+    sleep 0.5 &
+    wait $!
+    now=$(now_ms)
+    if (( i + 1 < ${#NAMES[@]} && now >= next_step )); then
+      i=$((i + 1)); seq=$((seq + 1))
+      ev=$(printf '{"seq":%d,"type":"dev_fixture","at":%d}' "$seq" "$now")
+      printf '{"type":"event","seq":%d,"event":"dev_fixture","at":%d,"detail":{"fixture":"%s"}}\n' \
+        "$seq" "$now" "${NAMES[$i]}"
+      seq=$((seq + 1))
+      cur=$(doc "${NAMES[$i]}" "$seq" "$ev") || exit 1
+      printf '{"type":"status",%s\n' "${cur#\{}"
+      write_file "$cur"
+      next_step=$(( now + STEP_S * 1000 ))
+      next_beat=$(( now + 5000 ))
+    elif (( now >= next_beat )); then
+      # Heartbeat: the file only, as the real watcher does.
+      cur=$(doc "${NAMES[$i]}" "$seq" "$ev") || exit 1
+      write_file "$cur"
+      next_beat=$(( now + 5000 ))
+    fi
+  done
+}
+
+module=${1:-}
+[[ $# -gt 0 ]] && shift
+case $module:${1:-} in
+  status:watch) watch ;;
+  status: | status:--json) doc "${NAMES[-1]}" 1 ;;
+  status:--human) jq -r '.summary.line' "$FIXTURES/${NAMES[-1]}/status.json" ;;
+  health: | health:--json) cat "$FIXTURES/${NAMES[-1]}/health.json" ;;
+  *) printf '{"error":"usage"}\n'; exit 1 ;;
+esac

@@ -1,0 +1,224 @@
+[
+  {
+    "id": "bolt.daemon",
+    "group": "bolt",
+    "level": "ok",
+    "title": "boltd is running",
+    "detail": "1 device(s) known.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "bolt.device",
+    "group": "bolt",
+    "level": "ok",
+    "title": "Micro Computer (HK) Tech. Ltd. TBGAA enrolled, policy iommu",
+    "detail": "Status: authorized.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "kernel.thunderbolt_early",
+    "group": "boot",
+    "level": "ok",
+    "title": "thunderbolt loads early",
+    "detail": "/etc/mkinitcpio.conf.d/thunderbolt_module.conf",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "boot.modules_load_mask",
+    "group": "boot",
+    "level": "ok",
+    "title": "eGPU driver does not load at boot",
+    "detail": "No modules-load.d file loads a backend module. Masked: nvidia-580xx-utils.conf.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "boot.mkinitcpio_conf",
+    "group": "boot",
+    "level": "ok",
+    "title": "mkinitcpio does not add the eGPU driver",
+    "detail": "",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "boot.initramfs_nvidia",
+    "group": "boot",
+    "level": "skipped",
+    "title": "eGPU driver in the initramfs",
+    "detail": "/boot is readable by root only; the system helper checks it once installed. Do not rebuild the initramfs with the eGPU attached.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "kernel.modprobe_options",
+    "group": "boot",
+    "level": "ok",
+    "title": "NVIDIA module options",
+    "detail": "nvidia-drm modeset=1 is set (/etc/modprobe.d/nvidia.conf). nvidia options: NVreg_EnableGpuFirmware=0 NVreg_DynamicPowerManagement=0x00 NVreg_PreserveVideoMemoryAllocations=1.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "kernel.nouveau_blacklist",
+    "group": "boot",
+    "level": "ok",
+    "title": "nouveau is blacklisted",
+    "detail": "/etc/modprobe.d/blacklist-nouveau.conf",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "driver.modeset",
+    "group": "driver",
+    "level": "ok",
+    "title": "KMS (modeset) is on",
+    "detail": "/sys/module/nvidia_drm/parameters/modeset = Y",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    },
+    "value": "Y"
+  },
+  {
+    "id": "driver.fbdev",
+    "group": "driver",
+    "level": "info",
+    "title": "fbdev is on",
+    "detail": "Default since 570 with modeset=1. One more client to release at eject (plan O3).",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    },
+    "value": "Y"
+  },
+  {
+    "id": "driver.flavour",
+    "group": "driver",
+    "level": "info",
+    "title": "NVIDIA closed kernel modules 580.178.04",
+    "detail": "Omarchy would pick nvidia-open-dkms for this GPU; closed 580xx avoids the GSP hangs seen with it.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "driver.persistenced",
+    "group": "driver",
+    "level": "ok",
+    "title": "nvidia-persistenced is not enabled",
+    "detail": "",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "driver.sleep",
+    "group": "driver",
+    "level": "info",
+    "title": "NVIDIA sleep units: nvidia-suspend nvidia-resume",
+    "detail": "They do nothing while the driver is unloaded. With the eGPU attached, VRAM is saved to disk on suspend; eject first if you will unplug it while asleep.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "hypr.links",
+    "group": "display",
+    "level": "warn",
+    "title": "omarchy-egpu-external is missing",
+    "detail": "The eGPU (card1, pci-0000:03:00.0-card) is present but has no link.",
+    "fix": {
+      "kind": "system",
+      "label": "Install the system half"
+    }
+  },
+  {
+    "id": "hypr.order",
+    "group": "display",
+    "level": "ok",
+    "title": "GPU order pinned",
+    "detail": "Explicit device list /dev/dri/omarchy-egpu-primary; primary /dev/dri/card0.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "hypr.gpu_list",
+    "group": "display",
+    "level": "info",
+    "title": "Compositor has 1 GPU(s) open",
+    "detail": "card0 (pci-0000:00:02.0-card)",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "hypr.session_env",
+    "group": "display",
+    "level": "ok",
+    "title": "Session GPU vendor matches the primary",
+    "detail": "__GLX_VENDOR_LIBRARY_NAME=unset, LIBVA_DRIVER_NAME=unset.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "tools.vulkaninfo",
+    "group": "tools",
+    "level": "ok",
+    "title": "vulkaninfo is installed",
+    "detail": "",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "system.helper",
+    "group": "system",
+    "level": "ok",
+    "title": "System half 0.1.0 installed",
+    "detail": "",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  },
+  {
+    "id": "diag.kernel_params",
+    "group": "diag",
+    "level": "info",
+    "title": "Optional kernel parameters (minisforum-deg2)",
+    "detail": "Suggested by the Arch wiki External GPU page, not confirmed necessary: pcie_ports=native pci=assign-busses,hpbussize=0x33,realloc,hpmmiosize=128M,hpmmioprefsize=16G. Set now: none.",
+    "fix": {
+      "kind": "none",
+      "label": ""
+    }
+  }
+]

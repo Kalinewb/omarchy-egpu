@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "seq": 0,
+  "written_at": 1791590400000,
+  "summary": {
+    "state": "absent",
+    "needs_action": false,
+    "line": "No eGPU"
+  },
+  "phase": "absent",
+  "bolt": {
+    "present": false,
+    "daemon": true,
+    "uuid": "ba7e8780-0085-dcfa-ffff-ffffffffffff",
+    "name": "TBGAA",
+    "vendor": "Micro Computer (HK) Tech. Ltd.",
+    "status": "disconnected",
+    "policy": "iommu",
+    "stored": true,
+    "generation": "USB4",
+    "profile": "minisforum-deg2"
+  },
+  "pci": {
+    "present": false,
+    "bdf": null,
+    "functions": [],
+    "vendor": null,
+    "device": null,
+    "name": null,
+    "removable": false,
+    "link": null
+  },
+  "backend": {
+    "name": null,
+    "supported": false
+  },
+  "driver": {
+    "bound": null,
+    "modules": {},
+    "modeset": null,
+    "fbdev": null
+  },
+  "gpu": {
+    "ok": false,
+    "name": null,
+    "version": null,
+    "temp_c": null,
+    "util_pct": null,
+    "mem_used_mb": null,
+    "procs": []
+  },
+  "drm": {
+    "card": null,
+    "card_bypath": null,
+    "link": null,
+    "compositor_has_card": null
+  },
+  "display": {
+    "monitors": [],
+    "needs_relogin": false
+  },
+  "modules": {
+    "held_after_eject": false
+  },
+  "steam": {
+    "running": false
+  },
+  "hints": [],
+  "health_summary": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "last_event": null
+}
