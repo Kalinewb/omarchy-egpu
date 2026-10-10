@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  omarchy-egpu system half
+  omarchy-egpu-version: 0.1.0
+
+  One action for the root helper (plan-engine.md §10.2). Every privileged thing
+  the eGPU engine does goes through /usr/local/bin/omarchy-egpu-admin under it:
+  load and unload the backend's allowlisted modules, remove the eGPU's PCI
+  functions, rescan the bus, and two read-only verbs.
+
+  allow_active=yes, no prompt, for the person at the active local session only
+  (scope.md DECISIONS 2026-10-09: connect, eject and rescan run without a
+  password). Every verb acts on hardware that person can already unplug by
+  hand, or only reads; the helper refuses anything that is not a removable
+  display device of an allowlisted vendor. udisks treats media eject the same
+  way (org.freedesktop.udisks2.eject-media).
+
+  Remote and inactive sessions get no. Nothing that edits /etc goes through
+  this action: those changes are made only by system/install.sh, run with sudo.
+-->
+<policyconfig>
+  <vendor>omarchy-egpu</vendor>
+  <vendor_url>https://github.com/Kalinewb/omarchy-egpu</vendor_url>
+
+  <action id="no.kalinewb.egpu.device">
+    <description>Connect or safely eject the external GPU</description>
+    <message>Authentication is required to connect or eject the external GPU</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+  </action>
+</policyconfig>

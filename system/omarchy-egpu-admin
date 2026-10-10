@@ -1,0 +1,577 @@
+#!/bin/bash
+#
+# omarchy-egpu system half
+# omarchy-egpu-version: 0.1.0
+#
+# The root helper (plan-engine.md §10.1): the few things the eGPU engine needs
+# root for, behind one polkit action, no.kalinewb.egpu.device.
+#
+#   pkexec /usr/local/bin/omarchy-egpu-admin <verb> [arg]
+#
+# Contract, the same for every verb (plan-engine.md §1.1):
+#   one JSON document on stdout, nothing else
+#   exit 0 ok · 1 {"error":code,…} · 3 busy (another privileged job holds the lock)
+#   126/127 come from pkexec itself: declined, or this file is not installed
+#
+# Verbs. Nothing else is accepted, and nothing else is passed anywhere:
+#
+#   version              {"version":"x.y.z"}; also answered unprivileged, the
+#                        engine compares it with the plugin's before pkexec
+#   load <backend>       modprobe the backend's allowlisted modules in fixed
+#                        order. Refused unless a removable display device of
+#                        that backend's vendor exists: never load with no card
+#                        (binding fact 1). `auto` picks the backend from the
+#                        device; the udev rule uses it when auto-connect is on
+#   unload <backend>     modprobe -r in fixed reverse order. Refused while any
+#                        display device of that vendor exists, or while anything
+#                        but the allowlisted modules themselves holds one
+#   remove <bdf>         writes 1 to `remove` for every function of the slot,
+#                        in a child with a 20 s deadline (remove_timeout)
+#   rescan               writes 1 to /sys/bus/pci/rescan. Refused while the
+#                        backend's modules are loaded with no card (O2)
+#   holders              read-only: pid/comm/uid of every process holding a
+#                        backend node or the eGPU's DRM nodes, any user's
+#   inspect-initramfs    read-only: allowlisted modules in each initramfs/UKI
+#
+# The bounds a security review should check, all in this text:
+#
+#   * Fixed module allowlist per backend (backend_select). Adding a backend's
+#     modules is a release of this file and a review, nothing else (REVISION 3).
+#   * No verb takes a path, a module name, an option or a command line. The
+#     only free-form input is a PCI address, which must match
+#     ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ before it is used in a path,
+#     and which must then name a display-class function of an allowlisted
+#     vendor whose `removable` attribute is "removable" and which is not the
+#     boot VGA device. Every other function of that slot must pass the same
+#     removable/vendor/boot_vga checks, or nothing is removed. The laptop's own
+#     GPU has no `removable` attribute at all (dev/e0-facts.md).
+#   * No eval, no `bash -c`, no word splitting of input (IFS is unset and every
+#     expansion is quoted), no inherited shell functions, PATH=/usr/bin, LC_ALL=C.
+#   * Every external command that touches the kernel runs in the background
+#     with a deadline (run_bounded). A child stuck in the kernel is abandoned,
+#     not waited for, and its output never reaches our stdout, so pkexec and
+#     the engine always get an answer.
+#   * None of the engine's EGPU_* variables is read. The single test seam,
+#     OMARCHY_EGPU_ADMIN_TEST_ROOT, is honoured only when this process is NOT
+#     root, i.e. when it has no privilege to misuse; as root it is ignored.
+#
+# Who may run it: polkit's allow_active=yes for the active local session
+# (scope.md DECISIONS 2026-10-09). Every verb either acts on hardware the
+# person at the seat can already unplug by hand, or only reads. Mutating verbs
+# are logged to the journal with the caller's uid.
+
+# Shell functions can be imported from the environment and would shadow any
+# command below; none is ours yet, so drop every one.
+while IFS= read -r _f; do
+  [[ -n $_f ]] && unset -f -- "$_f"
+done <<<"$(compgen -A function)"
+unset _f
+set -uo pipefail
+unset IFS BASH_ENV ENV CDPATH GLOBIGNORE
+shopt -u expand_aliases
+shopt -s nullglob
+umask 022
+export LC_ALL=C
+cd / 2>/dev/null || exit 1
+
+VERSION=0.1.0
+
+# One regex for a PCI address, used for the argument and for sysfs names.
+BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+
+# Deadlines, in seconds.
+REMOVE_DEADLINE=20
+LOAD_DEADLINE=90
+UNLOAD_DEADLINE=60
+RESCAN_DEADLINE=30
+READ_DEADLINE=60
+LOCK_WAIT=10
+
+# ---------------------------------------------------------------- output
+
+# JSON by hand: a missing jq must not turn every verb into a parse error.
+json_string() {
+  local v=$1
+  v=${v//\\/\\\\}
+  v=${v//\"/\\\"}
+  # Under LC_ALL=C, [:print:] is printable ASCII: control bytes and any
+  # non-UTF-8 byte (a process name can hold anything) cannot break the JSON.
+  v=${v//[^[:print:]]/?}
+  printf '"%s"' "$v"
+}
+
+json_array() {
+  local first=1 item
+  printf '['
+  for item in "$@"; do
+    ((first)) || printf ','
+    first=0
+    json_string "$item"
+  done
+  printf ']'
+}
+
+# die <code> [extra json members] [exit status]
+die() {
+  if [[ -n ${2:-} ]]; then
+    printf '{"error":%s,%s}\n' "$(json_string "$1")" "$2"
+  else
+    printf '{"error":%s}\n' "$(json_string "$1")"
+  fi
+  exit "${3:-1}"
+}
+
+# ---------------------------------------------------------------- the caller
+
+verb=${1:-}
+[[ -n $verb ]] || die no_verb
+shift
+
+if [[ $verb == version ]]; then
+  (($# == 0)) || die bad_arguments
+  printf '{"version":%s}\n' "$(json_string "$VERSION")"
+  exit 0
+fi
+
+# R is the root every path is read under. Always "" as root. Unprivileged, the
+# test suite may point it at a fixture tree; the process then has no privilege
+# to misuse, so the seam cannot widen what root does.
+R=''
+TEST_MODE=0
+if ((EUID != 0)); then
+  R=${OMARCHY_EGPU_ADMIN_TEST_ROOT:-}
+  [[ -n $R ]] || die not_root
+  [[ $R == /* && $R != *..* && -d $R ]] || die not_root
+  TEST_MODE=1
+  # Short deadlines, so the hang tests do not take minutes.
+  if [[ ${OMARCHY_EGPU_ADMIN_TEST_DEADLINE:-} =~ ^[1-9][0-9]?$ ]]; then
+    REMOVE_DEADLINE=$OMARCHY_EGPU_ADMIN_TEST_DEADLINE LOAD_DEADLINE=$REMOVE_DEADLINE
+    UNLOAD_DEADLINE=$REMOVE_DEADLINE RESCAN_DEADLINE=$REMOVE_DEADLINE
+    READ_DEADLINE=$REMOVE_DEADLINE LOCK_WAIT=$REMOVE_DEADLINE
+  fi
+else
+  # Root resolves commands in /usr/bin only.
+  PATH=/usr/bin
+fi
+unset OMARCHY_EGPU_ADMIN_TEST_ROOT OMARCHY_EGPU_ADMIN_TEST_DEADLINE
+
+caller_uid=${PKEXEC_UID:-0}
+[[ $caller_uid =~ ^[0-9]+$ ]] || caller_uid=unknown
+
+PCI=$R/sys/bus/pci/devices
+MODULE_DIR=$R/sys/module
+LOCK_FILE=$R/run/omarchy-egpu-admin.lock
+
+audit() {
+  ((TEST_MODE)) && return 0
+  logger -t omarchy-egpu -p auth.notice -- "uid $caller_uid: $*" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------- backends
+
+# The fixed allowlist (§10.1). MODULES is the load order; unload is its
+# reverse. VENDOR is the PCI vendor id the backend drives. amdgpu and intel are
+# stubs in the engine and have nothing here on purpose: unloading their driver
+# could take the laptop's own display (§4.2).
+MODULES=()
+VENDOR=''
+BACKEND=''
+backend_select() { # backend_select <name>
+  case $1 in
+    nvidia)
+      BACKEND=nvidia
+      VENDOR=0x10de
+      MODULES=(nvidia nvidia_modeset nvidia_drm nvidia_uvm)
+      ;;
+    *) return 1 ;;
+  esac
+}
+KNOWN_BACKENDS=(nvidia)
+
+# ---------------------------------------------------------------- sysfs
+
+# attr <file>: the first line of a sysfs attribute, status 1 when unreadable.
+attr() {
+  local line=''
+  [[ -f $1 && -r $1 ]] || return 1
+  IFS= read -r line <"$1" || [[ -n $line ]] || return 1
+  printf '%s' "$line"
+}
+
+is_display() { [[ $(attr "$PCI/$1/class") == 0x03* ]]; }
+is_boot_vga() { [[ $(attr "$PCI/$1/boot_vga") == 1 ]]; }
+is_removable() { [[ $(attr "$PCI/$1/removable") == removable ]]; }
+vendor_of() { attr "$PCI/$1/vendor"; }
+
+# EGPU_REASON says why the last is_egpu answered no.
+EGPU_REASON=''
+is_egpu() { # is_egpu <bdf> <vendor>: a function this helper may act on
+  EGPU_REASON=''
+  if ! is_display "$1"; then EGPU_REASON=not_display
+  elif is_boot_vga "$1"; then EGPU_REASON=boot_vga
+  elif ! is_removable "$1"; then EGPU_REASON=not_removable
+  elif [[ $(vendor_of "$1") != "$2" ]]; then EGPU_REASON=vendor
+  fi
+  [[ -z $EGPU_REASON ]]
+}
+
+# pci_names: every PCI address in sysfs whose name has the expected shape.
+pci_names() {
+  local d n
+  for d in "$PCI"/*; do
+    n=${d##*/}
+    [[ $n =~ $BDF_RE ]] && printf '%s\n' "$n"
+  done
+}
+
+# egpu_devices <vendor>: the removable display functions of that vendor.
+egpu_devices() {
+  local n
+  while IFS= read -r n; do
+    [[ -n $n ]] && is_egpu "$n" "$1" && printf '%s\n' "$n"
+  done <<<"$(pci_names)"
+}
+
+# vendor_displays <vendor>: every display function of that vendor, removable
+# or not. Unload refuses while any exists: an internal dGPU of the same vendor
+# runs on the same modules.
+vendor_displays() {
+  local n
+  while IFS= read -r n; do
+    [[ -n $n ]] && is_display "$n" && [[ $(vendor_of "$n") == "$1" ]] && printf '%s\n' "$n"
+  done <<<"$(pci_names)"
+}
+
+module_loaded() { [[ -d $MODULE_DIR/$1 ]]; }
+
+# ---------------------------------------------------------------- bounded children
+
+# A private, root-only directory for children's output, removed on exit.
+WORK=''
+cleanup() { [[ -n $WORK && -d $WORK ]] && rm -rf -- "$WORK"; }
+trap cleanup EXIT
+work_dir() {
+  [[ -n $WORK ]] && return 0
+  WORK=$(mktemp -d "$R/run/omarchy-egpu-admin.XXXXXX" 2>/dev/null) || die work_dir_failed
+  chmod 0700 "$WORK" 2>/dev/null || die work_dir_failed
+}
+
+# run_bounded <seconds> <out file> <command…>: runs the command in the
+# background, stdout to <out>, stderr to <out>.err, and waits at most
+# <seconds>. Returns its status, or 124 when the deadline passed. A child that
+# outlives the deadline is sent SIGKILL and abandoned: one stuck in the kernel
+# (state D) cannot die, and waiting for it would hang pkexec and the engine.
+# Its stdout and stderr are files, so it holds nothing of ours open.
+run_bounded() {
+  local secs=$1 out=$2 pid i
+  shift 2
+  "$@" </dev/null >"$out" 2>"$out.err" &
+  pid=$!
+  for ((i = 0; i < secs * 10; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid"
+      return
+    fi
+    sleep 0.1
+  done
+  kill -KILL "$pid" 2>/dev/null
+  return 124
+}
+
+# write_one <file>: the sysfs write, as a function so run_bounded can run it
+# in a child. printf is a builtin; the redirection is the whole operation.
+write_one() { printf '1\n' >"$1"; }
+
+# first_line <file>: for error details.
+first_line() { attr "$1" 2>/dev/null | cut -c1-200; }
+
+lock() {
+  [[ -d $R/run ]] || die busy '"detail":"no /run"' 3
+  exec 9>>"$LOCK_FILE" || die busy '"detail":"cannot open the lock"' 3
+  flock -w "$LOCK_WAIT" 9 || die busy "" 3
+}
+
+# ---------------------------------------------------------------- verbs
+
+case $verb in
+
+  load)
+    (($# == 1)) || die bad_arguments
+    want=$1
+    lock
+    if [[ $want == auto ]]; then
+      found=''
+      for b in "${KNOWN_BACKENDS[@]}"; do
+        backend_select "$b"
+        found=$(egpu_devices "$VENDOR" | head -n1)
+        [[ -n $found ]] && break
+      done
+      [[ -n $found ]] || die no_pci_device
+    else
+      backend_select "$want" || die unknown_backend
+      found=$(egpu_devices "$VENDOR" | head -n1)
+      [[ -n $found ]] || die no_pci_device "\"backend\":$(json_string "$BACKEND")"
+    fi
+
+    work_dir
+    loaded=() already=()
+    deadline=$((SECONDS + LOAD_DEADLINE))
+    for m in "${MODULES[@]}"; do
+      if module_loaded "$m"; then
+        already+=("$m")
+        continue
+      fi
+      left=$((deadline - SECONDS))
+      ((left > 0)) || die modules_failed "\"module\":$(json_string "$m"),\"detail\":\"deadline\""
+      run_bounded "$left" "$WORK/modprobe" modprobe -- "$m"
+      rc=$?
+      if ((rc == 124)); then
+        audit "load $BACKEND: modprobe $m timed out"
+        die modules_failed "\"module\":$(json_string "$m"),\"detail\":\"timeout\""
+      elif ((rc != 0)) || ! module_loaded "$m"; then
+        audit "load $BACKEND: modprobe $m failed ($rc)"
+        die modules_failed "\"module\":$(json_string "$m"),\"rc\":$rc,\"detail\":$(json_string "$(first_line "$WORK/modprobe.err")")"
+      fi
+      loaded+=("$m")
+    done
+    audit "load $BACKEND for $found: loaded ${loaded[*]:-nothing}"
+    printf '{"ok":true,"backend":%s,"device":%s,"loaded":%s,"already":%s}\n' \
+      "$(json_string "$BACKEND")" "$(json_string "$found")" "$(json_array "${loaded[@]}")" "$(json_array "${already[@]}")"
+    exit 0
+    ;;
+
+  unload)
+    (($# == 1)) || die bad_arguments
+    backend_select "$1" || die unknown_backend
+    lock
+    present=$(vendor_displays "$VENDOR" | head -n1)
+    [[ -z $present ]] || die device_present "\"device\":$(json_string "$present")"
+
+    # Reverse load order. A module may only be held by the allowlisted modules
+    # loaded on top of it, which are removed first; each of those adds one to
+    # its refcnt. Anything more is a process or another module: refused before
+    # anything is unloaded, so a refusal leaves the stack as it was.
+    order=()
+    for ((i = ${#MODULES[@]} - 1; i >= 0; i--)); do order+=("${MODULES[i]}"); done
+    for m in "${order[@]}"; do
+      module_loaded "$m" || continue
+      refcnt=$(attr "$MODULE_DIR/$m/refcnt") || die modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
+      [[ $refcnt =~ ^[0-9]+$ ]] || die modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
+      expected=0
+      for h in "$MODULE_DIR/$m/holders"/*; do
+        h=${h##*/}
+        ok=0
+        for a in "${MODULES[@]}"; do [[ $h == "$a" ]] && ok=1; done
+        ((ok)) || die modules_in_use "\"module\":$(json_string "$m"),\"holder\":$(json_string "$h")"
+        expected=$((expected + 1))
+      done
+      ((refcnt == expected)) || die modules_in_use "\"module\":$(json_string "$m"),\"refcnt\":$refcnt"
+    done
+
+    work_dir
+    unloaded=()
+    deadline=$((SECONDS + UNLOAD_DEADLINE))
+    for m in "${order[@]}"; do
+      module_loaded "$m" || continue
+      left=$((deadline - SECONDS))
+      ((left > 0)) || die modules_failed "\"module\":$(json_string "$m"),\"detail\":\"deadline\""
+      run_bounded "$left" "$WORK/modprobe" modprobe -r -- "$m"
+      rc=$?
+      if ((rc != 0)) || module_loaded "$m"; then
+        audit "unload $BACKEND: modprobe -r $m failed ($rc)"
+        die modules_failed "\"module\":$(json_string "$m"),\"rc\":$rc,\"unloaded\":$(json_array "${unloaded[@]}"),\"detail\":$(json_string "$(first_line "$WORK/modprobe.err")")"
+      fi
+      unloaded+=("$m")
+    done
+    audit "unload $BACKEND: ${unloaded[*]:-nothing loaded}"
+    printf '{"ok":true,"backend":%s,"unloaded":%s}\n' "$(json_string "$BACKEND")" "$(json_array "${unloaded[@]}")"
+    exit 0
+    ;;
+
+  remove)
+    (($# == 1)) || die bad_arguments
+    bdf=$1
+    [[ $bdf =~ $BDF_RE ]] || die bad_address
+    [[ -d $PCI/$bdf ]] || die no_pci_device "\"device\":$(json_string "$bdf")"
+    # Only a vendor with a backend here is removable through this helper; the
+    # vendor picks which, and is_egpu then checks everything, vendor included.
+    vendor=$(vendor_of "$bdf")
+    VENDOR=''
+    for b in "${KNOWN_BACKENDS[@]}"; do
+      backend_select "$b"
+      [[ $vendor == "$VENDOR" ]] && break
+      VENDOR=''
+    done
+    [[ -n $VENDOR ]] || VENDOR=none
+    is_egpu "$bdf" "$VENDOR" || die not_egpu "\"device\":$(json_string "$bdf"),\"reason\":$(json_string "$EGPU_REASON")"
+
+    # Every function of the slot (the GPU and its HDMI audio): the same
+    # vendor, removable, never the boot VGA device. Highest function first, so
+    # the GPU itself goes last.
+    slot=${bdf%.*}
+    functions=()
+    for ((fn = 7; fn >= 0; fn--)); do
+      f=$slot.$fn
+      [[ -d $PCI/$f ]] || continue
+      if ! is_removable "$f" || is_boot_vga "$f" || [[ $(vendor_of "$f") != "$VENDOR" ]]; then
+        die not_egpu "\"device\":$(json_string "$f"),\"reason\":\"slot_function\""
+      fi
+      functions+=("$f")
+    done
+
+    lock
+    work_dir
+    removed=()
+    deadline=$((SECONDS + REMOVE_DEADLINE))
+    for f in "${functions[@]}"; do
+      [[ -d $PCI/$f ]] || continue
+      [[ -e $PCI/$f/remove ]] || die remove_failed "\"device\":$(json_string "$f"),\"detail\":\"no remove attribute\""
+      left=$((deadline - SECONDS))
+      ((left > 0)) || die remove_timeout "\"device\":$(json_string "$f"),\"removed\":$(json_array "${removed[@]}")"
+      run_bounded "$left" "$WORK/remove" write_one "$PCI/$f/remove"
+      rc=$?
+      if ((rc == 124)); then
+        audit "remove $f timed out after ${REMOVE_DEADLINE}s"
+        die remove_timeout "\"device\":$(json_string "$f"),\"removed\":$(json_array "${removed[@]}")"
+      elif ((rc != 0)); then
+        die remove_failed "\"device\":$(json_string "$f"),\"rc\":$rc,\"detail\":$(json_string "$(first_line "$WORK/remove.err")")"
+      fi
+      removed+=("$f")
+    done
+    # The kernel removes the device before the write returns.
+    for f in "${functions[@]}"; do
+      [[ -d $PCI/$f ]] && die remove_failed "\"device\":$(json_string "$f"),\"detail\":\"still present\""
+    done
+    audit "remove $bdf: ${removed[*]}"
+    printf '{"ok":true,"device":%s,"removed":%s}\n' "$(json_string "$bdf")" "$(json_array "${removed[@]}")"
+    exit 0
+    ;;
+
+  rescan)
+    (($# == 0)) || die bad_arguments
+    lock
+    # Modules still loaded with no card is the held-after-eject state (O2);
+    # bringing the card back into it is the freeze risk, so refuse.
+    for b in "${KNOWN_BACKENDS[@]}"; do
+      backend_select "$b"
+      [[ -n $(vendor_displays "$VENDOR" | head -n1) ]] && continue
+      for m in "${MODULES[@]}"; do
+        module_loaded "$m" && die modules_held "\"backend\":$(json_string "$BACKEND"),\"module\":$(json_string "$m")"
+      done
+    done
+    [[ -e $R/sys/bus/pci/rescan ]] || die rescan_failed '"detail":"no rescan attribute"'
+    work_dir
+    run_bounded "$RESCAN_DEADLINE" "$WORK/rescan" write_one "$R/sys/bus/pci/rescan"
+    rc=$?
+    ((rc == 124)) && die rescan_timeout
+    ((rc == 0)) || die rescan_failed "\"rc\":$rc"
+    audit "rescan"
+    printf '{"ok":true}\n'
+    exit 0
+    ;;
+
+  holders)
+    (($# == 0)) || die bad_arguments
+    # The eGPU's DRM nodes, by name, from sysfs.
+    drm=()
+    for b in "${KNOWN_BACKENDS[@]}"; do
+      backend_select "$b"
+      while IFS= read -r d; do
+        [[ -n $d ]] || continue
+        for n in "$PCI/$d/drm"/card* "$PCI/$d/drm"/renderD*; do
+          n=${n##*/}
+          [[ $n =~ ^(card|renderD)[0-9]+$ ]] && drm+=("/dev/dri/$n")
+        done
+      done <<<"$(egpu_devices "$VENDOR")"
+    done
+
+    work_dir
+    : >"$WORK/fds"
+    fd_dirs=("$R"/proc/[0-9]*/fd)
+    if ((${#fd_dirs[@]})); then
+      run_bounded "$READ_DEADLINE" "$WORK/fds" find "${fd_dirs[@]}" -mindepth 1 -maxdepth 1 \
+        -type l -printf '%h\t%l\n'
+      rc=$?
+      ((rc == 124)) && die read_timeout
+      # find exits 1 when a process exits mid-walk; what it printed stands.
+    fi
+
+    declare -A nodes_of=()
+    while IFS=$'\t' read -r dir target; do
+      [[ -n $dir ]] || continue
+      match=0
+      if [[ $target =~ ^/dev/nvidia([0-9]+|ctl|-uvm|-uvm-tools|-modeset)$ ]]; then
+        match=1
+      else
+        for n in "${drm[@]}"; do [[ $target == "$n" ]] && match=1; done
+      fi
+      ((match)) || continue
+      pid=${dir%/fd}
+      pid=${pid##*/}
+      [[ $pid =~ ^[0-9]+$ ]] || continue
+      case " ${nodes_of[$pid]:-} " in *" $target "*) ;; *) nodes_of[$pid]="${nodes_of[$pid]:-}${nodes_of[$pid]:+ }$target" ;; esac
+    done <"$WORK/fds"
+
+    printf '{"nodes":%s,"holders":[' "$(json_array "${drm[@]}")"
+    first=1
+    for pid in $(printf '%s\n' "${!nodes_of[@]}" | sort -n); do
+      comm=$(attr "$R/proc/$pid/comm") || comm=''
+      uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' "$R/proc/$pid/status" 2>/dev/null | head -n1)
+      [[ $uid =~ ^[0-9]+$ ]] || uid=$(stat -c %u -- "$R/proc/$pid" 2>/dev/null)
+      [[ $uid =~ ^[0-9]+$ ]] || uid=null
+      # Matched names only (no spaces), sorted so the answer is stable.
+      # shellcheck disable=SC2086
+      read -r -a list <<<"$(printf '%s\n' ${nodes_of[$pid]} | sort -u | tr '\n' ' ')"
+      ((first)) || printf ','
+      first=0
+      printf '{"pid":%s,"comm":%s,"uid":%s,"nodes":%s}' "$pid" "$(json_string "$comm")" "$uid" "$(json_array "${list[@]}")"
+    done
+    printf ']}\n'
+    exit 0
+    ;;
+
+  inspect-initramfs)
+    (($# == 0)) || die bad_arguments
+    allow=()
+    for b in "${KNOWN_BACKENDS[@]}"; do
+      backend_select "$b"
+      allow+=("${MODULES[@]}")
+    done
+    work_dir
+    # Fixed places only: initramfs images in /boot, and UKIs on the usual ESP
+    # mounts. lsinitcpio unpacks a UKI itself (it calls objcopy); its scratch
+    # files go into our private directory.
+    printf '{"checked":%s,"images":[' "$(json_array "${allow[@]}")"
+    first=1
+    for img in "$R"/boot/*.img "$R"/boot/EFI/Linux/*.efi "$R"/efi/EFI/Linux/*.efi "$R"/boot/efi/EFI/Linux/*.efi; do
+      [[ -f $img && ! -L $img ]] || continue
+      # An absolute path cannot be read as an option, so no `--` (the fake
+      # lsinitcpio in tests/ takes exactly `-l IMAGE`).
+      TMPDIR=$WORK run_bounded "$READ_DEADLINE" "$WORK/list" lsinitcpio -l "$img"
+      rc=$?
+      found=()
+      if ((rc == 0)); then
+        while IFS= read -r line; do
+          [[ $line =~ \.ko(\.[a-z0-9]+)?$ ]] || continue
+          m=${line##*/}
+          m=${m%%.ko*}
+          m=${m//-/_}
+          for a in "${allow[@]}"; do
+            [[ $m == "$a" ]] && { case " ${found[*]} " in *" $m "*) ;; *) found+=("$m") ;; esac; }
+          done
+        done <"$WORK/list"
+      fi
+      ((first)) || printf ','
+      first=0
+      ok=true
+      ((rc == 0)) || ok=false
+      printf '{"path":%s,"ok":%s,"modules":%s}' "$(json_string "${img#"$R"}")" "$ok" "$(json_array "${found[@]}")"
+    done
+    printf ']}\n'
+    exit 0
+    ;;
+
+  *)
+    die unknown_verb
+    ;;
+esac

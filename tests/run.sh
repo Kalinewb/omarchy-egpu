@@ -6,7 +6,8 @@
 #   tests/run.sh absent ...    only these scenarios ("watch" for the watcher,
 #                              "steam" for the Steam module, tests/steam.sh,
 #                              "device" for connect and egpu-run, tests/device.sh,
-#                              "display" for monitors and the toggle file, tests/display.sh)
+#                              "display" for monitors and the toggle file, tests/display.sh,
+#                              "system" for the root helper and installer, tests/system.sh)
 #
 # Each scenario in fixtures/<name>/ has:
 #   setup.sh      builds the fake machine with tests/lib.sh (sysfs, /dev,
@@ -353,6 +354,11 @@ source "$TESTS/device.sh"
 # shellcheck source=tests/display.sh
 source "$TESTS/display.sh"
 
+# ---------------------------------------------------------------- system (root half)
+
+# shellcheck source=tests/system.sh
+source "$TESTS/system.sh"
+
 # ---------------------------------------------------------------- main
 
 # Scenarios are the fixture dirs with an expect.json; fixtures/steam holds the
@@ -362,7 +368,7 @@ mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do
   [[ $d != watch-sequence && -r $d/expect.json ]] && echo "$d"
 done)
 targets=("$@")
-(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device display watch)
+(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device display system watch)
 
 for s in "${targets[@]}"; do
   if [[ $s == watch ]]; then
@@ -373,6 +379,8 @@ for s in "${targets[@]}"; do
     test_device
   elif [[ $s == display ]]; then
     test_display
+  elif [[ $s == system ]]; then
+    test_system
   elif [[ -d $TESTS/fixtures/$s && -r $TESTS/fixtures/$s/expect.json ]]; then
     (run_scenario "$s")
   else

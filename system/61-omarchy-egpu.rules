@@ -1,0 +1,32 @@
+# omarchy-egpu system half
+# omarchy-egpu-version: 0.1.0
+#
+# udev rules for the eGPU (plan-engine.md §10.3). system/install.sh installs
+# this as /etc/udev/rules.d/61-omarchy-egpu.rules with the placeholder in the
+# primary rule replaced by the PCI address of the boot VGA device it detects
+# (this machine: 0000:00:02.0). 61 sorts after systemd's 60-drm.rules, which
+# sets ID_PATH, the value /dev/dri/by-path/ names are built from.
+
+ACTION=="remove", GOTO="omarchy_egpu_end"
+
+# Colon-free links for AQ_DRM_DEVICES, which is colon-separated, so the by-path
+# names (pci-0000:00:02.0-card) cannot go into it directly (O1). Card nodes
+# only: DEVTYPE drm_minor, not the cardN-HDMI-A-1 connectors. Never cardN.
+#
+#   primary   the card whose by-path name is the boot VGA device's
+#   external  a card whose PCI function is display class and removable: no
+#             vendor, so any backend; no address, because a tunnelled eGPU's
+#             address changes with port and enumeration order
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", ENV{ID_PATH}=="pci-@PRIMARY_BDF@", SYMLINK+="dri/omarchy-egpu-primary"
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", SUBSYSTEMS=="pci", ATTRS{class}=="0x03[0-9]*", ATTRS{removable}=="removable", SYMLINK+="dri/omarchy-egpu-external"
+
+# Auto-connect (OFF unless /etc/omarchy-egpu/autoconnect exists; the setting
+# is deferred, scope.md DECISIONS 2026-10-09). When on, a removable display
+# device appearing loads its backend's KMS modules (nvidia_drm and what it
+# needs) through the helper, which refuses anything but an allowlisted vendor.
+# Nothing loads nvidia_drm on hot-plug otherwise (O3); the panel's Connect
+# button does it then. TEST is evaluated per event, so creating or removing
+# the flag file needs no udev reload.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{class}=="0x03[0-9]*", ATTR{removable}=="removable", TEST=="/etc/omarchy-egpu/autoconnect", RUN+="/usr/local/bin/omarchy-egpu-admin load auto"
+
+LABEL="omarchy_egpu_end"
