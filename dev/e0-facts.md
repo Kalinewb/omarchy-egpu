@@ -382,3 +382,7 @@ A fresh process using the GBM platform sees the 4070 SUPER fine via NVIDIA EGL (
 - hyprctl lists eDP-1 (2880x1800@120) and HDMI-A-2 (LG TV, 3840x2160@60, at 1800x0). HDMI output works.
 - Confirms the hypothesis: Hyprland cannot use a card hot-added after login for HDMI (E0: eglInitialize fails), but a card present at login works. `needs_relogin` after a mid-session plug-in is the routine path.
 - Session env now has Omarchy's NVIDIA variables (__GLX_VENDOR_LIBRARY_NAME=nvidia, NVD_BACKEND=direct, LIBVA_DRIVER_NAME=nvidia) because nvidia.lua sees an NVIDIA card at config load. nvidia-smi showed 63% util and 2 processes shortly after login, so session apps may be rendering/decoding on the eGPU. This is the glitch-risk the plan's toggle file is meant to override. Needs E1(a)/(c) follow-up.
+
+## TV mouse lag finding (live, user-reported)
+- With the eGPU driving the HDMI TV, cursor:no_hardware_cursors=2 (auto) made TV mouse movement "sway" (software cursor at frame cadence). Setting it to 0 (hardware cursor) removed the sway; a small latency remains (cross-GPU copy + 60 Hz).
+- Omarchy's NVIDIA env override (__GLX_VENDOR_LIBRARY_NAME=mesa, LIBVA_DRIVER_NAME=iHD) applies via the toggle file, but quickshell still loads libEGL_nvidia and holds /dev/nvidia0 open (glvnd loads both vendors). Hyprland ~23% GPU util (HDMI path), quickshell ~5%.
