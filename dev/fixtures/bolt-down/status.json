@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "seq": 0,
+  "written_at": 1791590400000,
+  "summary": {
+    "state": "attention",
+    "needs_action": true,
+    "line": "eGPU ready · check setup (1 problem)"
+  },
+  "phase": "ready",
+  "bolt": {
+    "present": false,
+    "daemon": false,
+    "domain": true,
+    "uuid": null,
+    "name": null,
+    "vendor": null,
+    "status": null,
+    "policy": null,
+    "stored": false,
+    "generation": null,
+    "profile": null
+  },
+  "pci": {
+    "present": true,
+    "bdf": "0000:03:00.0",
+    "functions": [
+      "0000:03:00.0",
+      "0000:03:00.1"
+    ],
+    "vendor": "0x10de",
+    "device": "0x2783",
+    "name": "NVIDIA Corporation AD104 [GeForce RTX 4070 SUPER]",
+    "removable": true,
+    "link": {
+      "speed": "16.0 GT/s PCIe",
+      "width": "4",
+      "max_speed": "16.0 GT/s PCIe",
+      "max_width": "16"
+    }
+  },
+  "backend": {
+    "name": "nvidia",
+    "supported": true
+  },
+  "driver": {
+    "bound": "nvidia",
+    "modules": {
+      "nvidia": true,
+      "nvidia_modeset": true,
+      "nvidia_drm": true,
+      "nvidia_uvm": true
+    },
+    "modeset": true,
+    "fbdev": true
+  },
+  "gpu": {
+    "ok": true,
+    "name": "NVIDIA GeForce RTX 4070 SUPER",
+    "version": "580.178.04",
+    "temp_c": 29,
+    "util_pct": 0,
+    "mem_used_mb": 33,
+    "procs": [],
+    "driver": "nvidia"
+  },
+  "drm": {
+    "card": "card1",
+    "card_bypath": "pci-0000:03:00.0-card",
+    "link": null,
+    "compositor_has_card": false
+  },
+  "display": {
+    "monitors": [
+      {
+        "connector": "DP-3",
+        "card": "card1",
+        "status": "disconnected",
+        "enabled": false,
+        "in_compositor": false
+      },
+      {
+        "connector": "DP-4",
+        "card": "card1",
+        "status": "disconnected",
+        "enabled": false,
+        "in_compositor": false
+      },
+      {
+        "connector": "DP-5",
+        "card": "card1",
+        "status": "disconnected",
+        "enabled": false,
+        "in_compositor": false
+      },
+      {
+        "connector": "HDMI-A-2",
+        "card": "card1",
+        "status": "disconnected",
+        "enabled": false,
+        "in_compositor": false
+      }
+    ],
+    "needs_relogin": false
+  },
+  "modules": {
+    "held_after_eject": false
+  },
+  "steam": {
+    "running": false
+  },
+  "hints": [],
+  "health_summary": {
+    "errors": 1,
+    "warnings": 1
+  },
+  "last_event": null,
+  "recent_events": []
+}

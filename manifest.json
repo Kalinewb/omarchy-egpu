@@ -12,7 +12,11 @@
   ],
   "entryPoints": {
     "barWidget": "Panel.qml",
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "surface": "NotchIntegration.qml"
+  },
+  "surface": {
+    "contract": 1
   },
   "barWidget": {
     "displayName": "eGPU",

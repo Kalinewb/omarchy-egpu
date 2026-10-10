@@ -275,6 +275,15 @@ test_watch() {
   else
     bad "watch: status.json last_event does not match the last event"
   fi
+  # A file reader sees one document per recompute, and the yank raises three
+  # events in one (plan-gui.md §7.5 needs `yanked`, not only the last word).
+  if jq -e --slurpfile s <(jq -c 'select(.type == "event")' "$out" | tail -n3 | jq -sc 'map({seq, type: .event, at})') \
+    '.recent_events[-3:] == $s[0] and (.recent_events | length) <= 8 and .recent_events[-1] == .last_event' \
+    "$EGPU_RUN/status.json" >/dev/null 2>&1; then
+    ok "watch: status.json keeps the recent events (the yank's three, in order)"
+  else
+    bad "watch: status.json recent_events = $(jq -c '.recent_events' "$EGPU_RUN/status.json" 2>/dev/null)"
+  fi
   if jq -e 'select(.type == "event" and .event == "ready") | .detail.bdf == "0000:03:00.0"' "$out" >/dev/null 2>&1; then
     ok "watch: ready event names the BDF"
   else

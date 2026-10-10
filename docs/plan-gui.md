@@ -380,6 +380,16 @@ third:
 - The descriptor below is still declared in full, as REVISION 4 asks. It costs
   nothing and is inert where unread. **Flag for the user:** if the notch is meant to
   draw widget Components already, this checkout does not show it.
+- **G8 re-check, 2026-10-10 (notch head still `a237a0f`).** One thing changed in
+  the code since the doc was written: activities ARE drawn now. `Bar.qml`
+  sets `activitiesRendered: true` and draws the newest visible claim as a
+  glyph-and-title line (`ActivityGlance.qml`), so a claim can answer `shown`;
+  SURFACE-HOSTING.md:268-271 still says otherwise. Still true: widget
+  `closedView`/`expandedView` Components are never drawn, named `activityViews`
+  are only listed (never instantiated), a claim's `panelRoute` is stored but
+  nothing opens it, and `available` is read only when the notch refreshes. So
+  `closedView` stays `"widget"`. `dev/g8-offscreen.sh` pins each of these against
+  the checkout, and `docs/notch-requests.md` asks for the rest.
 
 ### 7.2 `NotchIntegration.qml` (loaded once by the notch)
 

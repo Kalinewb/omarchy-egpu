@@ -39,6 +39,24 @@ Item {
   readonly property string path: dev ? devBin + "/omarchy-egpu"
                                      : (pluginDir !== "" ? pluginDir + "/bin/omarchy-egpu" : "")
 
+  // The verbs the engine in this checkout answers, as "<module> <verb>". A
+  // view draws a button only for a verb that exists: the status contract has
+  // no field that says one does, and a button that can only answer "usage" is
+  // worse than none (views/StatusView.qml). The engine ships in this same
+  // folder, so the list cannot drift from it; each engine phase adds its own
+  // (E3 `device connect`/`device rescan`, E5 `device eject`, E4 `display …`).
+  readonly property var builtVerbs: ["status", "status watch", "health",
+    "steam roots", "steam accounts", "steam list", "steam status", "steam set", "steam set-all",
+    "steam apply", "steam close", "steam restore"]
+  // Development only: OMARCHY_EGPU_DEV_VERBS="device connect,display off"
+  // pretends more exist, so a gated button can be rendered (dev/g8-offscreen.sh)
+  // before its phase lands. The stub engine still answers them "usage".
+  readonly property var verbs: {
+    var extra = dev ? String(Quickshell.env("OMARCHY_EGPU_DEV_VERBS") || "") : ""
+    return extra === "" ? builtVerbs : builtVerbs.concat(extra.split(",").map(function (v) { return v.trim() }))
+  }
+  function can(verb) { return root.verbs.indexOf(String(verb)) !== -1 }
+
   // Where the watcher keeps status.json: the engine's own rule, $EGPU_RUN or
   // $XDG_RUNTIME_DIR/omarchy-egpu (plan-engine.md §4.1, §5.1). The stub's
   // default is a separate directory so it can never overwrite the real file.

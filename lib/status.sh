@@ -57,14 +57,26 @@ _last_event_from_file() {
   jq -c '.last_event // null' "$EGPU_RUN/status.json" 2>/dev/null || echo null
 }
 
-# status_collect [health_summary_json] [last_event_json] [seq]
+# The watcher's recent events, likewise. A reader of the file sees one
+# document per debounce, and one recompute can raise several events (a
+# yank is monitor_removed, yanked, unplugged at once), so last_event alone
+# loses all but the last of them. Additive (§5.1; plan-engine.md E9).
+_recent_events_from_file() {
+  jq -c '.recent_events // [] | if type == "array" then .[-8:] else [] end' "$EGPU_RUN/status.json" 2>/dev/null || echo '[]'
+}
+
+# status_collect [health_summary_json] [last_event_json] [seq] [recent_events_json]
 # Prints the §5 document. With no health summary it runs the health checks.
 status_collect() {
-  local health=${1:-} last_event=${2:-} seq=${3:-0}
+  local health=${1:-} last_event=${2:-} seq=${3:-0} recent=${4:-}
 
   # ---- bolt
-  local devices daemon=false
+  local devices daemon=false domain=false
   if devices=$(bolt_devices); then daemon=true; else devices='[]'; fi
+  # Whether this machine has a Thunderbolt/USB4 domain at all, which `daemon`
+  # cannot say: boltd down and no controller both read daemon=false. The
+  # notch integration declines on a machine with none (plan-gui.md §7.2).
+  compgen -G "$EGPU_SYS/bus/thunderbolt/devices/domain*" >/dev/null && domain=true
 
   # ---- PCI
   local bdf
@@ -289,6 +301,7 @@ status_collect() {
                                    warnings: map(select(.level == "warn")) | length}')
   fi
   [[ -n $last_event ]] || last_event=$(_last_event_from_file)
+  [[ -n $recent ]] || recent=$(_recent_events_from_file)
 
   jq -cn \
     --argjson schema "$STATUS_SCHEMA" --argjson seq "$seq" --argjson at "$(now_ms)" \
@@ -298,15 +311,15 @@ status_collect() {
     --arg card "$card" --arg bypath "$bypath" --arg link "$link" --argjson comp "$comp_has" \
     --argjson monitors "$monitors" --argjson relogin "$needs_relogin" --argjson held "$held" \
     --argjson steam "$steam_running" --argjson hints "$hints" --argjson health "$health" \
-    --argjson last_event "$last_event" '
+    --argjson last_event "$last_event" --argjson recent "$recent" --argjson domain "$domain" '
     def n: if . == "" then null else . end;
     {schema: $schema, seq: $seq, written_at: $at,
      summary: null,
      phase: $phase,
      bolt: (if $bolt == null
-            then {present: false, daemon: $daemon, uuid: null, name: null, vendor: null, status: null,
-                  policy: null, stored: false, generation: null, profile: null}
-            else {present: $bolt.present, daemon: $daemon, uuid: $bolt.uuid, name: $bolt.name,
+            then {present: false, daemon: $daemon, domain: $domain, uuid: null, name: null, vendor: null,
+                  status: null, policy: null, stored: false, generation: null, profile: null}
+            else {present: $bolt.present, daemon: $daemon, domain: $domain, uuid: $bolt.uuid, name: $bolt.name,
                   vendor: $bolt.vendor, status: $bolt.status, policy: $bolt.policy,
                   stored: $bolt.stored, generation: $bolt.generation, profile: $bolt.profile} end),
      pci: $pci,
@@ -319,7 +332,8 @@ status_collect() {
      steam: {running: $steam},
      hints: $hints,
      health_summary: $health,
-     last_event: $last_event}
+     last_event: $last_event,
+     recent_events: $recent}
     | .summary = (
         . as $s
         | ($s.gpu.procs | length) as $np
@@ -384,7 +398,7 @@ status_human() {
 
 # The state that matters for "did anything change": everything but the
 # record's own bookkeeping.
-_status_key() { jq -c 'del(.seq, .written_at, .last_event)' <<<"$1"; }
+_status_key() { jq -c 'del(.seq, .written_at, .last_event, .recent_events)' <<<"$1"; }
 
 _phase_rank() {
   case $1 in
@@ -500,7 +514,7 @@ status_watch() {
     _WATCH_PRODUCERS+=($!)
   fi
 
-  local seq=0 prev='' prev_key='' prev_phase='' cur cur_key last_event=null health='' health_at=0
+  local seq=0 prev='' prev_key='' prev_phase='' cur cur_key last_event=null recent='[]' health='' health_at=0
   local dirty=1 first_dirty=0 deadline=0 next_beat=0 next_gpu=0 now started due wait_ms line
   local tmp="$EGPU_RUN/.watch.$$.doc"
   local name detail ev
@@ -538,7 +552,7 @@ status_watch() {
                                      warnings: map(select(.level == "warn")) | length}')
       health_at=$now
     fi
-    if ! status_collect "$health" "$last_event" "$seq" >"$tmp"; then
+    if ! status_collect "$health" "$last_event" "$seq" "$recent" >"$tmp"; then
       sleep 1
       continue
     fi
@@ -555,11 +569,12 @@ status_watch() {
             '{type: "event", seq: $seq, event: $e, at: $at, detail: $d}')
           printf '%s\n' "$ev" || exit 0
           last_event=$(jq -c '{seq, type: .event, at}' <<<"$ev")
+          recent=$(jq -c --argjson e "$last_event" '. + [$e] | .[-8:]' <<<"$recent")
         done < <(_status_events "$prev" "$cur")
       fi
       seq=$((seq + 1))
-      cur=$(jq -c --argjson seq "$seq" --argjson le "$last_event" --argjson at "$(now_ms)" \
-        '.seq = $seq | .last_event = $le | .written_at = $at' <<<"$cur")
+      cur=$(jq -c --argjson seq "$seq" --argjson le "$last_event" --argjson re "$recent" --argjson at "$(now_ms)" \
+        '.seq = $seq | .last_event = $le | .recent_events = $re | .written_at = $at' <<<"$cur")
       printf '%s\n' "$(jq -c '{type: "status"} + .' <<<"$cur")" || exit 0
       prev=$cur
       prev_key=$cur_key

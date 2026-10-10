@@ -54,6 +54,19 @@ function message(code) {
   return "Something went wrong: " + c
 }
 
+// Conditions in the status document that are not errors but need a sentence
+// (plan-gui.md §5.1 banners, §7.6 "attention sentences"). Here so the Overview
+// and the notch's compact view say them in the same words.
+var notes = {
+  needs_relogin: "The HDMI monitor needs a new session to appear. Offloading apps works now.",
+  held_after_eject: "Log out before plugging the eGPU in again.",
+  health_errors: "Setup has found a problem."
+}
+
+function note(id) {
+  return notes.hasOwnProperty(id) ? notes[id] : ""
+}
+
 // result is Engine.qml's {ok, json, code, error}. Exit codes 3/126/127 win over
 // whatever JSON came with them: pkexec's 126 has no JSON of the engine's at all.
 function forResult(result) {

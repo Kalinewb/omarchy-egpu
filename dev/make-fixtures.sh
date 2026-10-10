@@ -33,11 +33,12 @@ OUT="$REPO/dev/fixtures"
 
 # Every summary.state at least once, and each flag the bar shows (plan-gui.md
 # §4): connecting with and without a hint, HDMI on, apps on the card, relogin,
-# held modules, an unsupported backend, both kinds of error, and a stranger's
-# machine with no Thunderbolt at all.
+# held modules, an unsupported backend, both kinds of error, a stranger's
+# machine with no Thunderbolt at all, and its opposite for the notch
+# integration's `available` (G8): Thunderbolt present but boltd not answering.
 DEFAULT=(absent stranger-no-tb plugged-unauthorized authorized-no-pci bound-nvidia ready
   ready-hdmi in-use-procs ejecting ejected-clean ejected-held this-machine amd-stub
-  smi-hung auth-error)
+  smi-hung auth-error bolt-down)
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-egpu-fixtures.XXXXXX") || exit 2
 cleanup() {

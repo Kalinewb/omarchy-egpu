@@ -63,8 +63,39 @@ function make(p) {
   }
 }
 
+// The palette inside the notch (plan-gui.md §5.0, §7.7): every colour from
+// `surfaceHost` and nothing else (notch:SURFACE-HOSTING.md:229-235). The host
+// hands over foreground, secondary and accent only, and its accent IS its
+// foreground (it takes the hue out of everything), so good is the accent and
+// warn and bad are the foreground: in the notch the states differ by word and
+// shape (Glance's ring and dot), never by colour. No background, and the
+// host's radius, which views cap at half the size they round, exactly
+// surfaceHost.radiusFor(). Sizes are the shell's (`sizes`: {unit, font}),
+// which are not colours. Without a host (never, inside the notch) the
+// host's own defaults stand in.
+function fromHost(host, sizes) {
+  var s = sizes || {}
+  var fg = host ? host.foreground : "#ffffff"
+  var accent = host ? host.accent : fg
+  return make({
+    foreground: fg,
+    secondary: host ? host.secondary : "#ebebf5",
+    accent: accent,
+    good: accent,
+    warn: fg,
+    bad: fg,
+    background: null,
+    radius: host ? Number(host.radius) : 8,
+    fontFamily: host ? String(host.fontFamily || "") : "",
+    unit: s.unit,
+    font: s.font
+  })
+}
+
 function enabledMonitors(status) {
-  var mons = status && status.display && Array.isArray(status.display.monitors) ? status.display.monitors : []
+  // Not Array.isArray: see Facts.js list().
+  var raw = status && status.display ? status.display.monitors : null
+  var mons = raw && typeof raw === "object" && typeof raw.length === "number" ? raw : []
   var n = 0
   for (var i = 0; i < mons.length; i++) if (mons[i] && mons[i].enabled) n++
   return n

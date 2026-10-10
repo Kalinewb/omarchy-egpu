@@ -106,6 +106,99 @@ Panel {
   // For dev/qml-harness, which checks the rendered button, not just the look.
   readonly property alias indicator: button
 
+  // ---------------------------------------------------------------- notch
+  //
+  // Everything below is inert under omarchy.bar or any other bar: nothing
+  // sets surfaceHost or surfaceScreen and nothing reads `notch`, so there is
+  // no code path to guard (notch:SURFACE-HOSTING.md:190-192). Under the notch
+  // (plan-gui.md §7.2-§7.3) it is declared, never detected.
+
+  // The notch's host for this plugin, and the screen this copy of the widget
+  // is on, so a click opens the notch panel on the clicked screen.
+  property var surfaceHost: null
+  property string surfaceScreen: ""
+
+  // The live transient notice (§7.5), for the descriptor's priority. The
+  // integration claims it; this copy only needs to know it is live.
+  Notices {
+    id: notices
+    status: root.status
+    canConnect: engine.can("device connect")
+  }
+  Connections {
+    target: source
+    function onEvent(record) { notices.take(record) }
+  }
+  readonly property bool noticeLive: notices.live
+
+  // The per-widget descriptor of notch:contract.js:24-28, read by the notch's
+  // registry only if `"notch" in item`. Every value is within contract.js's
+  // checks, and an invalid one falls back to its default rather than failing.
+  //
+  // closedView stays "widget" (this BarIndicator) while the notch does not
+  // draw a widget's declared Components: re-checked for G8 against the
+  // notch's head, its registry collects them but nothing instantiates them
+  // (docs/notch-requests.md). The day it does, closedView becomes
+  // glanceComponent, one line. expandedView is declared already; it is the
+  // compact view, which the integration's panel shows today.
+  readonly property var notch: ({
+    closedView: "widget",
+    expandedView: compactComponent,
+    priority: root.noticeLive ? "transient"
+            : (["in_use", "ejecting", "attention"].indexOf(root.look.state) !== -1 ? "persistent" : "persistent-low"),
+    groupable: !root.noticeLive,
+    hideable: true
+  })
+
+  // Colours for a view the notch would draw from the descriptor: the host's,
+  // as in NotchPanel.qml.
+  readonly property var surfacePalette: Palette.fromHost(root.surfaceHost, {
+    unit: Style.spaceReal(1),
+    font: { caption: Style.font.caption, body: Style.font.body, title: Style.font.title,
+            display: Style.font.display, icon: Style.font.icon }
+  })
+
+  Component {
+    id: glanceComponent
+    Glance {
+      status: root.status
+      engine: engine
+      theme: root.surfacePalette
+      active: true
+      statusNote: root.statusNote
+      noticeTitle: root.noticeLive ? notices.notice.title : ""
+    }
+  }
+
+  Component {
+    id: compactComponent
+    CompactView {
+      status: root.status
+      engine: engine
+      theme: root.surfacePalette
+      density: "compact"
+      active: true
+      statusNote: root.statusNote
+      noticeTitle: root.noticeLive ? notices.notice.title : ""
+    }
+  }
+
+  // A left click (§7.2, notch:SURFACE-HOSTING.md:200-206, 316-319). The
+  // notch's panel when it takes this click, else our own popup. Per event:
+  // only "opened" means the notch is showing it, and "closed" means the click
+  // shut the notch panel that was already open, which is the toggle the user
+  // asked for, not a cue to open a second UI. Every other answer
+  // (declined:hidden, declined:not-accepted, no notch at all) opens our own.
+  // Returns what happened, for dev/g8-offscreen.sh.
+  function press() {
+    if (root.opened) { root.close(); return "own-closed" }
+    var answer = root.surfaceHost && typeof root.surfaceHost.openPanel === "function"
+               ? String(root.surfaceHost.openPanel("main", root.surfaceScreen)) : "no-host"
+    if (answer === "opened" || answer === "closed") return answer
+    root.open()
+    return "own:" + answer
+  }
+
   // --------------------------------------------------------------- routes
   //
   // The popup's tabs are the top-level routes (§5: Overview · Display · Games ·
@@ -183,12 +276,12 @@ Panel {
     readonly property color roleTint: root.roleColor(root.barPalette, root.look.role)
     foreground: Qt.rgba(roleTint.r, roleTint.g, roleTint.b, roleTint.a * root.pulse)
 
-    // Left opens the popup. Right will run `display off` while an eGPU monitor
+    // Left opens the notch's panel or the popup (press()). Right will run `display off` while an eGPU monitor
     // is on (§4, the second fast path to "monitor off"); the display verbs
     // land with E4/G4, so until then right does nothing at all rather than
     // something else.
     onPressed: function (buttonCode) {
-      if (buttonCode === Qt.LeftButton) root.toggle()
+      if (buttonCode === Qt.LeftButton) root.press()
     }
 
     // Corner dot: accent while in use, warn for attention, bad for error. The

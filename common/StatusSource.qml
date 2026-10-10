@@ -20,9 +20,9 @@ import "Errors.js" as Errors
 //
 // Exposed: status (the E§5 document, or null), outcome (why it is null or
 // stale; "" when live), outcomeText (the same as a sentence), watcherRunning,
-// and event(record), raised once per new last_event.seq — never for the event
-// already in the first document read, which happened before anyone was
-// looking. A record is {seq, event, at, detail} from either source: the
+// and event(record), raised once per new event seq (recent_events, or
+// last_event from an older engine) — never for the events already in the
+// first document read, which happened before anyone was looking. A record is {seq, event, at, detail} from either source: the
 // watcher's event line and status.json's last_event name the event
 // differently (`event` / `type`), and a consumer should not have to know.
 Item {
@@ -38,6 +38,11 @@ Item {
   // False parks the file source entirely (no watch, no timer). The Service
   // sets it while its own watcher is the source.
   property bool reading: true
+  // Read the file synchronously when its path is set. The notch integration
+  // sets it: the notch reads `available` once, as the integration finishes
+  // loading, so the first document must already be there (plan-gui.md §7.2).
+  // The file is a few KB on a tmpfs.
+  property bool blockLoading: false
 
   // The newest schema this plugin understands (plan-engine.md §5.1: a consumer
   // refuses a newer one and says "update the plugin").
@@ -108,15 +113,24 @@ Item {
       root.fileStatus = doc
     }
     root.fileSource = from
-    var ev = doc.last_event
-    if (ev && ev.seq !== undefined) {
-      if (root.lastEventSeq >= 0 && Number(ev.seq) > root.lastEventSeq)
-        root.event({ seq: Number(ev.seq), event: String(ev.type || ""), at: Number(ev.at) || 0,
-                     detail: ev.detail || null })
-      root.lastEventSeq = Math.max(root.lastEventSeq, Number(ev.seq))
-    } else if (root.lastEventSeq < 0) {
-      root.lastEventSeq = 0
+    // Every event since the last one seen, in order. One recompute can raise
+    // several (a yank is monitor_removed, yanked, unplugged; a remembered
+    // enclosure is plugged and authorized within one debounce), and
+    // last_event names only the last, so the watcher also keeps
+    // `recent_events` (additive, plan-engine.md E9). An older engine has only
+    // last_event.
+    var evs = Array.isArray(doc.recent_events) && doc.recent_events.length > 0 ? doc.recent_events
+            : (doc.last_event && doc.last_event.seq !== undefined ? [doc.last_event] : [])
+    var top = root.lastEventSeq
+    for (var i = 0; i < evs.length; i++) {
+      var ev = evs[i]
+      if (!ev || ev.seq === undefined) continue
+      var n = Number(ev.seq)
+      if (root.lastEventSeq >= 0 && n > root.lastEventSeq)
+        root.event({ seq: n, event: String(ev.type || ""), at: Number(ev.at) || 0, detail: ev.detail || null })
+      top = Math.max(top, n)
     }
+    root.lastEventSeq = Math.max(top, 0)
     return true
   }
 
@@ -160,24 +174,35 @@ Item {
     id: file
     path: root.following || !root.reading ? "" : root.path
     watchChanges: true
+    blockLoading: root.blockLoading
     printErrors: false
     onFileChanged: reload()
     property string lastText: ""
-    onLoaded: {
-      root.fileTried = true
-      var t = text()
-      if (t === file.lastText) return
-      file.lastText = t
-      try {
-        root.accept(JSON.parse(t), "file")
-        root.checkFresh()
-      } catch (e) {
-        // A torn read cannot happen with the watcher's rename, so this is
-        // something else writing there. Keep the last good document.
-        console.warn("kalinewb.egpu", "Ignoring unreadable status file", root.path, e)
-      }
-    }
+    onLoaded: root.take(text())
     onLoadFailed: { root.fileTried = true; root.checkFresh() }
+  }
+
+  function take(t) {
+    root.fileTried = true
+    if (t === file.lastText) return
+    file.lastText = t
+    try {
+      root.accept(JSON.parse(t), "file")
+      root.checkFresh()
+    } catch (e) {
+      // A torn read cannot happen with the watcher's rename, so this is
+      // something else writing there. Keep the last good document.
+      console.warn("kalinewb.egpu", "Ignoring unreadable status file", root.path, e)
+    }
+  }
+
+  // blockLoading makes text() wait for the read, but `loaded` still arrives
+  // later; so the first document is taken here, before anything that was
+  // created with this source can ask for it.
+  Component.onCompleted: {
+    if (!root.blockLoading || root.following || !root.reading || root.path === "") return
+    var t = file.text()
+    if (t !== "") root.take(t)
   }
 
   // The watch cannot announce a file whose directory did not exist when it

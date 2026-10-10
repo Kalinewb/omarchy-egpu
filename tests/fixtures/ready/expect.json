@@ -1,5 +1,5 @@
 { "phase": "ready", "summary_state": "ready",
-  "status_checks": [".summary.line == \"eGPU ready · eject before unplugging\"", ".gpu.ok == true",
+  "status_checks": [".summary.line == \"eGPU ready · eject before unplugging\"", ".bolt.domain == true", ".gpu.ok == true",
                     ".gpu.name == \"NVIDIA GeForce RTX 4070 SUPER\"", ".gpu.temp_c == 29", ".gpu.mem_used_mb == 33",
                     ".gpu.procs == []", ".driver.modeset == true", ".driver.fbdev == true",
                     ".pci.bdf == \"0000:03:00.0\"", ".pci.functions == [\"0000:03:00.0\",\"0000:03:00.1\"]",

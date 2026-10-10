@@ -11,6 +11,7 @@
   "bolt": {
     "present": false,
     "daemon": false,
+    "domain": false,
     "uuid": null,
     "name": null,
     "vendor": null,
@@ -70,5 +71,6 @@
     "errors": 3,
     "warnings": 4
   },
-  "last_event": null
+  "last_event": null,
+  "recent_events": []
 }

@@ -394,7 +394,7 @@ terminals.
   "summary": { "state": "absent|connecting|ready|in_use|ejecting|safe_to_unplug|attention|error",
                "line": "eGPU ready · HDMI on", "needs_action": false },
   "phase": "absent|plugged|authorized|bound|ready|ejecting|ejected|error",
-  "bolt": { "present": true, "uuid": "...", "name": "TBGAA", "vendor": "...",
+  "bolt": { "present": true, "domain": true, "uuid": "...", "name": "TBGAA", "vendor": "...",
             "status": "authorized", "policy": "iommu", "stored": true, "profile": "minisforum-deg2" },
   "pci": { "bdf": "0000:xx:00.0", "functions": ["0000:xx:00.0","0000:xx:00.1"],
            "vendor": "0x10de", "device": "0x2783", "removable": true,
@@ -411,7 +411,8 @@ terminals.
   "steam": { "running": false },
   "hints": [ {"id":"authorized_no_pci","text":"..."} ],
   "health_summary": { "errors": 0, "warnings": 1 },
-  "last_event": { "seq": 41, "type": "plugged", "at": 1791590399000 } }
+  "last_event": { "seq": 41, "type": "plugged", "at": 1791590399000 },
+  "recent_events": [ { "seq": 40, "type": "unplugged", "at": 1791590398900 }, { "seq": 41, "type": "plugged", "at": 1791590399000 } ] }
 ```
 
 - `phase` comes only from sysfs and bolt, never from what the engine last did, so a
@@ -454,6 +455,14 @@ terminals.
 - **Status file `$XDG_RUNTIME_DIR/omarchy-egpu/status.json`**:
   - The running watcher writes it after every `status` record, atomically (temp
     file plus rename), together with `last_event`.
+  - **Added in E9 (G8), additive:** `recent_events`, the watcher's last 8 events
+    in seq order (same shape as `last_event`). One recompute can raise several
+    events (a yank is `monitor_removed`, `yanked`, `unplugged`; a remembered
+    enclosure is `plugged` and `authorized` within one debounce), and a file
+    reader sees one document per recompute, so `last_event` alone loses all but
+    the last. And `bolt.domain`: whether the machine has a Thunderbolt/USB4 domain
+    at all, which `bolt.daemon` cannot say (boltd down and no controller both read
+    `false`). The notch integration declines on it (plan-gui.md §7.2).
   - It lets a consumer read state without spawning a process or holding a stream.
     The notch integration does exactly that, with a `FileView` (plan-gui.md §7.2).
   - Treat the file as stale when `written_at` is older than 10 s while the watcher

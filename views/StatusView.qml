@@ -2,6 +2,7 @@ import QtQuick
 import qs.Ui
 import "../common/Palette.js" as Palette
 import "../common/Errors.js" as Errors
+import "../common/Facts.js" as Facts
 
 // Overview: what the eGPU is doing, as the engine says it (plan-gui.md §5.1).
 //
@@ -124,14 +125,7 @@ Column {
     return now
   }
 
-  function nowLine() {
-    var g = view.gpu
-    var parts = []
-    if (g.temp_c !== null && g.temp_c !== undefined) parts.push(Math.round(g.temp_c) + " °C")
-    if (g.util_pct !== null && g.util_pct !== undefined) parts.push(Math.round(g.util_pct) + "% busy")
-    if (g.mem_used_mb !== null && g.mem_used_mb !== undefined) parts.push(Math.round(g.mem_used_mb) + " MB VRAM")
-    return parts.join(" · ")
-  }
+  function nowLine() { return Facts.now(view.gpu) }
 
   // Sized by the shell's maxWidth (§5.0); a Column's implicit width is its own.
   width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : 300 * view.u)
@@ -165,12 +159,12 @@ Column {
   Banner {
     shown: view.relogin
     tone: view.theme.warn
-    text: "The HDMI monitor needs a new session to appear. Offloading apps works now."
+    text: Errors.note("needs_relogin")
   }
   Banner {
     shown: view.held
     tone: view.theme.warn
-    text: "Log out before plugging the eGPU in again."
+    text: Errors.note("held_after_eject")
   }
   Banner {
     shown: !!view.s && view.s.backend && view.s.backend.name !== null && view.s.backend.supported === false

@@ -11,6 +11,7 @@
   "bolt": {
     "present": true,
     "daemon": true,
+    "domain": true,
     "uuid": "ba7e8780-0085-dcfa-ffff-ffffffffffff",
     "name": "TBGAA",
     "vendor": "Micro Computer (HK) Tech. Ltd.",
@@ -75,5 +76,6 @@
     "errors": 0,
     "warnings": 0
   },
-  "last_event": null
+  "last_event": null,
+  "recent_events": []
 }

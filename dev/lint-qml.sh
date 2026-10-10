@@ -21,6 +21,11 @@
 #     (plan-gui.md §5.0): colours and sizes only from `theme`, so no `Color.`
 #     or `Style.` in views/; no Process in a view; imports only from QtQuick,
 #     Quickshell, Quickshell.Io, qs.Commons, qs.Ui and relative paths, or
+#   - the notch shell (NotchIntegration.qml, NotchPanel.qml) reads Omarchy's
+#     Color (colours come only from surfaceHost), the integration file names a
+#     window type or an IpcHandler (the notch declines it: own-window), or
+#     either imports outside the notch's allowed set or a view from anywhere
+#     but views/ (plan-gui.md §7, gate G8), or
 #   - any QML reads the machine itself — /sys, hyprctl, boltctl, nvidia-smi —
 #     instead of asking the engine (plan-engine.md §12 E9).
 #
@@ -142,6 +147,59 @@ else
     failures=$((failures + 1))
   else
     echo "  ${GREEN}pass${RESET}  views import only QtQuick, Quickshell(.Io), qs.Commons, qs.Ui and relative paths"
+  fi
+fi
+
+echo
+echo "${BOLD}Notch shell${RESET}  ${DIM}(plan-gui.md §7; notch:SURFACE-HOSTING.md §1-§4)${RESET}"
+notch=(NotchIntegration.qml NotchPanel.qml)
+present=()
+for f in "${notch[@]}"; do [[ -f $f ]] && present+=("$f"); done
+if (( ${#present[@]} == 0 )); then
+  echo "  ${DIM}skip  no notch integration yet${RESET}"
+else
+  code() { sed -E 's#//.*$##' "$1"; }
+  # Colours only from surfaceHost: no theme colour may reach the notch.
+  hits=""
+  for f in "${present[@]}"; do
+    h=$(code "$f" | grep -nE '(^|[^A-Za-z0-9_.])Color\.' | sed "s#^#    $f:#")
+    [[ -n $h ]] && hits+="$h"$'\n'
+  done
+  if [[ -n $hits ]]; then
+    echo "  ${RED}FAIL${RESET}  the notch shell reads Omarchy's Color (colours come from surfaceHost):"
+    printf '%s' "$hits" | head -20
+    failures=$((failures + 1))
+  else
+    echo "  ${GREEN}pass${RESET}  no Color.* in the notch shell"
+  fi
+
+  # The notch refuses an integration whose entry file names a window type,
+  # comments included (own-window), and an integration may not register IPC.
+  if [[ -f NotchIntegration.qml ]]; then
+    h=$(grep -nE 'PanelWindow|PopupWindow|FloatingWindow|IpcHandler' NotchIntegration.qml | sed 's#^#    NotchIntegration.qml:#')
+    if [[ -n $h ]]; then
+      echo "  ${RED}FAIL${RESET}  the integration names a window type or registers IPC:"
+      printf '%s\n' "$h" | head -10
+      failures=$((failures + 1))
+    else
+      echo "  ${GREEN}pass${RESET}  the integration names no window type and registers no IPC"
+    fi
+  fi
+
+  # Imports: the set an integration may use, and the only relative ones are
+  # this plugin's views/ and common/ (no view forked outside views/; gate G8 b).
+  hits=""
+  for f in "${present[@]}"; do
+    h=$(grep -nE '^import ' "$f" | grep -vE '^[0-9]+:import (QtQuick|Quickshell|Quickshell\.Io|qs\.Commons|qs\.Ui)$' |
+      grep -vE '^[0-9]+:import "(views|common)(/[A-Za-z]+\.js)?"( as [A-Za-z]+)?$' | sed "s#^#    $f:#")
+    [[ -n $h ]] && hits+="$h"$'\n'
+  done
+  if [[ -n $hits ]]; then
+    echo "  ${RED}FAIL${RESET}  an import outside the notch's allowed set, or a view from outside views/:"
+    printf '%s' "$hits" | head -20
+    failures=$((failures + 1))
+  else
+    echo "  ${GREEN}pass${RESET}  notch shell imports only the allowed modules, views/ and common/"
   fi
 fi
 

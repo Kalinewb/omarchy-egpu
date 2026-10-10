@@ -11,6 +11,7 @@
   "bolt": {
     "present": true,
     "daemon": true,
+    "domain": true,
     "uuid": "aaaaaaaa-0000-0000-0000-000000000002",
     "name": "Core X",
     "vendor": "Razer",
@@ -78,5 +79,6 @@
     "errors": 0,
     "warnings": 1
   },
-  "last_event": null
+  "last_event": null,
+  "recent_events": []
 }
