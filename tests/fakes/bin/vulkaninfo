@@ -1,5 +1,13 @@
 #!/bin/bash
 # Fake vulkaninfo: present means installed. A scenario hides it with
 # absent-tools.
+# $EGPU_FAKE_DIR/vulkaninfo.txt, when present, is the --summary output. The
+# offload variables it was run with are logged, so tests see what it got.
 printf 'vulkaninfo %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
-echo "Devices:"
+printf 'vulkaninfo env __NV_PRIME_RENDER_OFFLOAD=%s __VK_LAYER_NV_optimus=%s\n' \
+  "${__NV_PRIME_RENDER_OFFLOAD:-}" "${__VK_LAYER_NV_optimus:-}" >>"${EGPU_FAKE_LOG:-/dev/null}"
+if [[ -r $EGPU_FAKE_DIR/vulkaninfo.txt ]]; then
+  cat "$EGPU_FAKE_DIR/vulkaninfo.txt"
+else
+  echo "Devices:"
+fi

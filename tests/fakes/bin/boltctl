@@ -4,6 +4,10 @@
 #   bolt.json: {"daemon": true, "devices": [{uuid, name, vendor, status,
 #               generation, stored, policy}]}
 # `monitor` runs $EGPU_FAKE_DIR/bolt-monitor.sh if present, then idles.
+# `authorize UUID` / `enroll [--policy P] UUID` mark the device authorized
+# (enroll also stores it), then run $EGPU_FAKE_DIR/bolt-authorize.sh UUID if
+# present (the enclosure's PCI tree appearing). $EGPU_FAKE_DIR/bolt-authorize-fail
+# makes both fail as boltd does when polkit says no.
 printf 'boltctl %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
 f="$EGPU_FAKE_DIR/bolt.json"
 case ${1:-} in
@@ -38,6 +42,20 @@ case ${1:-} in
     echo "$$" >"$EGPU_FAKE_DIR/boltctl-monitor.pid"
     [[ -x $EGPU_FAKE_DIR/bolt-monitor.sh ]] && "$EGPU_FAKE_DIR/bolt-monitor.sh"
     exec sleep 3600
+    ;;
+  authorize | enroll)
+    verb=$1
+    uuid=${*: -1}
+    if [[ -e $EGPU_FAKE_DIR/bolt-authorize-fail ]]; then
+      echo "boltctl: error: authorization failed: Not authorized" >&2
+      exit 1
+    fi
+    jq -c --arg u "$uuid" --arg v "$verb" '
+      .devices |= map(if .uuid == $u then .status = "authorized"
+        | (if $v == "enroll" then .stored = true | .policy = "auto" else . end) else . end)' \
+      "$f" >"$f.tmp" && mv -f "$f.tmp" "$f"
+    [[ -x $EGPU_FAKE_DIR/bolt-authorize.sh ]] && "$EGPU_FAKE_DIR/bolt-authorize.sh" "$uuid"
+    exit 0
     ;;
   *) exit 0 ;;
 esac

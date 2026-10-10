@@ -4,7 +4,8 @@
 #
 #   tests/run.sh               every scenario, the Steam gate tests, then the watcher
 #   tests/run.sh absent ...    only these scenarios ("watch" for the watcher,
-#                              "steam" for the Steam module, tests/steam.sh)
+#                              "steam" for the Steam module, tests/steam.sh,
+#                              "device" for connect and egpu-run, tests/device.sh)
 #
 # Each scenario in fixtures/<name>/ has:
 #   setup.sh      builds the fake machine with tests/lib.sh (sysfs, /dev,
@@ -340,6 +341,11 @@ test_watch() {
 # shellcheck source=tests/steam.sh
 source "$TESTS/steam.sh"
 
+# ---------------------------------------------------------------- device
+
+# shellcheck source=tests/device.sh
+source "$TESTS/device.sh"
+
 # ---------------------------------------------------------------- main
 
 # Scenarios are the fixture dirs with an expect.json; fixtures/steam holds the
@@ -349,13 +355,15 @@ mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do
   [[ $d != watch-sequence && -r $d/expect.json ]] && echo "$d"
 done)
 targets=("$@")
-(( ${#targets[@]} )) || targets=("${ALL[@]}" steam watch)
+(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device watch)
 
 for s in "${targets[@]}"; do
   if [[ $s == watch ]]; then
     (test_watch)
   elif [[ $s == steam ]]; then
     test_steam
+  elif [[ $s == device ]]; then
+    test_device
   elif [[ -d $TESTS/fixtures/$s && -r $TESTS/fixtures/$s/expect.json ]]; then
     (run_scenario "$s")
   else

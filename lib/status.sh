@@ -494,6 +494,9 @@ status_watch() {
   exec {infd}<>"$_WATCH_FIFO"
   trap '_watch_cleanup' EXIT
   trap 'exit 0' TERM INT HUP PIPE
+  # Events posted while no watcher ran are stale; jobs post only to a running
+  # one (lib/device.sh _dev_event).
+  rm -f -- "$EGPU_RUN/events.spool"
 
   # Producers only mark the state dirty. They never inherit the lock fd, so a
   # stray child cannot keep a dead watcher's lock alive.
@@ -517,7 +520,7 @@ status_watch() {
   local seq=0 prev='' prev_key='' prev_phase='' cur cur_key last_event=null recent='[]' health='' health_at=0
   local dirty=1 first_dirty=0 deadline=0 next_beat=0 next_gpu=0 now started due wait_ms line
   local tmp="$EGPU_RUN/.watch.$$.doc"
-  local name detail ev
+  local name detail
 
   while true; do
     now=$(now_ms)
@@ -563,14 +566,8 @@ status_watch() {
       if [[ -n $prev ]]; then
         while IFS=$'\t' read -r name detail; do
           [[ -n $name ]] || continue
-          [[ -n $detail ]] || detail='{}'
-          seq=$((seq + 1))
-          ev=$(jq -cn --argjson seq "$seq" --arg e "$name" --argjson at "$(now_ms)" --argjson d "$detail" \
-            '{type: "event", seq: $seq, event: $e, at: $at, detail: $d}')
-          printf '%s\n' "$ev" || exit 0
-          last_event=$(jq -c '{seq, type: .event, at}' <<<"$ev")
-          recent=$(jq -c --argjson e "$last_event" '. + [$e] | .[-8:]' <<<"$recent")
-        done < <(_status_events "$prev" "$cur")
+          _watch_event "$name" "${detail:-{\}}"
+        done < <(_status_events "$prev" "$cur"; _watch_spool)
       fi
       seq=$((seq + 1))
       cur=$(jq -c --argjson seq "$seq" --argjson le "$last_event" --argjson re "$recent" --argjson at "$(now_ms)" \
@@ -580,7 +577,12 @@ status_watch() {
       prev_key=$cur_key
       prev_phase=$(jq -r '.phase' <<<"$cur")
     else
-      prev=$(jq -c --argjson at "$(now_ms)" '.written_at = $at' <<<"$prev")
+      while IFS=$'\t' read -r name detail; do
+        [[ -n $name ]] || continue
+        _watch_event "$name" "${detail:-{\}}"
+      done < <(_watch_spool)
+      prev=$(jq -c --argjson at "$(now_ms)" --argjson le "$last_event" --argjson re "$recent" \
+        '.written_at = $at | .last_event = $le | .recent_events = $re' <<<"$prev")
     fi
     write_atomic "$EGPU_RUN/status.json" <<<"$prev"
 
@@ -590,13 +592,39 @@ status_watch() {
   done
 }
 
+# _watch_event <name> <detail-json>: one event record on the stream, numbered,
+# and remembered for status.json. Runs in status_watch's scope (its seq,
+# last_event and recent).
+_watch_event() {
+  local ev
+  seq=$((seq + 1))
+  ev=$(jq -cn --argjson seq "$seq" --arg e "$1" --argjson at "$(now_ms)" --argjson d "${2:-{\}}" \
+    '{type: "event", seq: $seq, event: $e, at: $at, detail: $d}')
+  printf '%s\n' "$ev" || exit 0
+  last_event=$(jq -c '{seq, type: .event, at}' <<<"$ev")
+  recent=$(jq -c --argjson e "$last_event" '. + [$e] | .[-8:]' <<<"$recent")
+}
+
+# Events other engine jobs post to $EGPU_RUN/events.spool (device connect's
+# connect_failed: nothing in two status documents says a job failed). Taken by
+# rename, so a line posted meanwhile waits for the next round. Prints
+# "name<TAB>detail" like _status_events.
+_watch_spool() {
+  local f="$EGPU_RUN/events.spool" t="$EGPU_RUN/.events.$$.drain"
+  [[ -s $f ]] || return 0
+  mv -f -- "$f" "$t" 2>/dev/null || return 0
+  jq -r 'select(type == "object" and (.event | type == "string") and (.event | test("^[a-z_]+$")))
+         | "\(.event)\t\(.detail // {} | tojson)"' "$t" 2>/dev/null
+  rm -f -- "$t"
+}
+
 _watch_cleanup() {
   local p
   for p in "${_WATCH_PRODUCERS[@]}"; do
     pkill -P "$p" 2>/dev/null
     kill "$p" 2>/dev/null
   done
-  rm -f -- "${_WATCH_FIFO:-}" "$EGPU_RUN/.watch.$$.doc"
+  rm -f -- "${_WATCH_FIFO:-}" "$EGPU_RUN/.watch.$$.doc" "$EGPU_RUN/.events.$$.drain"
 }
 
 # ---------------------------------------------------------------- dispatch

@@ -6,13 +6,15 @@
 #   status watch                JSON-lines stream + $XDG_RUNTIME_DIR/omarchy-egpu/status.json
 #   health [--json|--human]     setup/health rows (§9)
 #   steam <verb> [args]         per-game "Run on eGPU" in Steam (§8; lib/steam/steam.sh)
+#   device connect [opts]       bolt → PCI → driver → verify (§6.1; lib/device.sh)
+#   connect [opts]              the same
 #
 # JSON on stdout, prose on stderr. Exit codes (§1.1): 0 ok, 1 refused or
-# failed ({"error":...} on stdout), 3 busy. The panel and the notch run only
-# this; every decision lives here.
+# failed ({"error":...} on stdout), 3 busy; 126/127 from pkexec pass through.
+# The panel and the notch run only this; every decision lives here.
 #
-# Later phases add: device (connect/eject/holders/rescan), display, config,
-# health fix/bundle.
+# Later phases add: device (eject/holders/rescan), display, config,
+# health fix/bundle. bin/egpu-run is the offload wrapper (§7.4).
 
 set -uo pipefail
 
@@ -29,6 +31,7 @@ usage: omarchy-egpu <module> <verb> [args]
   steam set <appid> on|off [--nvapi on|off] [--adopt] [--account A] [--queue]
   steam set-all on|off [--only-stale] [--account A] [--queue]
   steam apply [--close] [--relaunch] | close | restore <accountid> <backup>
+  device connect [--timeout S] [--enroll] [--quiet]   (also: connect ...)
 USAGE
 }
 
@@ -50,6 +53,16 @@ case $module in
     # shellcheck source=lib/steam/steam.sh
     source "$EGPU_LIB/steam/steam.sh"
     steam_main "$@"
+    ;;
+  device)
+    # shellcheck source=lib/device.sh
+    source "$EGPU_LIB/device.sh"
+    device_main "$@"
+    ;;
+  connect)
+    # shellcheck source=lib/device.sh
+    source "$EGPU_LIB/device.sh"
+    device_main connect "$@"
     ;;
   -h | --help | help)
     usage

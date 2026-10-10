@@ -1,0 +1,152 @@
+#!/bin/bash
+
+# egpu-run — run one command on the eGPU (PRIME render offload). plan-engine.md §7.4.
+#
+#   egpu-run [--strict] [--quiet] [--] <command> [args…]
+#   egpu-run --check        is the eGPU ready? JSON on stdout, exit 0 ready / 1 not
+#   egpu-run --env          the KEY=VALUE lines it would set, one per line
+#
+# The environment comes from the backend (be_offload_env <bdf> run; nvidia:
+# the PRIME offload set plus NVIDIA's EGL vendor file, which the toggle file
+# keeps out of the session). The command is exec'd, so its exit status, pid,
+# signals and stdio are its own.
+#
+# Steam: a game's launch options can be `/path/to/egpu-run %command%`. Steam
+# puts its own wrapper chain and the game after it; nothing past the first
+# argument that is not one of the options above is ever read. (The Games view
+# writes plain environment tokens instead, §8.3: they also reach Flatpak Steam
+# and survive removing the plugin.)
+#
+# When no eGPU is ready, it says so on stderr (and as a notification unless
+# --quiet or config `notify` is false) and runs the command on the default GPU,
+# exit status preserved: a game started from Steam still starts. With
+# --strict it refuses instead: {"error":"not_connected"} on stdout, exit 1
+# (the plan's original rule; the caller decides).
+#
+# Readiness is read from sysfs only (card present, the backend's driver bound)
+# plus the watcher's status.json for a hung driver. It never runs nvidia-smi:
+# this sits in front of every launch and must not stall one.
+
+set -uo pipefail
+
+EGPU_LIB="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../lib" && pwd)"
+export EGPU_LIB
+# shellcheck source=lib/common.sh
+source "$EGPU_LIB/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: egpu-run [--strict] [--quiet] [--] <command> [args...]
+       egpu-run --check | --env
+USAGE
+}
+
+# _run_resolve: sets RUN_BDF, RUN_BACKEND, RUN_ENV (array) when ready (0), or
+# RUN_ERROR (an engine error code) and RUN_REASON (a sentence) when not (1).
+_run_resolve() {
+  RUN_BDF='' RUN_BACKEND='' RUN_ENV=() RUN_ERROR='' RUN_REASON=''
+  local bdf drv want line hung
+  bdf=$(pci_egpu_candidates | head -n1)
+  if [[ -z $bdf ]]; then
+    RUN_ERROR=not_connected RUN_REASON="no eGPU is connected"
+    return 1
+  fi
+  if ! backend_select "$bdf"; then
+    RUN_ERROR=backend_stub RUN_REASON="the eGPU at $bdf is not a kind this plugin supports"
+    return 1
+  fi
+  drv=$(pci_driver "$bdf")
+  if [[ $BE_STATUS == implemented ]]; then
+    # The driver that binds the card is the first module of the KMS set.
+    want=$(be_kms_modules | head -n1)
+    if [[ $drv != "$want" ]]; then
+      RUN_ERROR=not_connected
+      RUN_REASON="the eGPU's driver is not loaded${drv:+ (bound to $drv)}; connect it first"
+      return 1
+    fi
+  elif [[ -z $drv ]]; then
+    # A stub backend still knows its offload variables (§4.2); it only needs
+    # some driver on the card.
+    RUN_ERROR=not_connected RUN_REASON="the eGPU has no driver; connect it first"
+    return 1
+  fi
+  # A driver stuck in the kernel would stall the app too. Only a fresh file
+  # from a running watcher is believed (§5.1: 10 s).
+  hung=$(jq -r --arg bdf "$bdf" --argjson now "$(now_ms)" '
+    select(.written_at != null and ($now - .written_at) < 10000 and .pci.bdf == $bdf
+           and .gpu.error == "smi_hung") | "yes"' "$EGPU_RUN/status.json" 2>/dev/null)
+  if [[ $hung == yes ]]; then
+    RUN_ERROR=smi_hung RUN_REASON="the eGPU's driver is not answering"
+    return 1
+  fi
+  while IFS= read -r line; do
+    [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && RUN_ENV+=("$line")
+  done < <(be_offload_env "$bdf" run 2>/dev/null)
+  if (( ${#RUN_ENV[@]} == 0 )); then
+    RUN_ERROR=backend_stub RUN_REASON="the $EGPU_BACKEND backend has no offload variables"
+    return 1
+  fi
+  RUN_BDF=$bdf RUN_BACKEND=$EGPU_BACKEND
+  return 0
+}
+
+strict=0 quiet=0 mode=run
+while (( $# )); do
+  case $1 in
+    --check) mode=check ;;
+    --env) mode=print-env ;;
+    --strict) strict=1 ;;
+    --quiet) quiet=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *) break ;;
+  esac
+  shift
+done
+
+case $mode in
+  check)
+    if _run_resolve; then
+      jq -cn --arg bdf "$RUN_BDF" --arg b "$RUN_BACKEND" --args \
+        '{ready: true, bdf: $bdf, backend: $b, env: $ARGS.positional}' "${RUN_ENV[@]}"
+      exit 0
+    fi
+    json_error "$RUN_ERROR" "$(jq -cn --arg r "$RUN_REASON" '{ready: false, detail: $r}')"
+    exit 1
+    ;;
+  print-env)
+    _run_resolve || { say "egpu-run: $RUN_REASON"; exit 1; }
+    printf '%s\n' "${RUN_ENV[@]}"
+    exit 0
+    ;;
+esac
+
+if (( $# == 0 )); then
+  usage
+  exit 2
+fi
+
+if _run_resolve; then
+  for line in "${RUN_ENV[@]}"; do
+    export "${line?}"
+  done
+  exec -- "$@"
+fi
+
+if (( strict )); then
+  say "egpu-run: $RUN_REASON; not starting ${1##*/}."
+  json_error "$RUN_ERROR" "$(jq -cn --arg r "$RUN_REASON" '{ready: false, detail: $r}')"
+  exit 1
+fi
+
+say "egpu-run: $RUN_REASON; running ${1##*/} on the default GPU."
+if (( !quiet )) && [[ $(config_get notify true) == true ]] && command -v notify-send >/dev/null 2>&1; then
+  notify-send -a eGPU -t 5000 "Not on the eGPU" "${1##*/} runs on the laptop GPU: $RUN_REASON." >/dev/null 2>&1 &
+fi
+exec -- "$@"

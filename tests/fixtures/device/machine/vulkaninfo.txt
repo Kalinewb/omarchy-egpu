@@ -1,0 +1,13 @@
+==========
+VULKANINFO
+==========
+
+Devices:
+========
+GPU0:
+	apiVersion         = 1.4.312
+	deviceType         = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+	deviceName         = NVIDIA GeForce RTX 4070 SUPER
+GPU1:
+	deviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+	deviceName         = Intel(R) Graphics (LNL)

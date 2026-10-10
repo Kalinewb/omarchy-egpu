@@ -1,0 +1,3 @@
+#!/bin/bash
+# Fake notify-send: logs the notification, shows nothing.
+printf 'notify-send %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"

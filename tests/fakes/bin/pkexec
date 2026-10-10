@@ -1,0 +1,15 @@
+#!/bin/bash
+# Fake pkexec: logs, then runs the program as the same user, like an
+# allow_active=yes action would as root. It runs nothing outside the
+# scenario's fixture tree, so a test can never reach a real program through
+# it. $EGPU_FAKE_DIR/pkexec-rc (126 declined, 127 not authorized) makes it
+# answer like a refused prompt instead.
+printf 'pkexec %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+if [[ -r $EGPU_FAKE_DIR/pkexec-rc ]]; then
+  exit "$(cat "$EGPU_FAKE_DIR/pkexec-rc")"
+fi
+if [[ -z ${FX_ROOT:-} || ${1:-} != "$FX_ROOT"/* ]]; then
+  echo "fake pkexec: refusing ${1:-nothing}: not in the fixture tree" >&2
+  exit 127
+fi
+exec "$@"

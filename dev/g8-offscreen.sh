@@ -150,7 +150,8 @@ out=$(harness states EGPU_HARNESS_DOCS="$docs" ${PNG:+EGPU_HARNESS_PNG_DIR="$PNG
 outv=$(harness states EGPU_HARNESS_DOCS="$docs" OMARCHY_EGPU_DEV_VERBS="$ALLVERBS")
 noerrors "states"
 # fixture | state | word | glyph role | badge | pulse | monitor | buttons with every verb
-while IFS='|' read -r fx state word role badge pulse monitor buttons; do
+# | buttons with only the verbs the engine has built (common/Engine.qml)
+while IFS='|' read -r fx state word role badge pulse monitor buttons built; do
   [[ -n $fx ]] || continue
   line=$(jq -r '.summary.line' "$FIX/$fx/status.json")
   check "$fx → glance $state: '$word', $role glyph, badge $badge, pulse $pulse, monitor $monitor" \
@@ -161,27 +162,27 @@ while IFS='|' read -r fx state word role badge pulse monitor buttons; do
     "$(grep -qF -- "$line" <<<"$(field "c.$fx.text" "$out")" && echo yes || echo no)|$(field "c.$fx.size" "$out")"
   check "$fx: only the host's colours, only radiusFor() radii" "host-only|radiusFor" \
     "$(field "c.$fx.colours" "$out")|$(field "c.$fx.radii" "$out")"
-  check "$fx: no action buttons while the engine lacks the verbs" "Open full panel" "$(field "c.$fx.buttons" "$out")"
+  check "$fx: only the built verbs' buttons: $built" "$built" "$(field "c.$fx.buttons" "$out")"
   check "$fx: with the verbs: $buttons" "$buttons" "$(field "c.$fx.buttons" "$outv")"
   check "$fx: …still host colours and radii" "host-only|radiusFor" \
     "$(field "c.$fx.colours" "$outv")|$(field "c.$fx.radii" "$outv")"
 done <<'TABLE'
-absent|absent|none|secondary|none|false|false|Open full panel
-stranger-no-tb|absent|none|secondary|none|false|false|Open full panel
-plugged-unauthorized|connecting|connecting|foreground|none|true|false|Connect,Open full panel
-authorized-no-pci|connecting|connecting|foreground|none|true|false|Connect,Open full panel
-bound-nvidia|connecting|connecting|foreground|none|true|false|Connect,Open full panel
-ready|ready|ready|accent|none|false|false|Safe eject,Open full panel
-ready-hdmi|in_use|in use|accent|accent|false|true|Safe eject,Turn off now,Open full panel
-in-use-procs|in_use|in use|accent|accent|false|false|Safe eject,Open full panel
-ejecting|ejecting|ejecting|foreground|none|true|false|Open full panel
-ejected-clean|safe_to_unplug|unplug|good|none|false|false|Reconnect,Open full panel
-ejected-held|attention|log out|good|warn|false|false|Reconnect(off),Open full panel
-this-machine|attention|log out|accent|warn|false|false|Safe eject,Open full panel
-amd-stub|attention|check setup|foreground|warn|false|false|Open full panel
-bolt-down|attention|check setup|accent|warn|false|false|Safe eject,Open full panel
-smi-hung|error|error|foreground|bad|false|false|Open full panel
-auth-error|error|error|foreground|bad|false|false|Open full panel
+absent|absent|none|secondary|none|false|false|Open full panel|Open full panel
+stranger-no-tb|absent|none|secondary|none|false|false|Open full panel|Open full panel
+plugged-unauthorized|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
+authorized-no-pci|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
+bound-nvidia|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
+ready|ready|ready|accent|none|false|false|Safe eject,Open full panel|Open full panel
+ready-hdmi|in_use|in use|accent|accent|false|true|Safe eject,Turn off now,Open full panel|Open full panel
+in-use-procs|in_use|in use|accent|accent|false|false|Safe eject,Open full panel|Open full panel
+ejecting|ejecting|ejecting|foreground|none|true|false|Open full panel|Open full panel
+ejected-clean|safe_to_unplug|unplug|good|none|false|false|Reconnect,Open full panel|Open full panel
+ejected-held|attention|log out|good|warn|false|false|Reconnect(off),Open full panel|Open full panel
+this-machine|attention|log out|accent|warn|false|false|Safe eject,Open full panel|Open full panel
+amd-stub|attention|check setup|foreground|warn|false|false|Open full panel|Open full panel
+bolt-down|attention|check setup|accent|warn|false|false|Safe eject,Open full panel|Open full panel
+smi-hung|error|error|foreground|bad|false|false|Open full panel|Open full panel
+auth-error|error|error|foreground|bad|false|false|Open full panel|Open full panel
 TABLE
 
 has() { grep -qF -- "$2" <<<"$(field "c.$1.text" "$3")" && echo yes || echo no; }
@@ -240,7 +241,7 @@ notices() {
 o=$(notices shown)
 noerrors "notices"
 check "a plug-in hidden behind 'authorized' in one recompute still makes its notice, then safe-to-unplug" \
-  "eGPU connected | Safe to unplug the eGPU" "$(field claimTitles "$o")"
+  "eGPU connected — load driver? | Safe to unplug the eGPU" "$(field claimTitles "$o")"
 check "both claimed under kalinewb.egpu.notice, transient, 8 s, view egpu, panelRoute main" \
   "kalinewb.egpu.notice|transient|8000|egpu|main" \
   "$(field claims "$o" | jq -r '[.[] | "\(.key)|\(.priority)|\(.ttlMs)|\(.view)|\(.panelRoute)"] | unique | join(";")')"

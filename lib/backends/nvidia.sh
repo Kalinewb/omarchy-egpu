@@ -34,10 +34,37 @@ be_dev_nodes() {
   done
 }
 
+# be_offload_env <bdf> [run]
 # Exactly the user's known-working set (scope.md, Hardware). One NVIDIA GPU, so
 # no __NV_PRIME_RENDER_OFFLOAD_PROVIDER.
+#
+# With `run` (bin/egpu-run, never Steam's managed string, whose bytes are a
+# contract with the games already switched on, §8.3) it also points EGL at
+# NVIDIA's vendor file. The toggle file pins the session's
+# __EGL_VENDOR_LIBRARY_FILENAMES to Mesa (scope.md DECISIONS 2026-10-10,
+# dev/e0-facts.md), and an app started from the session inherits that, so an
+# EGL app would never see libEGL_nvidia. The file is found, not assumed: the
+# first glvnd vendor file whose library is libEGL_nvidia, in glvnd's own
+# search order (EGPU_GLVND_DIRS overrides it for the tests).
 be_offload_env() {
   printf '%s\n' __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only
+  [[ ${2:-} == run ]] || return 0
+  local json
+  json=$(_nv_egl_vendor_json) && printf '__EGL_VENDOR_LIBRARY_FILENAMES=%s\n' "$json"
+  return 0
+}
+
+_nv_egl_vendor_json() {
+  local dirs d f
+  IFS=: read -r -a dirs <<<"${EGPU_GLVND_DIRS:-$EGPU_ETC/glvnd/egl_vendor.d:${EGPU_USRSHARE:-/usr/share}/glvnd/egl_vendor.d}"
+  for d in "${dirs[@]}"; do
+    for f in "$d"/*.json; do
+      [[ -r $f ]] || continue
+      [[ $(jq -r '.ICD.library_path // empty' "$f" 2>/dev/null) == libEGL_nvidia.so* ]] &&
+        { printf '%s\n' "$f"; return 0; }
+    done
+  done
+  return 1
 }
 
 be_steam_extras() {
@@ -76,9 +103,19 @@ be_kms_params() {
 #   125  timed out in D state: left alone, never killed or retried. That is the
 #        rmapiLockAcquire hang (binding fact 1); killing does not help and a
 #        retry would only add a second stuck process.
+# "Never retried" holds across processes too: the stuck pid is remembered in
+# $EGPU_RUN/smi-hung, and while it is still an nvidia-smi in D state every
+# later call (the watcher's next recompute, `status --json`, connect) answers
+# 125 at once instead of starting another one.
 _nv_smi() {
-  local out=$1 pid waited=0 limit st
+  local out=$1 pid waited=0 limit st mark="$EGPU_RUN/smi-hung"
   shift
+  if read -r pid 2>/dev/null <"$mark"; then
+    if [[ $pid =~ ^[0-9]+$ ]] && _nv_smi_stuck "$pid"; then
+      return 125
+    fi
+    rm -f -- "$mark"
+  fi
   limit=$(( ${EGPU_SMI_TIMEOUT:-10} * 10 ))
   nvidia-smi "$@" >"$out" 2>/dev/null &
   pid=$!
@@ -87,6 +124,7 @@ _nv_smi() {
       st=$(proc_state "$pid")
       if [[ $st == D ]]; then
         disown "$pid" 2>/dev/null
+        mkdir -p -- "$EGPU_RUN" 2>/dev/null && printf '%s\n' "$pid" >"$mark"
         return 125
       fi
       kill "$pid" 2>/dev/null
@@ -97,6 +135,13 @@ _nv_smi() {
     waited=$((waited + 1))
   done
   wait "$pid"
+}
+
+# Is <pid> still an nvidia-smi in D state? (A reused pid is something else.)
+_nv_smi_stuck() {
+  local stat
+  stat=$(read_attr "$EGPU_PROC/$1/stat") || return 1
+  [[ $stat == *"(nvidia-smi) D "* ]]
 }
 
 # be_verify <bdf>: {ok, driver, version, name, temp_c, util_pct, mem_used_mb,

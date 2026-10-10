@@ -1,0 +1,13 @@
+#!/bin/bash
+# Fake glxinfo: `-B` names the renderer GLVND would pick from the environment
+# alone, as on this machine (dev/e0-facts.md): the NVIDIA card under PRIME
+# render offload with NVIDIA's GLX vendor, else the laptop's Mesa driver.
+printf 'glxinfo %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+if [[ ${__NV_PRIME_RENDER_OFFLOAD:-} == 1 && ${__GLX_VENDOR_LIBRARY_NAME:-} == nvidia ]]; then
+  echo "OpenGL vendor string: NVIDIA Corporation"
+  echo "OpenGL renderer string: NVIDIA GeForce RTX 4070 SUPER/PCIe/SSE2"
+else
+  echo "OpenGL vendor string: Intel"
+  echo "OpenGL renderer string: Mesa Intel(R) Graphics (LNL)"
+fi
+exit "${EGPU_FAKE_GLXINFO_RC:-0}"
