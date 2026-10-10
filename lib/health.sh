@@ -304,6 +304,17 @@ _check_tools_system() {
       health_row system.helper system ok "System half $have installed" ""
     fi
   fi
+
+  # system.autoconnect: connect.auto, i.e. the flag the udev rule tests.
+  if [[ ! -x $EGPU_ADMIN ]]; then
+    health_row system.autoconnect system skipped "Auto-connect" "Needs the system half." none ""
+  elif [[ $(config_get connect.auto false) == true ]]; then
+    health_row system.autoconnect system ok "Auto-connect is on" \
+      "Plugging in the eGPU loads its driver by itself; Safe eject keeps it off until you unplug or connect again."
+  else
+    health_row system.autoconnect system info "Auto-connect is off" \
+      "Plugging in the eGPU does nothing until you press Connect. Turning it on asks for your password."
+  fi
 }
 
 _check_diag() {

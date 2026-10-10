@@ -3,8 +3,11 @@
 # loads or unloads the module in the fixture's sysfs, nothing else.
 #   modprobe -- <m>       creates $FX_ROOT/sys/module/<m>
 #   modprobe -r -- <m>    removes it
-# $EGPU_FAKE_DIR/modprobe-fail naming <m> makes that module fail, and
-# $EGPU_FAKE_DIR/modprobe-hang makes every call hang (the deadline test).
+# $EGPU_FAKE_DIR/modprobe-fail naming <m> makes that module fail,
+# $EGPU_FAKE_DIR/modprobe-hang makes every call hang (the deadline test), and
+# $EGPU_FAKE_DIR/modprobe-orphan makes it hang after starting a grandchild
+# that outlives it with every descriptor it inherited, as a child stuck in the
+# kernel would keep them (the lock test).
 printf 'modprobe %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
 [[ -n ${FX_ROOT:-} ]] || { echo "fake modprobe: no fixture" >&2; exit 1; }
 remove=0
@@ -13,6 +16,11 @@ remove=0
 m=${1:-}
 [[ $m =~ ^[a-z_]+$ ]] || { echo "fake modprobe: bad module '$m'" >&2; exit 1; }
 [[ -e ${EGPU_FAKE_DIR:-}/modprobe-hang ]] && exec sleep 600
+if [[ -e ${EGPU_FAKE_DIR:-}/modprobe-orphan ]]; then
+  sleep 30 &
+  echo $! >>"$EGPU_FAKE_DIR/bg.pids"
+  exec sleep 600
+fi
 if grep -qxF -- "$m" "${EGPU_FAKE_DIR:-}/modprobe-fail" 2>/dev/null; then
   echo "modprobe: ERROR: could not insert '$m': No such device" >&2
   exit 1

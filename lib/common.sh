@@ -30,8 +30,14 @@ EGPU_RUN="${EGPU_RUN:-${XDG_RUNTIME_DIR:-/run/user/$UID}/omarchy-egpu}"
 EGPU_STATE="${EGPU_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-egpu}"
 EGPU_CONFIG="${EGPU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-egpu/config.json}"
 # The root half (§10). Only checked for presence and version here; never run
-# with privileges by the engine's read-only verbs.
-EGPU_ADMIN="${EGPU_ADMIN:-/usr/local/bin/omarchy-egpu-admin}"
+# with privileges by the engine's read-only verbs. device.sh runs it through
+# pkexec, so its path is fixed: only the test suite (tests/run.sh exports
+# OMARCHY_EGPU_TEST=1) may point it at a fake.
+if [[ ${OMARCHY_EGPU_TEST:-} == 1 ]]; then
+  EGPU_ADMIN="${EGPU_ADMIN:-/usr/local/bin/omarchy-egpu-admin}"
+else
+  EGPU_ADMIN=/usr/local/bin/omarchy-egpu-admin
+fi
 EGPU_POLICY="${EGPU_POLICY:-/usr/share/polkit-1/actions/no.kalinewb.egpu.policy}"
 
 EGPU_PCI="$EGPU_SYS/bus/pci/devices"
@@ -84,10 +90,20 @@ write_atomic() {
 
 # ---------------------------------------------------------------- config
 
+# autoconnect_on: the root half's auto-connect flag exists (§10.3). It, not
+# the config file, is connect.auto: the udev rule tests it, and only root
+# (install.sh, or the helper's `autoconnect` verb) changes it.
+autoconnect_on() { [[ -e $EGPU_ETC/omarchy-egpu/autoconnect ]]; }
+
 # config_get <key> <default-json>: prints the effective value as compact JSON.
 # Keys are dotted paths ("device.match"); a literal dotted key also matches.
+# connect.auto is the flag file's state whatever the file says.
 config_get() {
   local key=$1 def=$2
+  if [[ $key == connect.auto ]]; then
+    autoconnect_on && echo true || echo false
+    return 0
+  fi
   if [[ -r $EGPU_CONFIG ]]; then
     jq -c --arg k "$key" --argjson d "$def" '
       if has($k) then .[$k]

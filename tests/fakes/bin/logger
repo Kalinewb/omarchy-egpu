@@ -2,5 +2,7 @@
 # Fake logger: the root helper and installer log to the journal as root; in
 # tests (and in the user-namespace run of tests/system.sh) the line goes to
 # the call log instead of the real journal.
+# $EGPU_FAKE_DIR/logger-hang makes it hang, as on a wedged journal.
 printf 'logger %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+[[ -e ${EGPU_FAKE_DIR:-}/logger-hang ]] && exec sleep 600
 exit 0

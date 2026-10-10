@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/bash -p
 #
 # omarchy-egpu system half
 # omarchy-egpu-version: 0.1.0
 #
 # The root helper (plan-engine.md §10.1): the few things the eGPU engine needs
-# root for, behind one polkit action, no.kalinewb.egpu.device.
+# root for, behind one polkit action per verb (no.kalinewb.egpu.policy).
 #
 #   pkexec /usr/local/bin/omarchy-egpu-admin <verb> [arg]
 #
@@ -20,18 +20,32 @@
 #   load <backend>       modprobe the backend's allowlisted modules in fixed
 #                        order. Refused unless a removable display device of
 #                        that backend's vendor exists: never load with no card
-#                        (binding fact 1). `auto` picks the backend from the
-#                        device; the udev rule uses it when auto-connect is on
+#                        (binding fact 1). An explicit backend is the user
+#                        connecting, and clears the eject latch
+#   load auto            the same, backend picked from the device; the udev
+#                        rule runs it when auto-connect is on. Refused
+#                        (eject_latched) for a device the user ejected, until
+#                        its enclosure has been unplugged or the user connects
 #   unload <backend>     modprobe -r in fixed reverse order. Refused while any
 #                        display device of that vendor exists, or while anything
 #                        but the allowlisted modules themselves holds one
 #   remove <bdf>         writes 1 to `remove` for every function of the slot,
-#                        in a child with a 20 s deadline (remove_timeout)
+#                        in a child with a 20 s deadline (remove_timeout).
+#                        Refused (monitor_active) while a connector of the
+#                        card is enabled. Writes the eject latch first
 #   rescan               writes 1 to /sys/bus/pci/rescan. Refused while the
 #                        backend's modules are loaded with no card (O2)
 #   holders              read-only: pid/comm/uid of every process holding a
 #                        backend node or the eGPU's DRM nodes, any user's
 #   inspect-initramfs    read-only: allowlisted modules in each initramfs/UKI
+#   autoconnect on|off   creates or removes /etc/omarchy-egpu/autoconnect, the
+#                        flag the udev rule tests. The only verb that writes
+#                        under /etc, and the only one polkit asks a password
+#                        for (the user's own, auth_self)
+#
+# Files this writes, all fixed paths: the lock and the eject latch in /run
+# (root's, mode 0600 and 0644), a private work directory in /run removed on
+# exit, and the auto-connect flag. Nothing else.
 #
 # The bounds a security review should check, all in this text:
 #
@@ -46,26 +60,40 @@
 #     removable/vendor/boot_vga checks, or nothing is removed. The laptop's own
 #     GPU has no `removable` attribute at all (dev/e0-facts.md).
 #   * No eval, no `bash -c`, no word splitting of input (IFS is unset and every
-#     expansion is quoted), no inherited shell functions, PATH=/usr/bin, LC_ALL=C.
-#   * Every external command that touches the kernel runs in the background
-#     with a deadline (run_bounded). A child stuck in the kernel is abandoned,
-#     not waited for, and its output never reaches our stdout, so pkexec and
-#     the engine always get an answer.
+#     expansion is quoted), PATH=/usr/bin, LC_ALL=C.
+#   * `bash -p` (the first line): bash's privileged mode. It imports no shell
+#     function from the environment and reads neither BASH_ENV nor ENV, nor
+#     SHELLOPTS, BASHOPTS, CDPATH or GLOBIGNORE. All of that would happen
+#     before the first line of this file runs, so no line below could undo it
+#     (an imported `unset` or `read` would shadow the very builtins a cleanup
+#     loop uses). pkexec and udev pass a clean environment anyway; this does
+#     not depend on it. Run any other way (`bash omarchy-egpu-admin`), the
+#     helper refuses with not_privileged_mode before doing anything.
+#   * Every external command that touches the kernel, and logger, runs in the
+#     background with a deadline (run_bounded). A child stuck in the kernel is
+#     abandoned, not waited for, and holds neither our stdout nor the lock
+#     (fd 9 is closed for it), so pkexec and the engine always get an answer
+#     and the next call is not blocked behind it.
 #   * None of the engine's EGPU_* variables is read. The single test seam,
 #     OMARCHY_EGPU_ADMIN_TEST_ROOT, is honoured only when this process is NOT
 #     root, i.e. when it has no privilege to misuse; as root it is ignored.
 #
-# Who may run it: polkit's allow_active=yes for the active local session
-# (scope.md DECISIONS 2026-10-09). Every verb either acts on hardware the
-# person at the seat can already unplug by hand, or only reads. Mutating verbs
-# are logged to the journal with the caller's uid.
+# Who may run it: polkit, one action per verb, matched on argv1
+# (no.kalinewb.egpu.policy). The device verbs are allow_active=yes for the
+# active local session (scope.md DECISIONS 2026-10-09): each acts on hardware
+# the person at the seat can already unplug by hand, or only reads.
+# `autoconnect` changes what happens at the next plug-in, so it asks for the
+# user's own password (auth_self). Mutating verbs are logged to the journal
+# with the caller's uid.
 
-# Shell functions can be imported from the environment and would shadow any
-# command below; none is ours yet, so drop every one.
-while IFS= read -r _f; do
-  [[ -n $_f ]] && unset -f -- "$_f"
-done <<<"$(compgen -A function)"
-unset _f
+# Privileged mode, or nothing: see above. Builtins only, before anything else.
+case $- in
+  *p*) ;;
+  *)
+    builtin printf '{"error":"not_privileged_mode"}\n'
+    builtin exit 1
+    ;;
+esac
 set -uo pipefail
 unset IFS BASH_ENV ENV CDPATH GLOBIGNORE
 shopt -u expand_aliases
@@ -85,6 +113,7 @@ LOAD_DEADLINE=90
 UNLOAD_DEADLINE=60
 RESCAN_DEADLINE=30
 READ_DEADLINE=60
+AUDIT_DEADLINE=5
 LOCK_WAIT=10
 
 # ---------------------------------------------------------------- output
@@ -138,11 +167,14 @@ fi
 # to misuse, so the seam cannot widen what root does.
 R=''
 TEST_MODE=0
+# Who must own a directory this writes into: root, or the tester.
+OWNER=0
 if ((EUID != 0)); then
   R=${OMARCHY_EGPU_ADMIN_TEST_ROOT:-}
   [[ -n $R ]] || die not_root
   [[ $R == /* && $R != *..* && -d $R ]] || die not_root
   TEST_MODE=1
+  OWNER=$EUID
   # Short deadlines, so the hang tests do not take minutes.
   if [[ ${OMARCHY_EGPU_ADMIN_TEST_DEADLINE:-} =~ ^[1-9][0-9]?$ ]]; then
     REMOVE_DEADLINE=$OMARCHY_EGPU_ADMIN_TEST_DEADLINE LOAD_DEADLINE=$REMOVE_DEADLINE
@@ -161,11 +193,22 @@ caller_uid=${PKEXEC_UID:-0}
 PCI=$R/sys/bus/pci/devices
 MODULE_DIR=$R/sys/module
 LOCK_FILE=$R/run/omarchy-egpu-admin.lock
+# The eject latch: `remove` names the device and its enclosure here, and
+# `load auto` leaves that device alone until the enclosure was unplugged or the
+# user connects (an explicit `load`). /run, so a reboot forgets it.
+LATCH=$R/run/omarchy-egpu-admin.ejected
+# The auto-connect flag: its directory is made by system/install.sh.
+CONF_DIR=$R/etc/omarchy-egpu
+FLAG=$CONF_DIR/autoconnect
 
-audit() {
-  ((TEST_MODE)) && return 0
-  logger -t omarchy-egpu -p auth.notice -- "uid $caller_uid: $*" 2>/dev/null || true
+# The flag's bytes; system/install.sh writes the same ones.
+flag_text() {
+  printf '# omarchy-egpu-version: %s\n' "$VERSION"
+  printf '# Auto-connect is on: the udev rule loads the eGPU driver on plug-in.\n'
+  printf "# Turn it off in the panel's Setup, or remove this file as root.\n"
 }
+
+# audit is defined below run_bounded: logger runs under a deadline too.
 
 # ---------------------------------------------------------------- backends
 
@@ -256,16 +299,23 @@ work_dir() {
   chmod 0700 "$WORK" 2>/dev/null || die work_dir_failed
 }
 
-# run_bounded <seconds> <out file> <command…>: runs the command in the
-# background, stdout to <out>, stderr to <out>.err, and waits at most
-# <seconds>. Returns its status, or 124 when the deadline passed. A child that
-# outlives the deadline is sent SIGKILL and abandoned: one stuck in the kernel
-# (state D) cannot die, and waiting for it would hang pkexec and the engine.
-# Its stdout and stderr are files, so it holds nothing of ours open.
+# run_bounded <seconds> <out file|-> <command…>: runs the command in the
+# background, stdout to <out>, stderr to <out>.err (both to /dev/null for -),
+# and waits at most <seconds>. Returns its status, or 124 when the deadline
+# passed. A child that outlives the deadline is sent SIGKILL and abandoned: one
+# stuck in the kernel (state D) cannot die, and waiting for it would hang
+# pkexec and the engine. Its stdout and stderr are files and fd 9 (the lock)
+# is closed for it, so it holds nothing of ours open: not the engine's pipe,
+# and not the lock, which would make every later call busy.
 run_bounded() {
-  local secs=$1 out=$2 pid i
+  local secs=$1 out=$2 err pid i
   shift 2
-  "$@" </dev/null >"$out" 2>"$out.err" &
+  if [[ $out == - ]]; then
+    out=/dev/null err=/dev/null
+  else
+    err=$out.err
+  fi
+  "$@" </dev/null >"$out" 2>"$err" 9>&- &
   pid=$!
   for ((i = 0; i < secs * 10; i++)); do
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -278,6 +328,13 @@ run_bounded() {
   return 124
 }
 
+# The journal line for a mutating verb. A logger stuck on a wedged journal is
+# abandoned like any other child.
+audit() {
+  ((TEST_MODE)) && return 0
+  run_bounded "$AUDIT_DEADLINE" - logger -t omarchy-egpu -p auth.notice -- "uid $caller_uid: $*" || true
+}
+
 # write_one <file>: the sysfs write, as a function so run_bounded can run it
 # in a child. printf is a builtin; the redirection is the whole operation.
 write_one() { printf '1\n' >"$1"; }
@@ -285,10 +342,98 @@ write_one() { printf '1\n' >"$1"; }
 # first_line <file>: for error details.
 first_line() { attr "$1" 2>/dev/null | cut -c1-200; }
 
+# The lock is root's alone (0600): flock works on a read-only descriptor, so a
+# lock anyone could open is one anyone could hold, and every verb would answer
+# busy. An older release made it 0644, hence the chmod.
 lock() {
+  local old
   [[ -d $R/run ]] || die busy '"detail":"no /run"' 3
-  exec 9>>"$LOCK_FILE" || die busy '"detail":"cannot open the lock"' 3
+  old=$(umask)
+  umask 077
+  if ! exec 9>>"$LOCK_FILE"; then
+    umask "$old"
+    die busy '"detail":"cannot open the lock"' 3
+  fi
+  umask "$old"
+  chmod 0600 -- "$LOCK_FILE" 2>/dev/null
   flock -w "$LOCK_WAIT" 9 || die busy "" 3
+}
+
+# dir_safe <dir>: a real directory (not a link), owned by root (the tester in
+# test mode), writable by nobody else. Only then is a name inside it ours.
+dir_safe() {
+  local info
+  [[ -d $1 && ! -L $1 ]] || return 1
+  info=$(stat -c '%u %a' -- "$1" 2>/dev/null) || return 1
+  [[ ${info%% *} == "$OWNER" ]] || return 1
+  (((8#${info##* } & 8#022) == 0))
+}
+
+# ---------------------------------------------------------------- the eject latch
+
+# anchor_of <bdf>: the enclosure a function hangs in, as "path<TAB>inode": its
+# parent bridge, when that is itself removable (inside the enclosure; on this
+# machine 0000:02:00.0, the enclosure's own downstream port). The bridge stays
+# when the GPU is removed and goes when the enclosure is unplugged; sysfs gives
+# a re-created directory a new inode number, so the pair names one connection.
+# Status 1 when the parent is not removable: then no enclosure can be told.
+anchor_of() {
+  local real parent ino
+  real=$(realpath -e -- "$PCI/$1" 2>/dev/null) || return 1
+  parent=${real%/*}
+  [[ $parent == "$R/sys/devices/"* && ${parent##*/} =~ $BDF_RE ]] || return 1
+  [[ $(attr "$parent/removable") == removable ]] || return 1
+  ino=$(stat -c %i -- "$parent" 2>/dev/null) || return 1
+  printf '%s\t%s' "${parent#"$R"}" "$ino"
+}
+
+# latch_write <bdf>: names the device, and its enclosure when it has one.
+# Beside the target in /run (root's), then renamed over it.
+latch_write() {
+  local anchor tmp
+  anchor=$(anchor_of "$1") || anchor=$'-\t-'
+  work_dir
+  tmp=$WORK/latch
+  printf '%s\t%s\n' "$1" "$anchor" >"$tmp" || die latch_failed
+  chmod 0644 -- "$tmp" || die latch_failed
+  mv -T -f -- "$tmp" "$LATCH" || die latch_failed
+}
+
+# latch_honour: for `load auto`, with VENDOR selected. Refuses (eject_latched)
+# while a present device of that vendor is the one the user ejected, on the
+# same connection. A latch whose enclosure has gone (or came back as a new
+# one) is stale and removed. A latch that cannot be read is honoured for every
+# device: only root writes it, so it is never expected, and refusing is safe.
+latch_honour() {
+  local l_bdf='' l_anchor='' l_ino='' d a
+  [[ -e $LATCH || -L $LATCH ]] || return 0
+  if [[ -f $LATCH && ! -L $LATCH ]]; then
+    IFS=$'\t' read -r l_bdf l_anchor l_ino <"$LATCH"
+  fi
+  if ! [[ $l_bdf =~ $BDF_RE ]] ||
+    ! { [[ $l_anchor == - && $l_ino == - ]] ||
+      [[ $l_anchor =~ ^/sys/devices/[A-Za-z0-9:._/-]+$ && $l_anchor != *..* && $l_ino =~ ^[0-9]+$ ]]; }; then
+    die eject_latched '"detail":"the latch is unreadable; connect from the panel"'
+  fi
+  if [[ $l_anchor != - ]]; then
+    if [[ -d $R$l_anchor && ! -L $R$l_anchor && $(stat -c %i -- "$R$l_anchor" 2>/dev/null) == "$l_ino" ]]; then
+      while IFS= read -r d; do
+        [[ -n $d ]] || continue
+        a=$(anchor_of "$d") || continue
+        [[ ${a%%$'\t'*} == "$l_anchor" ]] &&
+          die eject_latched "\"device\":$(json_string "$d"),\"ejected\":$(json_string "$l_bdf")"
+      done <<<"$(egpu_devices "$VENDOR")"
+      return 0
+    fi
+    rm -f -- "$LATCH"
+    audit "eject latch for $l_bdf cleared: its enclosure was unplugged"
+    return 0
+  fi
+  # No enclosure to tell by: the address alone, until the user connects.
+  while IFS= read -r d; do
+    [[ $d == "$l_bdf" ]] && die eject_latched "\"device\":$(json_string "$d"),\"ejected\":$(json_string "$l_bdf")"
+  done <<<"$(egpu_devices "$VENDOR")"
+  return 0
 }
 
 # ---------------------------------------------------------------- verbs
@@ -307,10 +452,16 @@ case $verb in
         [[ -n $found ]] && break
       done
       [[ -n $found ]] || die no_pci_device
+      latch_honour
     else
       backend_select "$want" || die unknown_backend
       found=$(egpu_devices "$VENDOR" | head -n1)
       [[ -n $found ]] || die no_pci_device "\"backend\":$(json_string "$BACKEND")"
+      # The user connects: whatever they ejected before is theirs again.
+      if [[ -e $LATCH || -L $LATCH ]]; then
+        rm -f -- "$LATCH" || die latch_failed
+        audit "eject latch cleared: load $BACKEND"
+      fi
     fi
 
     work_dir
@@ -420,6 +571,17 @@ case $verb in
     done
 
     lock
+    # A lit monitor on the card is the crash risk of removing a GPU that owns
+    # outputs (scope.md REVISION 2026-10-09): the engine turns them off first,
+    # and this refuses if one is still on. A check, not a lock: a monitor lit
+    # after it is the compositor's doing.
+    for f in "${functions[@]}"; do
+      for c in "$PCI/$f/drm"/card*/card*-*; do
+        [[ $(attr "$c/enabled") == enabled ]] &&
+          die monitor_active "\"device\":$(json_string "$f"),\"connector\":$(json_string "${c##*/}")"
+      done
+    done
+    latch_write "$bdf"
     work_dir
     removed=()
     deadline=$((SECONDS + REMOVE_DEADLINE))
@@ -489,15 +651,22 @@ case $verb in
     : >"$WORK/fds"
     fd_dirs=("$R"/proc/[0-9]*/fd)
     if ((${#fd_dirs[@]})); then
+      # NUL-terminated records: a link target is chosen by whoever opened the
+      # file and may hold tabs and newlines, which must not read as a row of
+      # another pid. The directory (%h) is /proc/<pid>/fd, never either.
       run_bounded "$READ_DEADLINE" "$WORK/fds" find "${fd_dirs[@]}" -mindepth 1 -maxdepth 1 \
-        -type l -printf '%h\t%l\n'
+        -type l -printf '%h\t%l\0'
       rc=$?
       ((rc == 124)) && die read_timeout
       # find exits 1 when a process exits mid-walk; what it printed stands.
     fi
 
     declare -A nodes_of=()
-    while IFS=$'\t' read -r dir target; do
+    # Split by hand: read with IFS=tab would trim a tab off the target's end.
+    while IFS= read -r -d '' rec; do
+      [[ $rec == *$'\t'* ]] || continue
+      dir=${rec%%$'\t'*}
+      target=${rec#*$'\t'}
       [[ -n $dir ]] || continue
       match=0
       if [[ $target =~ ^/dev/nvidia([0-9]+|ctl|-uvm|-uvm-tools|-modeset)$ ]]; then
@@ -568,6 +737,36 @@ case $verb in
       printf '{"path":%s,"ok":%s,"modules":%s}' "$(json_string "${img#"$R"}")" "$ok" "$(json_array "${found[@]}")"
     done
     printf ']}\n'
+    exit 0
+    ;;
+
+  autoconnect)
+    (($# == 1)) || die bad_arguments
+    [[ $1 == on || $1 == off ]] || die bad_arguments
+    want=$1
+    lock
+    # /etc and the directory install.sh made, both root's and closed to
+    # everyone else, so no name inside can be swapped under us. Never created
+    # here: no directory means no system half to switch.
+    dir_safe "$R/etc" || die unsafe_dir '"path":"/etc"'
+    if [[ ! -e $CONF_DIR && ! -L $CONF_DIR ]]; then
+      [[ $want == off ]] && { printf '{"ok":true,"autoconnect":false}\n'; exit 0; }
+      die not_installed "\"path\":$(json_string "${CONF_DIR#"$R"}")"
+    fi
+    dir_safe "$CONF_DIR" || die unsafe_dir "\"path\":$(json_string "${CONF_DIR#"$R"}")"
+    if [[ $want == on ]]; then
+      # Fixed bytes, written beside the flag and renamed over it. -T: a
+      # directory in the flag's place is an error, not a place to move into.
+      tmp=$(mktemp -- "$CONF_DIR/.autoconnect.XXXXXX" 2>/dev/null) || die autoconnect_failed
+      if ! flag_text >"$tmp" || ! chmod 0644 -- "$tmp" || ! mv -T -f -- "$tmp" "$FLAG" 2>/dev/null; then
+        rm -f -- "$tmp"
+        die autoconnect_failed
+      fi
+    else
+      rm -f -- "$FLAG" 2>/dev/null || die autoconnect_failed
+    fi
+    audit "autoconnect $want"
+    printf '{"ok":true,"autoconnect":%s}\n' "$([[ $want == on ]] && echo true || echo false)"
     exit 0
     ;;
 

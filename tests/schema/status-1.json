@@ -72,6 +72,11 @@
         "supported": { "type": "boolean" }
       }
     },
+    "connect": {
+      "type": "object",
+      "required": ["auto"],
+      "properties": { "auto": { "type": "boolean" } }
+    },
     "driver": {
       "type": "object",
       "required": ["bound", "modules", "modeset", "fbdev"],

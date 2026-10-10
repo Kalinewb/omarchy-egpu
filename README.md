@@ -22,13 +22,19 @@ dev/check-pins.sh     # the root half's pins, checksum, versions and the command
 
 ## System half (root)
 
-Connect, eject and rescan need a small root helper, `/usr/local/bin/omarchy-egpu-admin`, with a polkit action
-(`no.kalinewb.egpu.device`, no password for the active local session), a udev rule
-(`/etc/udev/rules.d/61-omarchy-egpu.rules`: the `/dev/dri/omarchy-egpu-primary` and `-external` links, and
-auto-connect) and a boot-load mask in `/etc/modules-load.d/` named after the file the driver package ships.
-`omarchy plugin add` never runs sudo, so this half is installed afterwards, from a terminal, from the installed
-plugin folder. The helper takes only fixed verbs and loads only `nvidia nvidia_modeset nvidia_drm nvidia_uvm`;
-see the header of `system/omarchy-egpu-admin`. It has not been through the security review yet.
+Connect, eject and rescan need a small root helper, `/usr/local/bin/omarchy-egpu-admin`, with polkit actions
+(`no.kalinewb.egpu.policy`, one per helper verb), a udev rule (`/etc/udev/rules.d/61-omarchy-egpu.rules`: the
+`/dev/dri/omarchy-egpu-primary` and `-external` links, and auto-connect), a boot-load mask in
+`/etc/modules-load.d/` named after the file the driver package ships, and the auto-connect flag
+`/etc/omarchy-egpu/autoconnect`. `omarchy plugin add` never runs sudo, so this half is installed afterwards, from
+a terminal, from the installed plugin folder. The helper takes only fixed verbs and loads only
+`nvidia nvidia_modeset nvidia_drm nvidia_uvm`; see the header of `system/omarchy-egpu-admin`. It passed a
+security review with conditions; the changes made for it (auto-connect switch, eject latch) await a re-review.
+
+- Connect, eject and rescan ask for no password at the active local session (polkit `allow_active=yes`). Turning
+  auto-connect on or off from the panel asks for your own password.
+- Safe eject refuses while a monitor on the eGPU is still lit, and after it the eGPU is left alone by
+  auto-connect until you unplug it or press Connect.
 
 ### Installing or updating the system half
 
@@ -37,17 +43,20 @@ a root-only directory, checks the copy and runs it. The installer checks every f
 checksums in its own text. Compare what you paste with this:
 
 ```bash
-d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.0/system/install.sh.sha256) && sudo bash -c 't=$(mktemp -d /run/omarchy-egpu-installer.XXXXXX) && cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | sha256sum -c --quiet - && bash "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
+d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.0/system/install.sh.sha256) && sudo /usr/bin/bash -c 'PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; /usr/bin/rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
 ```
 
 - `bash system/install.sh --print-command uninstall` (or `reinstall`) prints the same command for removing it.
-  Uninstall removes every installed file and puts back what install replaced (saved under
-  `/var/backups/omarchy-egpu/`).
+  Uninstall removes every installed file, the auto-connect flag included, and puts back what install replaced
+  (saved under `/var/backups/omarchy-egpu/`). **Removing the boot-load mask means the driver package loads
+  `nvidia-uvm` at boot again**; with no eGPU attached at boot, that is what froze this machine. Uninstall says so.
+- A refused install or reinstall changes nothing: every check runs before the first file is touched.
 - If an empty `/etc/modules-load.d/nvidia-utils.conf` is left from the old driver package, the installer
   explains it and asks before moving it to the backup folder.
-- **Auto-connect is off.** With it on, plugging in the eGPU loads its driver through the helper; with it off,
-  the panel's Connect does. To turn it on, run the command with `--autoconnect on` added before `install`, or
-  create `/etc/omarchy-egpu/autoconnect` as root. Remove the file to turn it off. No reload is needed.
+- **Auto-connect is on after a first install.** Plugging in the eGPU then loads its driver through the helper; with
+  it off, the panel's Connect does. Add `--autoconnect off` before `install` in the command to start with it off,
+  or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
+  password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
 - While the repository is private, the checksum URL needs authentication: fetch it with
   `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.0'`
   instead of `curl`.

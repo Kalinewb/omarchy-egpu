@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 #
 # omarchy-egpu system half
 # omarchy-egpu-version: 0.1.0
@@ -7,10 +7,11 @@
 # §10.4), the only way root ever receives files from the plugin folder:
 #
 #   /usr/local/bin/omarchy-egpu-admin                    the root helper
-#   /usr/share/polkit-1/actions/no.kalinewb.egpu.policy  its polkit action
+#   /usr/share/polkit-1/actions/no.kalinewb.egpu.policy  its polkit actions
 #   /etc/udev/rules.d/61-omarchy-egpu.rules              links + auto-connect
 #   /etc/modules-load.d/<shipped name>                   boot-load mask (§9.2)
-#   /etc/omarchy-egpu/autoconnect                        only with --autoconnect on
+#   /etc/omarchy-egpu/                                   the flag's directory
+#   /etc/omarchy-egpu/autoconnect                        the auto-connect flag
 #
 # `omarchy plugin add` never runs plugin code or sudo, so this is run from a
 # terminal afterwards, by the command `install.sh --print-command` prints
@@ -19,7 +20,10 @@
 # from the plugin folder -- copies this file into a directory only root can
 # write, checks the copy against the fetched checksum and only then runs it:
 #
-#   bash <root-only copy> --expect-sha256 <fetched> install "$PLUGIN_DIR" "$USER"
+#   /usr/bin/bash -p <root-only copy> --expect-sha256 <fetched> install "$PLUGIN_DIR" "$USER"
+#
+# (bash -p, as the first line here asks: no function imported from the
+# environment, no BASH_ENV read; both would happen before line 1 runs.)
 #
 # The plugin folder is writable by the account and by anything running as it,
 # so nothing about it is trusted. This script refuses to run as root from
@@ -36,23 +40,34 @@
 # /var/backups/omarchy-egpu/<UTC>/ and recorded in /var/lib/omarchy-egpu/installed;
 # `uninstall` removes what was installed and puts those files back.
 #
+# Everything that can refuse (the plugin folder, the snapshot and its pins,
+# the primary GPU, the rule) is checked before anything is changed, so a
+# refused install or reinstall leaves the machine as it was: a reinstall never
+# uninstalls first and fails after, which would drop the boot-load mask.
+#
 # Usage:
 #   install.sh [options] install|reinstall PLUGIN_DIR ACCOUNT
 #   install.sh [options] uninstall
 #   install.sh --print-command [install|reinstall|uninstall]   (no root needed)
 # Options:
 #   --expect-sha256 HEX   this file's checksum, as fetched by the command
-#   --autoconnect on|off  the udev auto-connect flag (default: leave as is; off
-#                         on a first install -- the setting is deferred,
-#                         scope.md DECISIONS 2026-10-09)
+#   --autoconnect on|off  the udev auto-connect flag. Default: on for a first
+#                         install (scope.md DECISION 2026-10-10); later
+#                         installs keep what the user chose in the panel
 #   --primary BDF         the primary GPU's PCI address, if boot_vga cannot tell
 #   --yes                 answer yes to the stale-mask question (§9.2)
 #   --root DIR            test seam: install under DIR instead of /, may run
-#                         unprivileged, and runs no udevadm and no logger
+#                         unprivileged, and runs no udevadm and no logger. As
+#                         root only with OMARCHY_EGPU_INSTALL_TEST=1: it skips
+#                         the root-copy check
 #
 # Output: prose on stderr, one JSON document on stdout. Exit 0 ok, 1 refused
 # or failed ({"error":code}), 3 busy (another install holds the lock).
 
+# Under bash -p, as the printed command runs it, no shell function is
+# imported. Run otherwise (the tests), drop any that were. That is best effort
+# only, since an imported function can shadow the very builtins this loop
+# uses; it is why the command uses -p (and sudo strips BASH_FUNC_* as well).
 while IFS= read -r _f; do
   [[ -n $_f ]] && unset -f -- "$_f"
 done <<<"$(compgen -A function)"
@@ -75,9 +90,9 @@ SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules o
 
 # pins:begin
 declare -A PINS=(
-  [omarchy-egpu-admin]=36a09c4d6953b41d4e83396e94636df681574fb704173c41312ae08613bc7153
-  [no.kalinewb.egpu.policy]=6699b96d9d64414ac39b4afe92943e82ef2cbd0173e0470c4cc6258deb1365fb
-  [61-omarchy-egpu.rules]=13a9454481bdac3a18b8cd000ee8888871405dce4493bdf9b0fec5e68d3159f1
+  [omarchy-egpu-admin]=997627524c10ed790ee25865defcb89745fe9ba8c431b432d5b3f4cd4e4284fd
+  [no.kalinewb.egpu.policy]=f6a9b4fdcfdf0c1fda682179add22bcfddb55751e76f5006e55847e8e7864e08
+  [61-omarchy-egpu.rules]=2cbed591334bad87ed3ce0656756ef1660b0fd67b2321be26feee0a896e2899f
   [omarchy-egpu-modules.conf]=320dd82349c86f8727806b0b27ce8439568dd9b61c85db48365ee79233684704
 )
 # pins:end
@@ -128,6 +143,9 @@ die() { # die <code> [prose]
 SELF=${BASH_SOURCE[0]}
 R=''
 ROOT_GIVEN=0
+# Never from the environment: it decides who may own the directories root
+# installs into.
+OWNER_UID=''
 EXPECT=''
 AUTOCONNECT=''
 PRIMARY=''
@@ -150,13 +168,15 @@ done
 # The command for README.md and the panel: fetch the pin, copy this file
 # somewhere only root can write, check the copy, run the copy. One line, so it
 # pastes into any shell; $USER and $HOME are expanded by the user's shell.
+# Root's part names every tool by its absolute path under PATH=/usr/bin, so
+# nothing the user's environment or shell puts first is ever run as root.
 if [[ -n $PRINT ]]; then
   [[ $PRINT =~ ^(install|reinstall|uninstall)$ ]] || die bad_arguments
   # shellcheck disable=SC2016  # printed for the user's shell to expand
   args=' "$1" "$3"'
   [[ $PRINT == uninstall ]] && args=''
   # shellcheck disable=SC2016
-  printf '%s\n' 'd="$HOME/.config/omarchy/plugins/'"$PLUGIN_ID"'" && sum=$(curl -fsSL '"$RAW_URL"'/v'"$VERSION"'/system/install.sh.sha256) && sudo bash -c '\''t=$(mktemp -d /run/omarchy-egpu-installer.XXXXXX) && cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | sha256sum -c --quiet - && bash "$t/install.sh" --expect-sha256 "$2" '"$PRINT$args"'; s=$?; rm -rf -- "$t"; exit $s'\'' omarchy-egpu "$d" "$sum" "$USER"'
+  printf '%s\n' 'd="$HOME/.config/omarchy/plugins/'"$PLUGIN_ID"'" && sum=$(curl -fsSL '"$RAW_URL"'/v'"$VERSION"'/system/install.sh.sha256) && sudo /usr/bin/bash -c '\''PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" '"$PRINT$args"'; s=$?; /usr/bin/rm -rf -- "$t"; exit $s'\'' omarchy-egpu "$d" "$sum" "$USER"'
   exit 0
 fi
 
@@ -178,6 +198,10 @@ esac
 # ---------------------------------------------------------------- who and where
 
 if ((ROOT_GIVEN)); then
+  # --root skips the root-copy check below, so as root it would install from
+  # the plugin folder unchecked (`--root /`). Only the tests may.
+  ((EUID != 0)) || [[ ${OMARCHY_EGPU_INSTALL_TEST:-} == 1 ]] ||
+    die test_root_as_root "--root is a test seam; as root it needs OMARCHY_EGPU_INSTALL_TEST=1"
   [[ $R == /* && $R != *..* && -d $R && ! -L $R ]] || die bad_arguments "--root needs an existing absolute directory"
   R=${R%/}
   ((EUID == 0)) || OWNER_UID=$EUID
@@ -215,7 +239,9 @@ POLICY=$POLICY_DIR/no.kalinewb.egpu.policy
 RULES_DIR=$R/etc/udev/rules.d
 RULES=$RULES_DIR/61-omarchy-egpu.rules
 MLD_ETC=$R/etc/modules-load.d
-MLD_USR=$R/usr/lib/modules-load.d
+# Where else systemd-modules-load reads, by precedence after /etc: one file
+# per name, the first found wins (modules-load.d(5)).
+MLD_OTHERS=("$R/run/modules-load.d" "$R/usr/local/lib/modules-load.d" "$R/usr/lib/modules-load.d")
 CONF_DIR=$R/etc/omarchy-egpu
 FLAG=$CONF_DIR/autoconnect
 STATE_DIR=$R/var/lib/omarchy-egpu
@@ -223,9 +249,10 @@ RECORD=$STATE_DIR/installed
 BACKUP_ROOT=$R/var/backups/omarchy-egpu
 PCI=$R/sys/bus/pci/devices
 
+# Children never get the install lock (fd 8): one left behind would hold it.
 audit() {
   ((ROOT_GIVEN)) && return 0
-  logger -t omarchy-egpu -p auth.notice -- "$*" 2>/dev/null || true
+  timeout -k 2 10 logger -t omarchy-egpu -p auth.notice -- "$*" </dev/null >/dev/null 2>&1 8>&- || true
 }
 
 # ---------------------------------------------------------------- small tools
@@ -246,9 +273,14 @@ file_version() {
   head -n 8 -- "$1" 2>/dev/null | sed -n 's/^[^[:alnum:]]*omarchy-egpu-version:[[:space:]]*\([0-9A-Za-z.+-]*\).*/\1/p' | head -n1
 }
 
-# A directory root installs into: ours (root's), writable by nobody else.
+# assert_dir_safe <dir> [check]: a directory root installs into is ours
+# (root's) and writable by nobody else. A missing one is created, or with
+# `check` passed as missing (the preflight changes nothing).
 assert_dir_safe() {
   local d=$1 info mode
+  if [[ ${2:-} == check && ! -e $d && ! -L $d ]]; then
+    return 0
+  fi
   if [[ ! -d $d ]]; then
     install -d -m 0755 -- "$d" || die install_failed "cannot create $d"
   fi
@@ -355,14 +387,43 @@ put() {
   say "  installed ${dest#"$R"}"
 }
 
+# fixed_cards: the sysfs card nodes of every display device that is not
+# removable (the laptop's own). EXTERNAL_CARD is set when a removable one has
+# a card node too.
+EXTERNAL_CARD=0
+fixed_cards() {
+  local d c
+  EXTERNAL_CARD=0
+  for d in "$PCI"/*; do
+    [[ ${d##*/} =~ $BDF_RE && $(attr "$d/class") == 0x03* ]] || continue
+    for c in "$d"/drm/card*; do
+      [[ ${c##*/} =~ ^card[0-9]+$ ]] || continue
+      if [[ $(attr "$d/removable") == removable ]]; then
+        EXTERNAL_CARD=1
+      else
+        printf '%s\n' "$c"
+      fi
+    done
+  done
+}
+
+# udev_reload <link note>: reload the rules, then re-run them for the laptop's
+# own card nodes so the primary link appears (or goes) now, not at the next
+# boot. Never for the eGPU's card: a change event on a card the compositor may
+# have open is not something an installer should provoke. Its external link
+# follows at its next plug-in; <link note> says so in the warnings.
 udev_reload() {
+  local cards=()
   ((ROOT_GIVEN)) && return 0
-  timeout 30 udevadm control --reload >/dev/null 2>&1 || WARNINGS+=("udevadm control --reload failed")
-  # Re-run the rules for the card nodes so the links appear now, not at the
-  # next plug or boot. `change` is what the compositor already sees on every
-  # hot-plug (dev/e0-facts.md); it opens and closes nothing.
-  timeout 30 udevadm trigger --action=change --subsystem-match=drm --property-match=DEVTYPE=drm_minor >/dev/null 2>&1 ||
-    WARNINGS+=("udevadm trigger failed")
+  timeout 30 udevadm control --reload </dev/null >/dev/null 2>&1 8>&- || WARNINGS+=("udevadm control --reload failed")
+  mapfile -t cards < <(fixed_cards)
+  if ((${#cards[@]})); then
+    timeout 30 udevadm trigger --action=change -- "${cards[@]}" </dev/null >/dev/null 2>&1 8>&- ||
+      WARNINGS+=("udevadm trigger failed")
+  fi
+  fixed_cards >/dev/null
+  ((EXTERNAL_CARD)) && WARNINGS+=("$1")
+  return 0
 }
 
 ask() { # ask <question>: yes with --yes, or an interactive yes; no otherwise
@@ -381,6 +442,7 @@ MASKED=()
 ALREADY_MASKED=()
 STALE_REMOVED=()
 
+SNAP_MAX=262144
 snapshot() {
   local name src f shape links size uid got
   SNAP=$(mktemp -d "$R/run/omarchy-egpu-install.XXXXXX" 2>/dev/null) || die snapshot_failed "cannot create a snapshot under $R/run"
@@ -390,12 +452,17 @@ snapshot() {
     src=$PLUGIN_DIR/system/$name
     [[ -f $src && ! -L $src ]] || die snapshot_unsafe "system/$name is missing or not a plain file"
     size=$(stat -c %s -- "$src" 2>/dev/null) || die snapshot_incomplete
-    ((size <= 262144)) || die snapshot_unsafe "system/$name is too large"
+    ((size <= SNAP_MAX)) || die snapshot_unsafe "system/$name is too large"
   done
-  # No -a: root's own copies, root's mode. --no-dereference copies a link that
-  # appeared since the check AS a link, for the shape check to refuse.
+  # The plugin folder is the user's, so the file checked above may be swapped
+  # for a link, a FIFO or an endless device before it is read. Read at most one
+  # byte more than allowed, within a deadline, into a file root creates in the
+  # snapshot: an endless source stops at the byte limit, one that never opens
+  # or never ends stops at the deadline, and either way the size check below
+  # or the pin refuses what was read. No -a: root's own copies, root's mode.
   for name in "${SYSTEM_FILES[@]}"; do
-    cp --no-dereference -- "$PLUGIN_DIR/system/$name" "$SNAP/$name" 2>/dev/null || die snapshot_incomplete "cannot copy system/$name"
+    timeout -k 2 20 head -c $((SNAP_MAX + 1)) -- "$PLUGIN_DIR/system/$name" >"$SNAP/$name" 2>/dev/null </dev/null 8>&- ||
+      die snapshot_incomplete "cannot copy system/$name"
   done
   for name in "${SYSTEM_FILES[@]}"; do
     f=$SNAP/$name
@@ -403,7 +470,7 @@ snapshot() {
     shape=$(stat -c '%h %s %u' -- "$f" 2>/dev/null) || die snapshot_unsafe
     read -r links size uid <<<"$shape"
     [[ $links == 1 && $uid == "$OWNER_UID" ]] || die snapshot_unsafe "system/$name"
-    ((size <= 262144)) || die snapshot_unsafe "system/$name"
+    ((size <= SNAP_MAX)) || die snapshot_unsafe "system/$name is too large"
   done
   # The bytes, not a header: from here on the snapshot is the reviewed release.
   for name in "${SYSTEM_FILES[@]}"; do
@@ -456,14 +523,48 @@ mld_modules() {
 }
 is_mask_module() { local m; for m in "${MASK_MODULES[@]}"; do [[ $1 == "$m" ]] && return 0; done; return 1; }
 
+# shipped_names: every .conf name in the non-/etc directories, once each.
+shipped_names() {
+  local d f
+  for d in "${MLD_OTHERS[@]}"; do
+    for f in "$d"/*.conf; do printf '%s\n' "${f##*/}"; done
+  done | sort -u
+}
+
+# shipped_file <name>: a file of that name in /run, /usr/local/lib or
+# /usr/lib, the first by precedence. Status 1 when none has one.
+shipped_file() {
+  local d
+  for d in "${MLD_OTHERS[@]}"; do
+    [[ -e $d/$1 || -L $d/$1 ]] && { printf '%s\n' "$d/$1"; return 0; }
+  done
+  return 1
+}
+
+# shipped_loaders: "name<TAB>file" for each name some non-/etc file of which
+# loads a backend module. Any of them, not only the one that wins today: /run
+# is gone at the next boot, so an empty /run file shadowing a /usr/lib one
+# that loads nvidia-uvm protects nothing then.
+shipped_loaders() {
+  local base d f m
+  while IFS= read -r base; do
+    [[ -n $base ]] || continue
+    for d in "${MLD_OTHERS[@]}"; do
+      f=$d/$base
+      [[ -f $f && -r $f ]] || continue
+      while IFS= read -r m; do
+        is_mask_module "$m" && { printf '%s\t%s\n' "$base" "$f"; continue 3; }
+      done <<<"$(mld_modules "$f")"
+    done
+  done <<<"$(shipped_names)"
+}
+
 install_masks() {
-  local f base dest m hit others target
-  for f in "$MLD_USR"/*.conf; do
-    [[ -f $f ]] || continue
-    base=${f##*/}
-    hit=0
-    while IFS= read -r m; do is_mask_module "$m" && hit=1; done <<<"$(mld_modules "$f")"
-    ((hit)) || continue
+  local f base dest m hit others target line extra
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    base=${line%%$'\t'*}
+    f=${line#*$'\t'}
     dest=$MLD_ETC/$base
     say "  ${f#"$R"} loads the eGPU driver at boot; masking it by name"
     if [[ -L $dest ]]; then
@@ -496,19 +597,27 @@ install_masks() {
         continue
       fi
     fi
+    # The mask stops the whole file, not only the eGPU's modules.
+    extra=()
+    while IFS= read -r m; do
+      [[ -n $m ]] && ! is_mask_module "$m" && extra+=("$m")
+    done <<<"$(mld_modules "$f")"
+    ((${#extra[@]})) &&
+      WARNINGS+=("${f#"$R"} also loads ${extra[*]}; the mask stops that at boot too (list them in a file of your own in /etc/modules-load.d/ if you need them)")
     put "$SNAP/omarchy-egpu-modules.conf" "$dest" 0644
     MASKED+=("${dest#"$R"}")
-  done
+  done <<<"$(shipped_loaders)"
 }
 
-# §9.2: an empty /etc file whose /usr/lib counterpart is gone masks nothing.
+# §9.2: an empty /etc file masks nothing when no other directory systemd
+# reads has a file of that name.
 remove_stale_masks() {
   local f base size
   for f in "$MLD_ETC"/*.conf; do
     base=${f##*/}
     [[ $base =~ $STALE_RE ]] || continue
     [[ -f $f && ! -L $f ]] || continue
-    [[ -e $MLD_USR/$base ]] && continue
+    shipped_file "$base" >/dev/null && continue
     is_ours "$f" && continue
     size=$(stat -c %s -- "$f" 2>/dev/null) || continue
     if ((size != 0)); then
@@ -517,8 +626,8 @@ remove_stale_masks() {
     fi
     say ""
     say "  ${f#"$R"} is an empty file. An empty file in /etc/modules-load.d masks"
-    say "  the /usr/lib/modules-load.d file of the same name, but no package ships"
-    say "  ${MLD_USR#"$R"}/$base any more (the driver package was renamed), so it"
+    say "  the file of the same name in /run, /usr/local/lib or /usr/lib, but none"
+    say "  of them has a $base any more (the driver package was renamed), so it"
     say "  masks nothing and does nothing. It will be moved to the backup folder;"
     say "  uninstall puts it back."
     if ask "  Remove ${f#"$R"}?"; then
@@ -530,12 +639,31 @@ remove_stale_masks() {
   done
 }
 
+# The flag's bytes; the helper's `autoconnect on` writes the same ones.
+flag_text() {
+  printf '# omarchy-egpu-version: %s\n' "$VERSION"
+  printf '# Auto-connect is on: the udev rule loads the eGPU driver on plug-in.\n'
+  printf "# Turn it off in the panel's Setup, or remove this file as root.\n"
+}
+
+# decide_autoconnect: --autoconnect, else on for a first install (no record),
+# else what is there now: a later install or reinstall keeps the user's
+# choice from the panel. Before anything changes, as reinstall removes the flag.
+decide_autoconnect() {
+  [[ -n $AUTOCONNECT ]] && return 0
+  if [[ -f $RECORD && ! -L $RECORD ]]; then
+    AUTOCONNECT=off
+    [[ -f $FLAG ]] && AUTOCONNECT=on
+  else
+    AUTOCONNECT=on
+  fi
+}
+
 set_autoconnect() {
   local want=$AUTOCONNECT
   [[ -n $want ]] || return 0
   if [[ $want == on ]]; then
-    assert_dir_safe "$CONF_DIR"
-    printf '# omarchy-egpu-version: %s\n# Auto-connect is on: the udev rule loads the eGPU driver on plug-in.\n# Remove this file (as root) to turn it off.\n' "$VERSION" >"$SNAP/autoconnect"
+    flag_text >"$SNAP/autoconnect" || die install_failed "cannot write the flag"
     put "$SNAP/autoconnect" "$FLAG" 0644
   elif [[ -e $FLAG || -L $FLAG ]]; then
     rm -f -- "$FLAG" || die install_failed "cannot remove $FLAG"
@@ -545,8 +673,10 @@ set_autoconnect() {
   fi
 }
 
-do_install() {
-  local owner account_uid
+# preflight: everything that can refuse, before anything is changed. A
+# refusal here leaves the machine exactly as it was, whatever the mode.
+preflight() {
+  local owner account_uid d
   [[ $PLUGIN_DIR == /* && $PLUGIN_DIR != *..* ]] || die plugin_missing "PLUGIN_DIR must be an absolute path"
   PLUGIN_DIR=${PLUGIN_DIR%/}
   [[ ! -L $PLUGIN_DIR && ! -L $PLUGIN_DIR/system ]] || die plugin_unsafe "the plugin folder or its system/ is a symlink"
@@ -560,14 +690,20 @@ do_install() {
   [[ $owner == 0 || $owner == "$account_uid" ]] || die plugin_not_owned "$PLUGIN_DIR/system belongs to uid $owner"
 
   say "omarchy-egpu $VERSION: installing the system half from $PLUGIN_DIR"
-  audit "install $VERSION requested by uid ${SUDO_UID:-${PKEXEC_UID:-0}} for $ACCOUNT from $PLUGIN_DIR"
+  audit "$MODE $VERSION requested by uid ${SUDO_UID:-${PKEXEC_UID:-0}} for $ACCOUNT from $PLUGIN_DIR"
   snapshot
   detect_primary
   render_rules
   say "  primary GPU: $PRIMARY (boot VGA)"
+  # Checked, not created: a directory that is missing is made by apply.
+  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR"; do assert_dir_safe "$d" check; done
+  decide_autoconnect
+}
 
-  local d
-  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC"; do assert_dir_safe "$d"; done
+# apply: installs from the checked snapshot.
+apply() {
+  local d auto=off
+  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR"; do assert_dir_safe "$d"; done
   record_load
 
   # The helper before the two files that name it, the rule last.
@@ -577,9 +713,8 @@ do_install() {
   install_masks
   remove_stale_masks
   set_autoconnect
-  udev_reload
+  udev_reload "the eGPU is attached now: its /dev/dri/omarchy-egpu-external link appears when it is next plugged in, or at the next boot"
 
-  local auto=off
   [[ -e $FLAG ]] && auto=on
   audit "installed $VERSION: ${INSTALLED[*]}"
   say "done. Auto-connect is $auto."
@@ -617,13 +752,22 @@ do_uninstall() {
   declare -A sha_of_path=()
   for e in "${REC_FILES[@]}"; do sha_of_path[${e%%$'\t'*}]=${e#*$'\t'}; done
 
-  # The rule first, so no udev event runs a helper that is gone; then what
-  # names the helper; the helper; then everything else recorded.
-  for path in "$RULES" "$FLAG" "$POLICY" "$HELPER"; do
+  # The rule first, so no udev event runs a helper that is gone; the flag,
+  # whatever it holds (it is a switch, and the panel rewrites it); what names
+  # the helper; the helper; then everything else recorded.
+  unput "$RULES" "${sha_of_path[$RULES]:-}"
+  unset 'sha_of_path[$RULES]'
+  if [[ -L $FLAG || -f $FLAG ]]; then
+    rm -f -- "$FLAG" || die uninstall_failed "cannot remove $FLAG"
+    REMOVED+=("${FLAG#"$R"}")
+    say "  removed ${FLAG#"$R"}"
+  fi
+  unset 'sha_of_path[$FLAG]'
+  for path in "$POLICY" "$HELPER"; do
     unput "$path" "${sha_of_path[$path]:-}"
     unset 'sha_of_path[$path]'
   done
-  udev_reload
+  udev_reload "the eGPU is attached now: its /dev/dri/omarchy-egpu-external link goes when it is unplugged, or at the next boot"
   for path in "${!sha_of_path[@]}"; do
     unput "$path" "${sha_of_path[$path]}"
   done
@@ -655,27 +799,61 @@ do_uninstall() {
   [[ -d $BACKUP_ROOT ]] && find "$BACKUP_ROOT" -mindepth 1 -depth -type d -empty -delete 2>/dev/null
   rmdir -- "$BACKUP_ROOT" 2>/dev/null
   REC_FILES=() REC_BACKUPS=()
+  ((REINSTALLING)) || warn_boot_loading
   audit "uninstalled: ${REMOVED[*]:-nothing}"
   say "done."
+}
+
+# warn_boot_loading: after an uninstall, say plainly when a shipped file loads
+# the eGPU's driver at boot again. With no card at boot that is the condition
+# that froze this setup (§9.2), so it is said loudly, not only in the JSON.
+warn_boot_loading() {
+  local line base f m mods
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    base=${line%%$'\t'*}
+    f=${line#*$'\t'}
+    [[ -e $MLD_ETC/$base || -L $MLD_ETC/$base ]] && continue
+    mods=()
+    while IFS= read -r m; do is_mask_module "$m" && mods+=("$m"); done <<<"$(mld_modules "$f")"
+    WARNINGS+=("${f#"$R"} loads ${mods[*]} at boot again; with no eGPU attached at boot this can freeze the machine")
+    say ""
+    say "  WARNING: ${f#"$R"} loads ${mods[*]} (the eGPU driver) at boot again."
+    say "  Loading it with no eGPU attached is what froze this machine before."
+    say "  Install the system half again, or mask it yourself:"
+    say "    sudo ln -s /dev/null ${MLD_ETC#"$R"}/$base"
+  done <<<"$(shipped_loaders)"
 }
 
 # ---------------------------------------------------------------- main
 
 [[ -d $R/run ]] || die install_failed "$R/run does not exist"
+# Root's alone (0600): flock works on a read-only descriptor, so a lock anyone
+# could open is one anyone could hold. An older release made it 0644.
+_umask=$(umask)
+umask 077
 exec 8>>"$R/run/omarchy-egpu-install.lock" || die install_failed "cannot open the install lock"
+umask "$_umask"
+chmod 0600 -- "$R/run/omarchy-egpu-install.lock" 2>/dev/null
 flock -n 8 || die busy "another install is running" 3
 
 SNAP=''
+REINSTALLING=0
 trap '[[ -n $SNAP && -d $SNAP ]] && rm -rf -- "$SNAP"' EXIT
 
 case $MODE in
   install)
-    do_install
+    preflight
+    apply
     ;;
   reinstall)
-    do_uninstall >/dev/null
+    # Everything that can refuse first: a reinstall that fails half way must
+    # not leave the machine uninstalled, without its boot-load mask.
+    preflight
+    REINSTALLING=1
+    do_uninstall
     REMOVED=() KEPT=() RESTORED=() WARNINGS=()
-    do_install
+    apply
     ;;
   uninstall)
     do_uninstall

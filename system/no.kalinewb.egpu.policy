@@ -5,33 +5,116 @@
   omarchy-egpu system half
   omarchy-egpu-version: 0.1.0
 
-  One action for the root helper (plan-engine.md §10.2). Every privileged thing
-  the eGPU engine does goes through /usr/local/bin/omarchy-egpu-admin under it:
-  load and unload the backend's allowlisted modules, remove the eGPU's PCI
-  functions, rescan the bus, and two read-only verbs.
+  The polkit actions for the root helper (plan-engine.md §10.2), one per verb
+  of /usr/local/bin/omarchy-egpu-admin. pkexec picks the action whose
+  exec.path is the helper and whose exec.argv1 is the verb. Every action here
+  names its verb, and there is no action without one, so which action a call
+  gets never depends on the order polkit lists them in. Anything else
+  (`version`, a typo) falls to polkit's generic org.freedesktop.policykit.exec,
+  which asks for an administrator, and the helper refuses it anyway.
 
-  allow_active=yes, no prompt, for the person at the active local session only
-  (scope.md DECISIONS 2026-10-09: connect, eject and rescan run without a
-  password). Every verb acts on hardware that person can already unplug by
-  hand, or only reads; the helper refuses anything that is not a removable
-  display device of an allowlisted vendor. udisks treats media eject the same
-  way (org.freedesktop.udisks2.eject-media).
+  The device verbs (load, unload, remove, rescan, and the read-only holders and
+  inspect-initramfs) are allow_active=yes: no prompt, for the person at the
+  active local session only (scope.md DECISIONS 2026-10-09: connect, eject and
+  rescan run without a password). Each acts on hardware that person can
+  already unplug by hand, or only reads; the helper refuses anything that is
+  not a removable display device of an allowlisted vendor. udisks treats media
+  eject the same way (org.freedesktop.udisks2.eject-media).
 
-  Remote and inactive sessions get no. Nothing that edits /etc goes through
-  this action: those changes are made only by system/install.sh, run with sudo.
+  `autoconnect on|off` is the one verb that edits /etc: it creates or removes
+  the fixed file /etc/omarchy-egpu/autoconnect, with fixed bytes, and takes no
+  other argument. It changes what happens at the next plug-in rather than now,
+  so it asks for the user's own password (auth_self; scope.md DECISION
+  2026-10-10, auto-connect defaults on). Every other /etc change is made only
+  by system/install.sh, run with sudo.
+
+  Remote and inactive sessions get no, for every action.
 -->
 <policyconfig>
   <vendor>omarchy-egpu</vendor>
   <vendor_url>https://github.com/Kalinewb/omarchy-egpu</vendor_url>
 
-  <action id="no.kalinewb.egpu.device">
-    <description>Connect or safely eject the external GPU</description>
-    <message>Authentication is required to connect or eject the external GPU</message>
+  <action id="no.kalinewb.egpu.device.load">
+    <description>Load the external GPU's driver</description>
+    <message>The external GPU's driver is loaded without a password at the active local session</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">load</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.device.unload">
+    <description>Unload the external GPU's driver</description>
+    <message>The external GPU's driver is unloaded without a password at the active local session</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">unload</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.device.remove">
+    <description>Safely eject the external GPU</description>
+    <message>The external GPU is ejected without a password at the active local session</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">remove</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.device.rescan">
+    <description>Bring an ejected external GPU back</description>
+    <message>An ejected external GPU is brought back without a password at the active local session</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">rescan</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.device.holders">
+    <description>List the programs using the external GPU</description>
+    <message>The programs using the external GPU are listed without a password at the active local session</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">holders</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.device.inspect-initramfs">
+    <description>Check the boot images for the external GPU's driver</description>
+    <message>The boot images are checked without a password at the active local session</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">inspect-initramfs</annotate>
+  </action>
+
+  <action id="no.kalinewb.egpu.autoconnect">
+    <description>Turn external GPU auto-connect on or off</description>
+    <message>Authentication is required to change whether the external GPU connects by itself when plugged in</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/omarchy-egpu-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">autoconnect</annotate>
   </action>
 </policyconfig>

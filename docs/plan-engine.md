@@ -234,7 +234,7 @@ directory.
 | `backend` | `"auto"` | auto = the backend whose `detect` matches a removable display device |
 | `device.match` | `"auto"` | or `{"vendor":"0x10de","device":"0x2783"}` to pin one card |
 | `primary.bypath` | detected | by-path name of the boot_vga display device |
-| `connect.auto` | `true` | udev loads the KMS module on plug (§10.3) |
+| `connect.auto` | `true` after setup | udev loads the KMS module on plug (§10.3). Not stored in this file: it IS the root flag `/etc/omarchy-egpu/autoconnect` (install.sh creates it on a first install; the helper's `autoconnect on\|off` switches it, with the user's password). `config_get connect.auto` and status `connect.auto` read the flag |
 | `connect.timeout_s` | `30` | |
 | `eject.close_timeout_s` | `10` | SIGTERM grace before asking about SIGKILL |
 | `display.policy` | `"extend"` | `extend` \| `mirror` \| `off`, applied on hot-add |
@@ -400,6 +400,7 @@ terminals.
            "vendor": "0x10de", "device": "0x2783", "removable": true,
            "link": { "speed": "2.5 GT/s PCIe", "width": "4", "max_speed": "...", "max_width": "..." } },
   "backend": { "name": "nvidia", "supported": true },
+  "connect": { "auto": true },
   "driver": { "bound": "nvidia", "modules": {"nvidia":true,"nvidia_drm":true,"nvidia_uvm":true,"nvidia_modeset":true},
               "modeset": true, "fbdev": true },
   "gpu": { "ok": true, "name": "...", "temp_c": 41, "util_pct": 3, "mem_used_mb": 500,
@@ -984,12 +985,28 @@ handling, because unload is unsupported for them (§4.2).
 | verb | does | refuses unless |
 |---|---|---|
 | `version` | prints `{"version":"x.y.z"}` | — |
-| `load <backend>` | `modprobe` the allowlisted set for that backend, in fixed order | a matching device exists in `/sys/bus/pci/devices` (never load with no card, binding fact 1) |
+| `load <backend>` | `modprobe` the allowlisted set for that backend, in fixed order; clears the eject latch (the user connects) | a matching device exists in `/sys/bus/pci/devices` (never load with no card, binding fact 1) |
+| `load auto` | the same, backend from the device (the udev rule's call) | as above, and the eject latch does not name a present device on the same connection (`eject_latched`) |
 | `unload <backend>` | `modprobe -r` in fixed reverse order | no matching device exists, and every refcnt is 0 |
-| `remove <bdf>` | writes `1` to `remove` for every function in that slot, in a child with a 20 s timeout | BDF matches `^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`, class 0x03xxxx, not `boot_vga`, `removable` = `removable` |
+| `remove <bdf>` | writes the eject latch, then `1` to `remove` for every function in that slot, in a child with a 20 s timeout | BDF matches `^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`, class 0x03xxxx, not `boot_vga`, `removable` = `removable`; no connector under the card's `drm/card*/card*-*/enabled` reads `enabled` (`monitor_active`) |
 | `rescan` | writes `1` to `/sys/bus/pci/rescan` | — |
 | `holders` | read-only list of pids/comm/uid holding allowlisted nodes | — |
 | `inspect-initramfs` | read-only module list per image | — |
+| `autoconnect on\|off` | creates (temp file in the directory, then `mv -T`) or removes the fixed file `/etc/omarchy-egpu/autoconnect`, fixed bytes | `/etc` and `/etc/omarchy-egpu` are root's, not symlinks, not group/other writable; the directory exists (install.sh makes it; never created here) |
+
+- **Eject latch** (`/run/omarchy-egpu-admin.ejected`, root's): `remove` names the
+  device and its enclosure, as the path and inode of the function's parent bridge
+  when that bridge is itself removable (this machine: `0000:02:00.0`, inside the
+  DEG2). The bridge outlives the GPU's removal and goes with an unplug; sysfs gives a
+  re-created directory a new inode, so path + inode name one connection. `load auto`
+  refuses while that connection still carries the latched device; a latch whose
+  bridge is gone or new is stale and removed. Without a removable parent bridge the
+  latch holds the address only, until an explicit `load`. An unreadable latch is
+  honoured for every device. `/run`, so a reboot clears it.
+- The helper runs as `#!/bin/bash -p` and refuses (`not_privileged_mode`) otherwise:
+  privileged mode is what stops function import and `BASH_ENV`, which happen before
+  the first line. Children get fd 9 (the lock) closed; the lock is mode 0600;
+  `logger` runs under a deadline like every other child.
 
 - **Unverified:** that USB4/TB-tunnelled functions show `removable` = `removable`. The
   iGPU has no `removable` attribute (checked on this machine). Gate E0 records the
@@ -999,20 +1016,24 @@ handling, because unload is unsupported for them (§4.2).
 
 ### 10.2 polkit
 
-`/usr/share/polkit-1/actions/no.kalinewb.egpu.policy`, one action
-`no.kalinewb.egpu.device`, annotated with
-`org.freedesktop.policykit.exec.path=/usr/local/bin/omarchy-egpu-admin`. This copies
-face:system/no.user.face.policy:26-35.
+`/usr/share/polkit-1/actions/no.kalinewb.egpu.policy`, **one action per helper verb**
+(REVISION after the E7 security review): `no.kalinewb.egpu.device.{load,unload,remove,
+rescan,holders,inspect-initramfs}` and `no.kalinewb.egpu.autoconnect`, each annotated
+with `org.freedesktop.policykit.exec.path=/usr/local/bin/omarchy-egpu-admin` and
+`org.freedesktop.policykit.exec.argv1=<verb>`. No action lacks an argv1, so which one
+pkexec picks never depends on enumeration order; any other argv1 (`version`, a typo)
+falls to polkit's generic `org.freedesktop.policykit.exec` (admin). The path
+annotation copies face:system/no.user.face.policy:26-35.
 
-- **Proposed defaults:** `allow_active` = `yes`, `allow_inactive`/`allow_any` = `no`.
+- **Device verbs:** `allow_active` = `yes`, `allow_inactive`/`allow_any` = `no`
+  (accepted by the security review; user decision 2026-10-09).
   - Rationale: every verb either acts on hardware the active seat's user can already
     unplug by hand, or is read-only.
   - udisks treats media eject the same way (`org.freedesktop.udisks2.eject-media`
     in `/usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy:1876`).
-  - **This is for the security reviewer to accept or tighten to `auth_admin_keep`.**
-    It is the main open security decision.
-- Nothing that edits `/etc` goes through this action. Those changes happen only in
-  install.sh.
+- **`autoconnect`:** `allow_active` = `auth_self` (the user's own password),
+  inactive/any `no`. It is the one verb that edits `/etc`, and only the fixed flag
+  file. Every other `/etc` change happens only in install.sh.
 
 ### 10.3 udev rule `/etc/udev/rules.d/61-omarchy-egpu.rules` (generated by install.sh)
 
@@ -1026,9 +1047,10 @@ face:system/no.user.face.policy:26-35.
   is not matched.
 - `ACTION=="add", SUBSYSTEM=="pci", ATTR{class}=="0x03*", ATTR{removable}=="removable",
   TEST=="/etc/omarchy-egpu/autoconnect"` runs `RUN+="/usr/local/bin/omarchy-egpu-admin load auto"`.
-  `connect.auto` toggles that flag file through the helper. **Doubt:** that is a
-  write to `/etc` outside install.sh. The alternative is to make it install-time only.
-  This is for the reviewer.
+  `connect.auto` toggles that flag file through the helper's `autoconnect` verb
+  (resolved: a write to `/etc` outside install.sh, bounded to that one file, behind
+  `auth_self`; scope.md DECISION 2026-10-10). The helper refuses `load auto` for a
+  device the user just ejected (the eject latch, §10.1).
 - Notifications do **not** come from udev, because root has no session. They come
   from the user-level watcher (§5, plan-gui.md Service).
 
@@ -1041,7 +1063,20 @@ face:system/no.user.face.policy:26-35.
 - Optionally, each behind its own confirmation printed in the terminal: the
   modprobe options and removal of `/etc/mkinitcpio.conf.d/nvidia.conf`.
 - Every replaced `/etc` file goes first to `/var/backups/omarchy-egpu/<UTC>/`.
-- `install.sh --uninstall` restores from backup and removes everything it installed.
+- `install.sh --uninstall` restores from backup and removes everything it installed,
+  the auto-connect flag whatever its content, and warns loudly when a shipped
+  modules-load.d file then loads a backend module at boot again (the freeze condition).
+- Everything that can refuse (plugin folder, snapshot and pins, primary GPU, rule,
+  directory safety, the auto-connect decision) runs before anything changes, so a
+  refused install or **reinstall** leaves the machine as it was; reinstall never
+  uninstalls first and validates after.
+- `--autoconnect on|off`; default `on` for a first install (scope.md DECISION
+  2026-10-10), otherwise the current flag is kept. `/etc/omarchy-egpu/` is always
+  created, so the panel's switch never has to make a directory as root.
+- Masks consult every directory systemd-modules-load reads (`/etc`, `/run`,
+  `/usr/local/lib`, `/usr/lib`): a name is masked when any non-`/etc` file of it
+  loads a backend module (a volatile `/run` override does not count as a mask), and
+  masking a file that loads other modules too says so.
 - The repo-side `dev-sync.sh` copies face:install.sh:38-67:
   - It validates a dot-named staging copy first, which the watcher ignores
     (PluginRegistry.qml:734-735).

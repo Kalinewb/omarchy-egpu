@@ -327,8 +327,12 @@ status_collect() {
   fi
   [[ -n $last_event ]] || last_event=$(_last_event_from_file)
   [[ -n $recent ]] || recent=$(_recent_events_from_file)
+  # connect.auto: the root half's flag file, not the config (common.sh).
+  local auto
+  auto=$(config_get connect.auto false)
 
   jq -cn \
+    --argjson auto "$auto" \
     --argjson schema "$STATUS_SCHEMA" --argjson seq "$seq" --argjson at "$(now_ms)" \
     --arg phase "$phase" --argjson bolt "$bolt" --argjson daemon "$daemon" \
     --argjson pci "$pci" --arg backend "$backend" --arg be_status "$be_status" \
@@ -349,6 +353,7 @@ status_collect() {
                   stored: $bolt.stored, generation: $bolt.generation, profile: $bolt.profile} end),
      pci: $pci,
      backend: {name: ($backend | n), supported: ($backend != "" and $be_status == "implemented")},
+     connect: {auto: $auto},
      driver: {bound: ($driver | n), modules: $modules, modeset: $kms.modeset, fbdev: $kms.fbdev},
      gpu: ({ok: false, name: null, version: null, temp_c: null, util_pct: null, mem_used_mb: null, procs: []} + $gpu),
      drm: {card: ($card | n), card_bypath: ($bypath | n), link: ($link | n), compositor_has_card: $comp},

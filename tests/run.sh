@@ -79,7 +79,8 @@ setup_scenario() {
   export EGPU_USRLIB="$FX_ROOT/usr/lib" EGPU_BOOT="$FX_ROOT/boot" EGPU_RUN="$T/run" EGPU_STATE="$T/state"
   export EGPU_USRSHARE="$FX_ROOT/usr/share"
   export EGPU_CONFIG="$T/config.json"
-  export EGPU_ADMIN="$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
+  # The engine honours EGPU_ADMIN only in test mode (lib/common.sh).
+  export OMARCHY_EGPU_TEST=1 EGPU_ADMIN="$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
   export EGPU_POLICY="$FX_ROOT/usr/share/polkit-1/actions/no.kalinewb.egpu.policy"
   export XDG_RUNTIME_DIR="$FX_XDG" HOME="$T/home" TMPDIR="$T"
   unset HYPRLAND_INSTANCE_SIGNATURE XDG_CONFIG_HOME XDG_STATE_HOME WAYLAND_DISPLAY

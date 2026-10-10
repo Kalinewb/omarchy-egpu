@@ -20,13 +20,14 @@ ACTION=="remove", GOTO="omarchy_egpu_end"
 SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", ENV{ID_PATH}=="pci-@PRIMARY_BDF@", SYMLINK+="dri/omarchy-egpu-primary"
 SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", SUBSYSTEMS=="pci", ATTRS{class}=="0x03[0-9]*", ATTRS{removable}=="removable", SYMLINK+="dri/omarchy-egpu-external"
 
-# Auto-connect (OFF unless /etc/omarchy-egpu/autoconnect exists; the setting
-# is deferred, scope.md DECISIONS 2026-10-09). When on, a removable display
-# device appearing loads its backend's KMS modules (nvidia_drm and what it
-# needs) through the helper, which refuses anything but an allowlisted vendor.
-# Nothing loads nvidia_drm on hot-plug otherwise (O3); the panel's Connect
-# button does it then. TEST is evaluated per event, so creating or removing
-# the flag file needs no udev reload.
+# Auto-connect: on while /etc/omarchy-egpu/autoconnect exists. install.sh
+# creates it on a first install (scope.md DECISION 2026-10-10); the panel's
+# Setup switch removes or recreates it through the helper. When on, a removable
+# display device appearing loads its backend's KMS modules (nvidia_drm and what
+# it needs) through the helper, which refuses anything but an allowlisted
+# vendor, and a device the user just ejected (the eject latch). Nothing loads
+# nvidia_drm on hot-plug otherwise (O3); the panel's Connect button does it
+# then. TEST is evaluated per event, so switching needs no udev reload.
 ACTION=="add", SUBSYSTEM=="pci", ATTR{class}=="0x03[0-9]*", ATTR{removable}=="removable", TEST=="/etc/omarchy-egpu/autoconnect", RUN+="/usr/local/bin/omarchy-egpu-admin load auto"
 
 LABEL="omarchy_egpu_end"
