@@ -4,7 +4,7 @@ The eGPU plugin integrates with the notch through the declared integration
 (`entryPoints.surface` + `surface.contract: 1`, `NotchIntegration.qml`) and a
 `notch` descriptor on its bar widget (plan-gui.md §7). This repo never edits the
 notch. These are the notch-side changes the integration would use, written
-against the checkout at `/home/graveklar/Work/omarchy-notch`, head `a237a0f`
+against the checkout at `the omarchy-notch checkout`, head `a237a0f`
 (2026-09-27), as read on 2026-10-10. Nothing here blocks the plugin. Each item
 says how the plugin degrades today.
 
