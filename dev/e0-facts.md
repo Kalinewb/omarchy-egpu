@@ -376,3 +376,9 @@ DEBUG from aquamarine ]: drm: Starting backend for /dev/dri/card1, with driver n
 
 ## Hypothesis added after E0 (eglinfo test, not yet verified in the compositor)
 A fresh process using the GBM platform sees the 4070 SUPER fine via NVIDIA EGL (eglinfo -p gbm -B, with or without GBM_BACKEND/__EGL_VENDOR_LIBRARY_FILENAMES). Hyprland, started with no NVIDIA card present, got BAD_ALLOC from eglQueryDevicesEXT and "DRI2: failed to load driver" on card1. Likely cause: glvnd/NVIDIA EGL state initialised once per process while no NVIDIA device existed, so a hot-added card is unusable by that compositor process. If true, `needs_relogin` is the routine path for plug-in-after-login, and only eGPU-present-at-login gives HDMI. Verify at E1(b) (login with eGPU attached) - needs the user.
+
+## E1(b) result (login with the eGPU and HDMI TV attached)
+- Hyprland log: card0 (xe) becomes primary; card1 (nvidia-drm) starts as secondary; secondary renderer initialised with no EGL errors (0 ERR lines in the log).
+- hyprctl lists eDP-1 (2880x1800@120) and HDMI-A-2 (LG TV, 3840x2160@60, at 1800x0). HDMI output works.
+- Confirms the hypothesis: Hyprland cannot use a card hot-added after login for HDMI (E0: eglInitialize fails), but a card present at login works. `needs_relogin` after a mid-session plug-in is the routine path.
+- Session env now has Omarchy's NVIDIA variables (__GLX_VENDOR_LIBRARY_NAME=nvidia, NVD_BACKEND=direct, LIBVA_DRIVER_NAME=nvidia) because nvidia.lua sees an NVIDIA card at config load. nvidia-smi showed 63% util and 2 processes shortly after login, so session apps may be rendering/decoding on the eGPU. This is the glitch-risk the plan's toggle file is meant to override. Needs E1(a)/(c) follow-up.
