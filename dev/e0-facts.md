@@ -386,3 +386,9 @@ A fresh process using the GBM platform sees the 4070 SUPER fine via NVIDIA EGL (
 ## TV mouse lag finding (live, user-reported)
 - With the eGPU driving the HDMI TV, cursor:no_hardware_cursors=2 (auto) made TV mouse movement "sway" (software cursor at frame cadence). Setting it to 0 (hardware cursor) removed the sway; a small latency remains (cross-GPU copy + 60 Hz).
 - Omarchy's NVIDIA env override (__GLX_VENDOR_LIBRARY_NAME=mesa, LIBVA_DRIVER_NAME=iHD) applies via the toggle file, but quickshell still loads libEGL_nvidia and holds /dev/nvidia0 open (glvnd loads both vendors). Hyprland ~23% GPU util (HDMI path), quickshell ~5%.
+
+## TV on the laptop's own HDMI (Intel) with the eGPU used for offload only (live test)
+- hyprctl: eDP-1 2880x1800@120 and HDMI-A-1 (card0, Intel) 3840x2160@60 both fine; card1-HDMI-A-2 disconnected. User: cursor on the TV is great.
+- Default renderer is Mesa Intel (LNL); with __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia glxinfo reports the RTX 4070 SUPER. glxgears under offload ran on the eGPU (G, ~25% sm), 99.6 FPS (display-limited), and left no process behind.
+- Hyprland no longer appears in nvidia-smi's process list when it has no eGPU output; idle eGPU load ~6%. quickshell still shows a small compute context (loads libEGL_nvidia).
+- Conclusion: "TV on the laptop HDMI, eGPU for offload" is smoother than driving the TV from the eGPU and needs no relogin for mid-session plug-ins. Candidate default display policy.
