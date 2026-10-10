@@ -93,5 +93,7 @@ Uses the host theme only (colours/fonts/radii from the shell). 16 px inset, 12 p
 ## 6. Build order (UI)
 1. Fix padding + title duplication (all existing views).  2. Setup view + make every "setup/problem" line open it.  3. Overview rework to the state table (primary button logic).  4. Eject sheet (G3).  5. Games (G5).  6. Screens (G4).  7. Notifications (G7).  8. Notch compact updated to the same primary-button logic.  9. First-run flow end to end on a clean profile.
 
-## 7. Open decisions (owner)
-See the questions in the chat; defaults chosen here are marked (note) above.
+## 7. Decisions (owner, 2026-10-10)
+- Setup install: a button opens an Omarchy terminal with the pinned install command and a plain-language explanation; the user types the sudo password in that terminal. The panel never handles the password.
+- Games: Steam only, every game off by default, plus All on / All off. Non-Steam apps are later, via egpu-run.
+- Notch compact view when fine: headline + one facts line + one primary button + 'Open full panel' (same words as the main panel).
