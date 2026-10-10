@@ -5,4 +5,4 @@ fx_base_healthy
 fx_deg2 authorized true
 fx_nvidia_modules
 mkdir -p "$EGPU_RUN"
-echo "{\"uuid\":\"$FX_DEG2_UUID\",\"bdf\":\"0000:03:00.0\"}" >"$EGPU_RUN/ejected"
+echo "{\"uuid\":\"$FX_DEG2_UUID\",\"bdf\":\"0000:03:00.0\",\"held_by\":[\"quickshell\",\"voxtype-osd-gtk\"]}" >"$EGPU_RUN/ejected"

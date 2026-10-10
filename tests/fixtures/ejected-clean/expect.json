@@ -1,2 +1,2 @@
 { "phase": "ejected", "summary_state": "safe_to_unplug",
-  "status_checks": [".modules.held_after_eject == false", ".summary.line == \"Safe to unplug\""] }
+  "status_checks": [".modules.held_after_eject == false", ".modules.held_by == []", ".summary.line == \"Safe to unplug\""] }

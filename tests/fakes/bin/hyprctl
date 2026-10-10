@@ -10,6 +10,10 @@
 #   eval-ignore         `eval` changes nothing (a monitor that will not turn off)
 #   no-workspace-arg    `hl.dsp.workspace.move` ignores `workspace =` and moves
 #                       the focused workspace (forces display.sh's fallback)
+#   sysfs.json          {"<description>": "<connector dir in the fixture's sysfs>"}:
+#                       a rule that turns that monitor on or off also writes
+#                       enabled/disabled to the connector's `enabled`, as the
+#                       kernel does when the compositor sets the CRTC
 # `eval 'hl.monitor({...})'` applies the rule to monitors.json as Hyprland would
 # (disabled, mode, position, scale, vrr, mirror); the workspaces of a monitor
 # that goes off move to the first enabled one. `reload` re-applies every
@@ -53,6 +57,12 @@ apply_rule() {
               | .mirrorOf = (if $mirror != "" then $mirror else "none" end)
             end
         else . end)'
+  if [[ -r $H/sysfs.json ]]; then
+    local dir
+    while IFS= read -r dir; do
+      [[ -n $dir && -d $dir ]] && { [[ $dis == true ]] && echo disabled || echo enabled; } >"$dir/enabled"
+    done < <(jq -r --arg o "$out" 'to_entries[] | select(("desc:" + .key) == $o or .key == $o) | .value' "$H/sysfs.json")
+  fi
   [[ -r $H/workspaces.json ]] || return 0
   _update "$H/workspaces.json" --slurpfile m "$H/monitors.json" '
     ($m[0] | map(select(.disabled | not)) | .[0]) as $to

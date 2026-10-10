@@ -2,7 +2,9 @@
 # This laptop at E0 (dev/e0-facts.md): DEG2 + 4070 SUPER ready; HDMI-A-2
 # connected but Hyprland never lit it (secondary renderer failed) although it
 # holds card1; stale modules-load mask; nvidia_drm parameters root-only;
-# vulkaninfo missing; no system half; AQ_DRM_DEVICES not set.
+# vulkaninfo missing; no system half; AQ_DRM_DEVICES not set. The TV was on
+# the eGPU's own HDMI port then, i.e. display.policy egpu-hdmi (the relogin
+# case; fixtures/egpu-port-igpu is the same port under the default policy).
 fx_igpu
 fx_thunderbolt
 fx_boot_clean
@@ -19,3 +21,4 @@ fx_module_param nvidia_drm fbdev Y 000
 fx_hyprland 1217 no card0 renderD128 card1
 fx_absent_tool vulkaninfo
 fx_absent_tool lsinitcpio
+echo '{"display":{"policy":"egpu-hdmi"}}' >"$EGPU_CONFIG"

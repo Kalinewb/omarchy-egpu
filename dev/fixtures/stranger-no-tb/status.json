@@ -61,7 +61,8 @@
     "needs_relogin": false
   },
   "modules": {
-    "held_after_eject": false
+    "held_after_eject": false,
+    "held_by": []
   },
   "steam": {
     "running": false

@@ -104,7 +104,8 @@
     "needs_relogin": true
   },
   "modules": {
-    "held_after_eject": false
+    "held_after_eject": false,
+    "held_by": []
   },
   "steam": {
     "running": false
@@ -117,7 +118,7 @@
   ],
   "health_summary": {
     "errors": 2,
-    "warnings": 2
+    "warnings": 4
   },
   "last_event": null,
   "recent_events": []

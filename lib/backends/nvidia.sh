@@ -45,26 +45,13 @@ be_dev_nodes() {
 # dev/e0-facts.md), and an app started from the session inherits that, so an
 # EGL app would never see libEGL_nvidia. The file is found, not assumed: the
 # first glvnd vendor file whose library is libEGL_nvidia, in glvnd's own
-# search order (EGPU_GLVND_DIRS overrides it for the tests).
+# search order (glvnd_egl_vendor_file in common.sh).
 be_offload_env() {
   printf '%s\n' __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only
   [[ ${2:-} == run ]] || return 0
   local json
-  json=$(_nv_egl_vendor_json) && printf '__EGL_VENDOR_LIBRARY_FILENAMES=%s\n' "$json"
+  json=$(glvnd_egl_vendor_file libEGL_nvidia) && printf '__EGL_VENDOR_LIBRARY_FILENAMES=%s\n' "$json"
   return 0
-}
-
-_nv_egl_vendor_json() {
-  local dirs d f
-  IFS=: read -r -a dirs <<<"${EGPU_GLVND_DIRS:-$EGPU_ETC/glvnd/egl_vendor.d:${EGPU_USRSHARE:-/usr/share}/glvnd/egl_vendor.d}"
-  for d in "${dirs[@]}"; do
-    for f in "$d"/*.json; do
-      [[ -r $f ]] || continue
-      [[ $(jq -r '.ICD.library_path // empty' "$f" 2>/dev/null) == libEGL_nvidia.so* ]] &&
-        { printf '%s\n' "$f"; return 0; }
-    done
-  done
-  return 1
 }
 
 be_steam_extras() {
@@ -320,7 +307,7 @@ be_health() {
 # ---------------------------------------------------------------- display roles
 #
 # Called by lib/display.sh only (the toggle file, plan-engine.md §7.2), which
-# provides va_driver_installed and glvnd_egl_vendor_file.
+# provides va_driver_installed (glvnd_egl_vendor_file is common.sh's).
 #
 # Secondary role: what the session needs so it stays on the primary GPU while
 # this card is attached, and on any login with it attached. Needs, in file

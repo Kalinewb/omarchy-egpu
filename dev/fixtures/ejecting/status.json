@@ -55,14 +55,13 @@
     "fbdev": true
   },
   "gpu": {
-    "ok": true,
-    "name": "NVIDIA GeForce RTX 4070 SUPER",
-    "version": "580.178.04",
-    "temp_c": 29,
-    "util_pct": 0,
-    "mem_used_mb": 33,
-    "procs": [],
-    "driver": "nvidia"
+    "ok": false,
+    "name": null,
+    "version": null,
+    "temp_c": null,
+    "util_pct": null,
+    "mem_used_mb": null,
+    "procs": []
   },
   "drm": {
     "card": "card1",
@@ -104,7 +103,8 @@
     "needs_relogin": false
   },
   "modules": {
-    "held_after_eject": false
+    "held_after_eject": false,
+    "held_by": []
   },
   "steam": {
     "running": false

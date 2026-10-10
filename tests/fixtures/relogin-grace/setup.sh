@@ -8,3 +8,4 @@ fx_egpu_nvidia nvidia connected:disabled
 fx_nvidia_modules
 fx_hyprland 1217 yes card0 renderD128
 touch "$FX_ROOT/dev/dri/card1"
+echo '{"display":{"policy":"egpu-hdmi"}}' >"$EGPU_CONFIG"

@@ -4,7 +4,7 @@
                     ".hints[0].id == \"needs_relogin\"", ".health_summary.errors == 2", ".bolt.policy == \"iommu\"",
                     ".bolt.generation == \"USB4\""],
   "health_levels": { "boot.modules_load_mask": "error", "tools.vulkaninfo": "warn", "driver.modeset": "info",
-                     "driver.fbdev": "info", "system.helper": "error", "hypr.order": "info", "hypr.links": "info", "hypr.session_env": "warn",
+                     "driver.fbdev": "info", "system.helper": "error", "hypr.order": "warn", "hypr.links": "warn", "hypr.session_env": "warn",
                      "boot.initramfs_nvidia": "skipped", "kernel.modprobe_options": "ok" },
   "health_checks": ["map(select(.id == \"boot.modules_load_mask\"))[0].detail | test(\"nvidia-580xx-utils.conf loads nvidia-uvm\")",
                     "map(select(.id == \"boot.modules_load_mask\"))[0].detail | test(\"Stale mask that masks nothing: /etc/modules-load.d/nvidia-utils.conf\")",

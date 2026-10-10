@@ -1,0 +1,4 @@
+{ "phase": "ready", "summary_state": "ready",
+  "status_checks": [".display.needs_relogin == false", ".summary.line == \"eGPU ready · eject before unplugging\"",
+                    "[.display.monitors[] | select(.connector == \"HDMI-A-2\")][0].status == \"connected\"",
+                    ".drm.compositor_has_card == false", "[.hints[].id] | index(\"needs_relogin\") == null"] }

@@ -41,7 +41,7 @@ be_kms_params() { _be_stub; }
 # The stub above is the eGPU role. This part is implemented: it is the laptop
 # iGPU that drives the session, and the toggle file (lib/display.sh, §7.2)
 # points the session's GL, EGL and video decode at it. Called by display.sh
-# only, which provides va_driver_installed and glvnd_egl_vendor_file.
+# only, which provides va_driver_installed (glvnd_egl_vendor_file is common.sh's).
 
 be_primary_match() { [[ $(pci_attr "$1" vendor) == 0x8086 ]] && pci_is_display "$1"; }
 

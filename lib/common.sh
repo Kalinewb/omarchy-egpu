@@ -24,6 +24,8 @@ EGPU_USRLIB="${EGPU_USRLIB:-/usr/lib}"
 # Not in the plan's list: /boot is needed for the initramfs row, and the tests
 # need to point it at a fixture like every other root.
 EGPU_BOOT="${EGPU_BOOT:-/boot}"
+# Also not in the plan's list: glvnd's vendor files (glvnd_egl_vendor_file).
+EGPU_USRSHARE="${EGPU_USRSHARE:-/usr/share}"
 EGPU_RUN="${EGPU_RUN:-${XDG_RUNTIME_DIR:-/run/user/$UID}/omarchy-egpu}"
 EGPU_STATE="${EGPU_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-egpu}"
 EGPU_CONFIG="${EGPU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-egpu/config.json}"
@@ -189,6 +191,28 @@ drm_bypath_of_card() {
   for l in "$EGPU_DEV"/dri/by-path/*-card; do
     [[ -L $l ]] || continue
     [[ $(readlink -- "$l") == */"$card" || $(readlink -- "$l") == "$card" ]] && { printf '%s\n' "${l##*/}"; return 0; }
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------- glvnd
+
+# glvnd_egl_vendor_file <library>: the path (as the session sees it) of the
+# glvnd EGL vendor file whose library_path is that library (libEGL_mesa,
+# libEGL_nvidia). /etc wins over /usr/share, as in glvnd's own search. The
+# toggle file (display.sh, the primary's) and egpu-run (a backend's
+# be_offload_env) both find their vendor file here.
+glvnd_egl_vendor_file() {
+  local roots=("$EGPU_ETC" "$EGPU_USRSHARE") reals=(/etc /usr/share) i f lib
+  for i in 0 1; do
+    for f in "${roots[i]}"/glvnd/egl_vendor.d/*.json; do
+      [[ -r $f ]] || continue
+      lib=$(jq -r '.ICD.library_path // empty' "$f" 2>/dev/null)
+      lib=${lib##*/}
+      [[ $lib == "$1" || $lib == "$1".* ]] || continue
+      printf '%s\n' "${reals[i]}${f#"${roots[i]}"}"
+      return 0
+    done
   done
   return 1
 }

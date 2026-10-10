@@ -172,15 +172,15 @@ stranger-no-tb|absent|none|secondary|none|false|false|Open full panel|Open full 
 plugged-unauthorized|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
 authorized-no-pci|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
 bound-nvidia|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
-ready|ready|ready|accent|none|false|false|Safe eject,Open full panel|Open full panel
-ready-hdmi|in_use|in use|accent|accent|false|true|Safe eject,Turn off now,Open full panel|Open full panel
-in-use-procs|in_use|in use|accent|accent|false|false|Safe eject,Open full panel|Open full panel
+ready|ready|ready|accent|none|false|false|Safe eject,Open full panel|Safe eject,Open full panel
+ready-hdmi|in_use|in use|accent|accent|false|true|Safe eject,Turn off now,Open full panel|Safe eject,Open full panel
+in-use-procs|in_use|in use|accent|accent|false|false|Safe eject,Open full panel|Safe eject,Open full panel
 ejecting|ejecting|ejecting|foreground|none|true|false|Open full panel|Open full panel
-ejected-clean|safe_to_unplug|unplug|good|none|false|false|Reconnect,Open full panel|Open full panel
-ejected-held|attention|log out|good|warn|false|false|Reconnect(off),Open full panel|Open full panel
-this-machine|attention|log out|accent|warn|false|false|Safe eject,Open full panel|Open full panel
+ejected-clean|safe_to_unplug|unplug|good|none|false|false|Reconnect,Open full panel|Reconnect,Open full panel
+ejected-held|attention|log out|good|warn|false|false|Reconnect(off),Open full panel|Reconnect(off),Open full panel
+this-machine|attention|log out|accent|warn|false|false|Safe eject,Open full panel|Safe eject,Open full panel
 amd-stub|attention|check setup|foreground|warn|false|false|Open full panel|Open full panel
-bolt-down|attention|check setup|accent|warn|false|false|Safe eject,Open full panel|Open full panel
+bolt-down|attention|check setup|accent|warn|false|false|Safe eject,Open full panel|Safe eject,Open full panel
 smi-hung|error|error|foreground|bad|false|false|Open full panel|Open full panel
 auth-error|error|error|foreground|bad|false|false|Open full panel|Open full panel
 TABLE

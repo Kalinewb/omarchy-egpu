@@ -61,7 +61,11 @@
     "needs_relogin": false
   },
   "modules": {
-    "held_after_eject": true
+    "held_after_eject": true,
+    "held_by": [
+      "quickshell",
+      "voxtype-osd-gtk"
+    ]
   },
   "steam": {
     "running": false

@@ -42,7 +42,7 @@ Same as face:system/omarchy-face-admin:11-14.
 
 | module | codes |
 |---|---|
-| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing` |
+| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing`; added in E5: `remove_failed` (the helper refused or failed during eject), `modules_held` and `rescan_failed` (rescan), `holders_failed` (`device holders`) |
 | display | `hdmi_still_active`, `unsafe_name` |
 | any backend call | `backend_stub` |
 | steam | `steam_not_found`, `account_not_found`, `steam_running`, `game_running`, `steam_close_timeout`, `vdf_parse_failed`, `vdf_check_failed`, `vdf_changed_underneath`, `token_modified`, `manual_offload`, `backup_failed` |
@@ -559,6 +559,23 @@ Order (REVISION 2026-10-09: display first):
   state (binding fact 1).
 - So: the bar indicator shows "eject before unplugging" whenever the eGPU is bound,
   and the unplug notification says what was lost if it was yanked.
+
+**As built (E5, `lib/device.sh`), with the DECISIONS of 2026-10-10:**
+- Holders are classified (`device holders` shows the same): `compositor` (never
+  blocks, never signalled), `shell` (quickshell: never signalled, blocks only
+  with GPU memory), `app` (nvidia-smi client with memory, or a process carrying
+  the managed Steam marker `OMARCHY_EGPU=1` or the backend's whole offload set:
+  blocks, closeable when the user's own and not the engine's ancestor) and
+  `incidental` (`/dev/nvidia*` open, no memory: reported, never blocks).
+- Unload is not required: after the remove the engine asks the helper to unload
+  only when nothing holds the modules; otherwise `modules.held_after_eject` is
+  true and the holders' names go into the marker, shown as `modules.held_by`.
+- Before the remove the kernel's own `enabled` attribute of every connector must
+  read disabled (the helper refuses `monitor_active` otherwise); a port still lit
+  (also by the console with fbdev=1) is `hdmi_still_active`.
+- The job posts `eject_started`, `eject_ready {held, held_by}` and
+  `eject_failed {error}` itself; the watcher no longer derives them.
+- `--force` does not exist; nothing is ever sent SIGKILL.
 
 ### 6.4 Ejected but not unplugged
 

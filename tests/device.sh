@@ -24,7 +24,6 @@ dv_new() {
   source "$TESTS/lib.sh"
   mkdir -p -- "$EGPU_RUN"
   export EGPU_POLL_S=0.05 EGPU_CONNECT_GRACE_S=1 EGPU_SMI_TIMEOUT=1
-  export EGPU_GLVND_DIRS="$FX_ROOT/etc/glvnd/egl_vendor.d:$FX_ROOT/usr/share/glvnd/egl_vendor.d"
   # The session as the toggle file leaves it (scope.md DECISIONS 2026-10-10).
   export __GLX_VENDOR_LIBRARY_NAME=mesa
   export __EGL_VENDOR_LIBRARY_FILENAMES="$FX_ROOT/usr/share/glvnd/egl_vendor.d/50_mesa.json"
@@ -452,7 +451,8 @@ dv_test_run() {
   echo "${BOLD}egpu-run: eGPU ready${RESET}"
   dv_new run-ready
   dv_ready
-  nvjson="$FX_ROOT/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+  # Found under the fixture's $EGPU_USRSHARE, named as the app will see it.
+  nvjson=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
   er glxinfo -B
   if (( ER_RC == 0 )) && grep -q 'OpenGL renderer string: NVIDIA GeForce RTX 4070 SUPER' "$T/run.out"; then
     ok "egpu-run glxinfo -B renders on the NVIDIA card"

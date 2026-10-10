@@ -16,6 +16,9 @@ var sentences = {
   holders_present: "Some apps are still using the eGPU.",
   remove_timeout: "Do not unplug. The driver has not let go of the card. Save your work and log out; unplug after.",
   helper_missing: "The system half is not installed. Setup shows how to install it.",
+  remove_failed: "The eGPU could not be ejected. It is still connected; nothing was removed.",
+  modules_held: "Log out before reconnecting the eGPU: the driver is still loaded from before the eject.",
+  rescan_failed: "The eGPU could not be reconnected. Unplug it and plug it in again.",
   // display
   hdmi_still_active: "The monitor on the eGPU is still on.",
   unsafe_name: "That monitor name cannot be used safely.",

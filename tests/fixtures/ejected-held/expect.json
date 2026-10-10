@@ -1,3 +1,4 @@
 { "phase": "ejected", "summary_state": "attention",
   "status_checks": [".modules.held_after_eject == true", ".summary.line == \"Safe to unplug · log out before plugging it in again\"",
-                    ".hints[0].id == \"held_after_eject\"", ".pci.present == false"] }
+                    ".hints[0].id == \"held_after_eject\"", ".pci.present == false",
+                    ".modules.held_by == [\"quickshell\", \"voxtype-osd-gtk\"]"] }

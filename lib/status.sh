@@ -41,7 +41,8 @@ _pci_name() {
 }
 
 # Is the eject job running? It holds $EGPU_RUN/lock and names itself in
-# $EGPU_RUN/job (device.sh, phase E5).
+# $EGPU_RUN/job (device.sh; its preflight names itself eject-check, so a
+# refused eject never reads as ejecting).
 _ejecting() {
   [[ -e $EGPU_RUN/lock && $(read_attr "$EGPU_RUN/job") == eject ]] || return 1
   ! flock -n "$EGPU_RUN/lock" true 2>/dev/null
@@ -149,7 +150,9 @@ status_collect() {
         done < <(be_kms_modules)
         modules=$mods_json
         kms=$(be_kms_params)
-        if [[ -n $driver ]]; then
+        # Not while an eject runs: an nvidia-smi started by the watcher would
+        # be one more client of the card it is removing.
+        if [[ -n $driver ]] && ! _ejecting; then
           gpu=$(be_verify "$bdf") || gpu='{"ok":false}'
         fi
       else
@@ -163,8 +166,21 @@ status_collect() {
   gpu_ok=$(jq -r '.ok // false' <<<"$gpu")
   gpu_error=$(jq -r '.error // ""' <<<"$gpu")
 
+  # ---- the eject marker belongs to one connection of the enclosure. Once
+  # boltd (answering) no longer lists it as connected, it was unplugged, and
+  # a later plug-in must not read as "ejected".
+  local marker_uuid=''
+  if [[ -e $EGPU_RUN/ejected ]]; then
+    marker_uuid=$(jq -r '.uuid // ""' "$EGPU_RUN/ejected" 2>/dev/null)
+    if [[ $daemon == true && -n $marker_uuid ]] && ! _ejecting &&
+      ! jq -e --arg u "$marker_uuid" 'any(.[]; .uuid == $u and .status != "disconnected")' <<<"$devices" >/dev/null; then
+      rm -f -- "$EGPU_RUN/ejected"
+      marker_uuid=''
+    fi
+  fi
+
   # ---- phase
-  local phase marker_uuid
+  local phase
   if _ejecting; then
     phase=ejecting
   elif [[ $bolt_status == auth-error ]]; then
@@ -180,7 +196,6 @@ status_collect() {
       phase=bound
     fi
   elif [[ $bolt_present == true ]]; then
-    marker_uuid=$(jq -r '.uuid // ""' "$EGPU_RUN/ejected" 2>/dev/null)
     if [[ $bolt_status == authorized && -n $marker_uuid && $marker_uuid == "$bolt_uuid" ]]; then
       phase=ejected
     elif [[ $bolt_status == authorized ]]; then
@@ -208,6 +223,12 @@ status_collect() {
         [[ -n $m2 ]] && module_loaded "$m2" && { held=true; break; }
       done < <(be_kms_modules)
     done < <(backends_unloadable)
+  fi
+  # Who kept them, as the eject job found it (additive; plan-engine.md §6.3).
+  # Holders are not re-read here: that needs the root helper.
+  local held_by='[]'
+  if [[ $held == true && -n $marker_uuid ]]; then
+    held_by=$(jq -c '[.held_by // [] | .[] | strings] | .[:16]' "$EGPU_RUN/ejected" 2>/dev/null) || held_by='[]'
   fi
 
   # ---- PCI block
@@ -267,7 +288,11 @@ status_collect() {
     (( ${#mons[@]} )) && monitors=$(printf '%s\n' "${mons[@]}" | jq -s -c '.')
     # O1 fallback: a connected monitor on the eGPU that Hyprland does not list,
     # once the card node is older than the grace period (5 s after connect).
-    if [[ -n $comp_pid && ($phase == ready || $phase == bound) ]] && (( any_connected && !any_in_comp )); then
+    # Only under display.policy egpu-hdmi: under igpu the compositor is kept
+    # off the eGPU on purpose, so a new session would not light that port
+    # either, and "log out to use the HDMI monitor" would be a false promise.
+    if [[ -n $comp_pid && ($phase == ready || $phase == bound) ]] && (( any_connected && !any_in_comp )) &&
+      [[ $(_dsp_policy) == egpu-hdmi ]]; then
       local mt age grace=${EGPU_RELOGIN_GRACE_S:-5}
       mt=$(stat -c %Y -- "$EGPU_DEV/dri/$card" 2>/dev/null || echo 0)
       age=$(( $(date +%s) - mt ))
@@ -309,7 +334,7 @@ status_collect() {
     --argjson pci "$pci" --arg backend "$backend" --arg be_status "$be_status" \
     --arg driver "$driver" --argjson modules "$modules" --argjson kms "$kms" --argjson gpu "$gpu" \
     --arg card "$card" --arg bypath "$bypath" --arg link "$link" --argjson comp "$comp_has" \
-    --argjson monitors "$monitors" --argjson relogin "$needs_relogin" --argjson held "$held" \
+    --argjson monitors "$monitors" --argjson relogin "$needs_relogin" --argjson held "$held" --argjson held_by "$held_by" \
     --argjson steam "$steam_running" --argjson hints "$hints" --argjson health "$health" \
     --argjson last_event "$last_event" --argjson recent "$recent" --argjson domain "$domain" '
     def n: if . == "" then null else . end;
@@ -328,7 +353,7 @@ status_collect() {
      gpu: ({ok: false, name: null, version: null, temp_c: null, util_pct: null, mem_used_mb: null, procs: []} + $gpu),
      drm: {card: ($card | n), card_bypath: ($bypath | n), link: ($link | n), compositor_has_card: $comp},
      display: {monitors: $monitors, needs_relogin: $relogin},
-     modules: {held_after_eject: $held},
+     modules: {held_after_eject: $held, held_by: $held_by},
      steam: {running: $steam},
      hints: $hints,
      health_summary: $health,
@@ -423,11 +448,12 @@ _status_events() {
     | ([.display.monitors[] | select(.status == "connected") | .connector]) as $now
     | ($was - $now)[] | "monitor_removed\t" + ({connector: .} | tojson)' <<<"$cur"
 
+  # eject_started, eject_ready and eject_failed are not derived here: the
+  # eject job posts them (lib/device.sh) with what only it knows (the error
+  # code, whether the modules were held and by whom). Derived from phases as
+  # well, a fast eject the debounce folds into one recompute would announce
+  # them twice or not at all.
   if [[ $p != "$c" ]]; then
-    case $c in
-      ejecting) printf 'eject_started\t{}\n' ;;
-      ejected) [[ $p == ejecting ]] && printf 'eject_ready\t{}\n' || printf 'eject_ready\t{"external":true}\n' ;;
-    esac
     # The GPU vanished while bound, without an eject: yanked. The enclosure
     # may still be listed by bolt for a moment, so this does not wait for
     # `absent`.
@@ -437,9 +463,6 @@ _status_events() {
     fi
     if [[ $c == absent && $p != absent ]]; then
       printf 'unplugged\t%s\n' "$(jq -cn --arg from "$p" '{from: $from}')"
-    fi
-    if [[ $p == ejecting && ($c == ready || $c == bound) ]]; then
-      printf 'eject_failed\t{}\n'
     fi
     # Forward through absent → plugged → authorized → ready, emitting skipped
     # steps too. Leaving `ejected` for the same enclosure is a rescan, not a
@@ -606,7 +629,8 @@ _watch_event() {
 }
 
 # Events other engine jobs post to $EGPU_RUN/events.spool (device connect's
-# connect_failed: nothing in two status documents says a job failed). Taken by
+# connect_failed, device eject's eject_started/eject_ready/eject_failed:
+# nothing in two status documents says a job failed, or why). Taken by
 # rename, so a line posted meanwhile waits for the next round. Prints
 # "name<TAB>detail" like _status_events.
 _watch_spool() {

@@ -9,13 +9,15 @@
 #   display <verb> [args]       eGPU monitors, display.policy, the toggle file (§7; lib/display.sh)
 #   device connect [opts]       bolt → PCI → driver → verify (§6.1; lib/device.sh)
 #   connect [opts]              the same
+#   device eject [--close]      monitors off → holders → PCI remove → unload if free (§6.3)
+#   device rescan               bring an ejected card back without replugging (§6.4)
+#   device holders              who holds or uses the card, classified (§6.2)
 #
 # JSON on stdout, prose on stderr. Exit codes (§1.1): 0 ok, 1 refused or
 # failed ({"error":...} on stdout), 3 busy; 126/127 from pkexec pass through.
 # The panel and the notch run only this; every decision lives here.
 #
-# Later phases add: device (eject/holders/rescan), config,
-# health fix/bundle. bin/egpu-run is the offload wrapper (§7.4).
+# Later phases add: config, health fix/bundle. bin/egpu-run is the offload wrapper (§7.4).
 
 set -uo pipefail
 
@@ -33,6 +35,7 @@ usage: omarchy-egpu <module> <verb> [args]
   steam set-all on|off [--only-stale] [--account A] [--queue]
   steam apply [--close] [--relaunch] | close | restore <accountid> <backup>
   device connect [--timeout S] [--enroll] [--quiet]   (also: connect ...)
+  device eject [--close] [--quiet] | rescan [--timeout S] [--quiet] | holders
   display list | off | render | apply
   display enable|disable|move-workspaces <monitor>
   display set <monitor> '{"mode":…,"position":"left|right|above|below|x,y","scale":…,"mirror":bool,"vrr":bool}'

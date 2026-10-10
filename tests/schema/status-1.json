@@ -142,7 +142,8 @@
     "modules": {
       "type": "object",
       "required": ["held_after_eject"],
-      "properties": { "held_after_eject": { "type": "boolean" } }
+      "properties": { "held_after_eject": { "type": "boolean" },
+                      "held_by": { "type": "array", "items": { "type": "string" } } }
     },
     "steam": {
       "type": "object",

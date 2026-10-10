@@ -45,7 +45,6 @@
 # shellcheck source=lib/common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
-EGPU_USRSHARE="${EGPU_USRSHARE:-/usr/share}"
 DSP_TOGGLE="${EGPU_TOGGLE:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr/zz-omarchy-egpu.lua}"
 DSP_STATEFILE="$EGPU_STATE/display.json"
 DSP_BACKUPS="$EGPU_STATE/backups/toggle"
@@ -75,24 +74,6 @@ _dsp_backend_load() {
 # For be_primary_session: is this VA-API driver (iHD, radeonsi, ...) installed?
 va_driver_installed() {
   [[ -e $EGPU_USRLIB/dri/$1_drv_video.so ]] || compgen -G "$EGPU_USRLIB/*/dri/$1_drv_video.so" >/dev/null
-}
-
-# glvnd_egl_vendor_file <library>: the path (as the session sees it) of the
-# glvnd EGL vendor file whose library_path is that library (libEGL_mesa).
-# /etc wins over /usr/share, as in glvnd's own search.
-glvnd_egl_vendor_file() {
-  local roots=("$EGPU_ETC" "$EGPU_USRSHARE") reals=(/etc /usr/share) i f lib
-  for i in 0 1; do
-    for f in "${roots[i]}"/glvnd/egl_vendor.d/*.json; do
-      [[ -r $f ]] || continue
-      lib=$(jq -r '.ICD.library_path // empty' "$f" 2>/dev/null)
-      lib=${lib##*/}
-      [[ $lib == "$1" || $lib == "$1".* ]] || continue
-      printf '%s\n' "${reals[i]}${f#"${roots[i]}"}"
-      return 0
-    done
-  done
-  return 1
 }
 
 # The eGPU's backend: the attached card's, else the `backend` config key, else
