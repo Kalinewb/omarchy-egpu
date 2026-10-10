@@ -5,7 +5,8 @@
 #   tests/run.sh               every scenario, the Steam gate tests, then the watcher
 #   tests/run.sh absent ...    only these scenarios ("watch" for the watcher,
 #                              "steam" for the Steam module, tests/steam.sh,
-#                              "device" for connect and egpu-run, tests/device.sh)
+#                              "device" for connect and egpu-run, tests/device.sh,
+#                              "display" for monitors and the toggle file, tests/display.sh)
 #
 # Each scenario in fixtures/<name>/ has:
 #   setup.sh      builds the fake machine with tests/lib.sh (sysfs, /dev,
@@ -74,6 +75,7 @@ setup_scenario() {
   export EGPU_TEST_REPO="$REPO" EGPU_TEST_LIB="$TESTS/lib.sh"
   export EGPU_SYS="$FX_ROOT/sys" EGPU_DEV="$FX_ROOT/dev" EGPU_PROC="$FX_ROOT/proc" EGPU_ETC="$FX_ROOT/etc"
   export EGPU_USRLIB="$FX_ROOT/usr/lib" EGPU_BOOT="$FX_ROOT/boot" EGPU_RUN="$T/run" EGPU_STATE="$T/state"
+  export EGPU_USRSHARE="$FX_ROOT/usr/share"
   export EGPU_CONFIG="$T/config.json"
   export EGPU_ADMIN="$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
   export EGPU_POLICY="$FX_ROOT/usr/share/polkit-1/actions/no.kalinewb.egpu.policy"
@@ -346,6 +348,11 @@ source "$TESTS/steam.sh"
 # shellcheck source=tests/device.sh
 source "$TESTS/device.sh"
 
+# ---------------------------------------------------------------- display
+
+# shellcheck source=tests/display.sh
+source "$TESTS/display.sh"
+
 # ---------------------------------------------------------------- main
 
 # Scenarios are the fixture dirs with an expect.json; fixtures/steam holds the
@@ -355,7 +362,7 @@ mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do
   [[ $d != watch-sequence && -r $d/expect.json ]] && echo "$d"
 done)
 targets=("$@")
-(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device watch)
+(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device display watch)
 
 for s in "${targets[@]}"; do
   if [[ $s == watch ]]; then
@@ -364,6 +371,8 @@ for s in "${targets[@]}"; do
     test_steam
   elif [[ $s == device ]]; then
     test_device
+  elif [[ $s == display ]]; then
+    test_display
   elif [[ -d $TESTS/fixtures/$s && -r $TESTS/fixtures/$s/expect.json ]]; then
     (run_scenario "$s")
   else

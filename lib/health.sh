@@ -17,6 +17,8 @@
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 # shellcheck source=lib/steam/steam.sh
 source "$EGPU_LIB/steam/steam.sh"
+# shellcheck source=lib/display.sh
+source "$EGPU_LIB/display.sh"
 
 SYSTEM_FIX="Install the system half"
 
@@ -250,61 +252,19 @@ _check_backend() {
   done
 }
 
+# hypr.links, hypr.order and hypr.session_env depend on display.policy and
+# the toggle file, so they live with them in lib/display.sh.
 _check_hypr() {
-  local pid primary pcard log sig
+  local pid
   pid=$(compositor_pid)
-  primary=$(pci_primary)
-  pcard=$( [[ -n $primary ]] && pci_drm_card "$primary")
-
-  # hypr.links (§10.3)
-  local plink="$EGPU_DEV/dri/omarchy-egpu-primary" elink="$EGPU_DEV/dri/omarchy-egpu-external" bdf ecard
-  bdf=$(pci_egpu_candidates | head -n1)
-  ecard=$( [[ -n $bdf ]] && pci_drm_card "$bdf")
-  if [[ ! -L $plink && ! -e $plink ]]; then
-    health_row hypr.links display warn "GPU links are not installed" \
-      "/dev/dri/omarchy-egpu-primary and -external pin the GPU order without cardN numbers (${primary:+primary is pci-$primary-card}). They come with the udev rule." \
-      system "$SYSTEM_FIX"
-  elif [[ -n $pcard && $(readlink -- "$plink") != *"$pcard" ]]; then
-    health_row hypr.links display error "omarchy-egpu-primary points at the wrong card" \
-      "It points at $(readlink -- "$plink"); the primary (pci-$primary-card) is $pcard." system "$SYSTEM_FIX"
-  elif [[ -n $ecard && ! -e $elink && ! -L $elink ]]; then
-    health_row hypr.links display warn "omarchy-egpu-external is missing" \
-      "The eGPU ($ecard, pci-$bdf-card) is present but has no link." system "$SYSTEM_FIX"
-  else
-    health_row hypr.links display ok "GPU links installed" "primary → ${pcard:-?}${ecard:+, external → $ecard}"
-  fi
-
+  display_health_links
   if [[ -z $pid ]]; then
     health_row hypr.order display skipped "Compositor GPU order" "Hyprland is not running." none ""
     health_row hypr.gpu_list display skipped "GPUs the compositor has open" "Hyprland is not running." none ""
-    health_row hypr.session_env display skipped "Session GPU vendor" "Hyprland is not running." none ""
+    display_health_session_env ""
     return
   fi
-
-  # hypr.order: what aquamarine logged at start.
-  sig=${HYPRLAND_INSTANCE_SIGNATURE:-}
-  log="${XDG_RUNTIME_DIR:-}/hypr/$sig/hyprland.log"
-  if [[ -z $sig || ! -r $log ]]; then
-    health_row hypr.order display skipped "Compositor GPU order" "Hyprland's log is not readable." none ""
-  else
-    local explicit at_primary
-    explicit=$(grep -m1 -oE 'drm: Explicit device list .*' "$log")
-    at_primary=$(grep -m1 -oE 'drm: gpu /dev/dri/[^ ]+ becomes primary' "$log" | awk '{print $3}')
-    at_primary=${at_primary#/dev/dri/}
-    if [[ -n $pcard && -n $at_primary && $at_primary != "$pcard" ]]; then
-      health_row hypr.order display error "The compositor's primary GPU is not the laptop's" \
-        "Hyprland made /dev/dri/$at_primary primary; the boot GPU is $pcard (pci-$primary-card). Pin the order, then log out and in." \
-        user "Write the GPU order, then log out"
-    elif [[ -n $explicit ]]; then
-      health_row hypr.order display ok "GPU order pinned" "${explicit#drm: }; primary /dev/dri/${at_primary:-?}."
-    elif [[ -n $at_primary ]]; then
-      health_row hypr.order display warn "GPU order not pinned" \
-        "Hyprland chose /dev/dri/$at_primary (pci-$primary-card) by itself. That is right now, but nothing keeps an eGPU attached at login from being picked. AQ_DRM_DEVICES is not set." \
-        user "Write the GPU order, then log out"
-    else
-      health_row hypr.order display skipped "Compositor GPU order" "No 'becomes primary' line in Hyprland's log." none ""
-    fi
-  fi
+  display_health_order
 
   # hypr.gpu_list
   local cards c names=()
@@ -316,26 +276,7 @@ _check_hypr() {
   health_row hypr.gpu_list display info "Compositor has ${#names[@]} GPU(s) open" \
     "$( (( ${#names[@]} )) && printf '%s, ' "${names[@]}" | sed 's/, $//')"
 
-  # hypr.session_env: GLX / VA-API vendor of the session, from the activation
-  # environment uwsm exports (apps launched from the desktop get this).
-  local env glx va want_glx pvendor
-  if command -v systemctl >/dev/null 2>&1 && env=$(timeout 3 systemctl --user show-environment 2>/dev/null); then
-    glx=$(sed -n 's/^__GLX_VENDOR_LIBRARY_NAME=//p' <<<"$env" | tail -n1)
-    va=$(sed -n 's/^LIBVA_DRIVER_NAME=//p' <<<"$env" | tail -n1)
-    pvendor=$( [[ -n $primary ]] && pci_attr "$primary" vendor)
-    want_glx=mesa
-    [[ $pvendor == 0x10de ]] && want_glx=nvidia
-    if [[ -n $glx && $glx != "$want_glx" ]]; then
-      health_row hypr.session_env display warn "Session GL vendor is $glx" \
-        "__GLX_VENDOR_LIBRARY_NAME=$glx${va:+, LIBVA_DRIVER_NAME=$va} for every app, while the display runs on the primary GPU ($want_glx). A likely source of glitches." \
-        user "Override in the toggle file"
-    else
-      health_row hypr.session_env display ok "Session GPU vendor matches the primary" \
-        "__GLX_VENDOR_LIBRARY_NAME=${glx:-unset}, LIBVA_DRIVER_NAME=${va:-unset}."
-    fi
-  else
-    health_row hypr.session_env display skipped "Session GPU vendor" "systemctl --user show-environment is not available." none ""
-  fi
+  display_health_session_env "$pid"
 }
 
 _check_tools_system() {

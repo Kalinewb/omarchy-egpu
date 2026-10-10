@@ -70,6 +70,7 @@ build() { # build <name>: runs in a subshell, writes $OUT/<name>/
   export EGPU_TEST_REPO="$REPO" EGPU_TEST_LIB="$TESTS/lib.sh"
   export EGPU_SYS="$FX_ROOT/sys" EGPU_DEV="$FX_ROOT/dev" EGPU_PROC="$FX_ROOT/proc" EGPU_ETC="$FX_ROOT/etc"
   export EGPU_USRLIB="$FX_ROOT/usr/lib" EGPU_BOOT="$FX_ROOT/boot" EGPU_RUN="$T/run" EGPU_STATE="$T/state"
+  export EGPU_USRSHARE="$FX_ROOT/usr/share"
   export EGPU_CONFIG="$T/config.json"
   export EGPU_ADMIN="$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
   export EGPU_POLICY="$FX_ROOT/usr/share/polkit-1/actions/no.kalinewb.egpu.policy"

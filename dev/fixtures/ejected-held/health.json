@@ -180,12 +180,12 @@
   {
     "id": "hypr.session_env",
     "group": "display",
-    "level": "ok",
-    "title": "Session GPU vendor matches the primary",
-    "detail": "__GLX_VENDOR_LIBRARY_NAME=unset, LIBVA_DRIVER_NAME=unset.",
+    "level": "warn",
+    "title": "The toggle file is missing",
+    "detail": "/tmp/omarchy-egpu-fixtures.sQZ5Vs/ejected-held/home/.local/state/omarchy/toggles/hypr/zz-omarchy-egpu.lua keeps the session's GL, EGL and video decode on the Intel GPU while the eGPU is attached (policy igpu).",
     "fix": {
-      "kind": "none",
-      "label": ""
+      "kind": "user",
+      "label": "Write the toggle file (omarchy-egpu display apply)"
     }
   },
   {

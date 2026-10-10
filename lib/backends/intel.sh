@@ -35,3 +35,23 @@ be_verify() { _be_stub; }
 be_steam_extras() { _be_stub; }
 be_health() { _be_stub; }
 be_kms_params() { _be_stub; }
+
+# ---------------------------------------------------------------- primary role
+#
+# The stub above is the eGPU role. This part is implemented: it is the laptop
+# iGPU that drives the session, and the toggle file (lib/display.sh, §7.2)
+# points the session's GL, EGL and video decode at it. Called by display.sh
+# only, which provides va_driver_installed and glvnd_egl_vendor_file.
+
+be_primary_match() { [[ $(pci_attr "$1" vendor) == 0x8086 ]] && pci_is_display "$1"; }
+
+# key=value lines. VA-API: iHD (intel-media-driver, every GPU since Broadwell)
+# when installed, else the legacy i965; nothing when neither is.
+be_primary_session() {
+  local va='' d
+  for d in iHD i965; do
+    va_driver_installed "$d" && { va=$d; break; }
+  done
+  printf '%s\n' label=Intel glx=mesa "va=$va" "egl=$(glvnd_egl_vendor_file libEGL_mesa)" \
+    qt_decode=vaapi decode_label=VA-API
+}

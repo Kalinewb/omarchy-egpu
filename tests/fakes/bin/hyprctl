@@ -1,9 +1,130 @@
 #!/bin/bash
-# Fake hyprctl: `monitors all -j` prints $EGPU_FAKE_DIR/hypr/monitors.json.
+# Fake hyprctl. Every call is logged to $EGPU_FAKE_LOG. Data in $EGPU_FAKE_DIR/hypr/:
+#   monitors.json       `monitors all -j`; `monitors -j` lists the enabled ones
+#   workspaces.json     `workspaces -j`
+#   configerrors.json   `-j configerrors` ([""] when absent, as Hyprland 0.56.2 prints)
+#   base-errors.json    errors of the user's own config: every `reload` reports them
+#   reload-errors.json  a toggle file Hyprland rejects: `reload` adds these errors
+#                       while a toggle file contains the line in reload-errors-when
+#                       (always, when that file is absent)
+#   eval-ignore         `eval` changes nothing (a monitor that will not turn off)
+#   no-workspace-arg    `hl.dsp.workspace.move` ignores `workspace =` and moves
+#                       the focused workspace (forces display.sh's fallback)
+# `eval 'hl.monitor({...})'` applies the rule to monitors.json as Hyprland would
+# (disabled, mode, position, scale, vrr, mirror); the workspaces of a monitor
+# that goes off move to the first enabled one. `reload` re-applies every
+# hl.monitor line of the toggle files, so a persisted rule survives it.
 printf 'hyprctl %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
+H="$EGPU_FAKE_DIR/hypr"
+
+_update() { # <file> <jq filter> [jq args]
+  local f=$1 tmp
+  shift
+  tmp=$(mktemp "$f.XXXXXX") || return 1
+  jq -c "$@" "$f" >"$tmp" && mv -f "$tmp" "$f"
+}
+
+_field() { sed -nE "s/.*[{ ,]$1 = $2.*/\\1/p" <<<"$3" | head -n1; }
+
+apply_rule() {
+  local lua=$1 out dis=false mode pos scale vrr mirror
+  out=$(_field output '"([^"]*)"' "$lua")
+  [[ -n $out && -r $H/monitors.json ]] || return 0
+  [[ $lua == *"disabled = true"* ]] && dis=true
+  mode=$(_field mode '"([^"]*)"' "$lua")
+  pos=$(_field position '"([^"]*)"' "$lua")
+  scale=$(_field scale '([0-9.]+)' "$lua")
+  vrr=$(_field vrr '([01])' "$lua")
+  mirror=$(_field mirror '"([^"]*)"' "$lua")
+  _update "$H/monitors.json" --arg o "$out" --argjson dis "$dis" --arg mode "$mode" --arg pos "$pos" \
+    --arg scale "$scale" --arg vrr "$vrr" --arg mirror "$mirror" '
+    def hit: if ($o | startswith("desc:")) then .description == ($o | ltrimstr("desc:")) else .name == $o end;
+    map(if hit then
+          .disabled = $dis
+          | if $dis then . else
+              (if ($mode | test("^[0-9]+x[0-9]+")) then
+                 ($mode | capture("^(?<w>[0-9]+)x(?<h>[0-9]+)(@(?<r>[0-9.]+))?")) as $c
+                 | .width = ($c.w | tonumber) | .height = ($c.h | tonumber)
+                 | (if $c.r then .refreshRate = ($c.r | tonumber) else . end)
+               else . end)
+              | (if ($pos | test("^-?[0-9]+x-?[0-9]+$")) then ($pos | split("x") | map(tonumber)) as $p | .x = $p[0] | .y = $p[1] else . end)
+              | (if $scale != "" then .scale = ($scale | tonumber) else . end)
+              | (if $vrr != "" then .vrr = ($vrr == "1") else . end)
+              | .mirrorOf = (if $mirror != "" then $mirror else "none" end)
+            end
+        else . end)'
+  [[ -r $H/workspaces.json ]] || return 0
+  _update "$H/workspaces.json" --slurpfile m "$H/monitors.json" '
+    ($m[0] | map(select(.disabled | not)) | .[0]) as $to
+    | ($m[0] | map(select(.disabled) | .id)) as $off
+    | map(if (.monitorID as $i | $off | index($i)) and $to != null then .monitor = $to.name | .monitorID = $to.id else . end)'
+}
+
+# move_ws <id> <monitor name>
+move_ws() {
+  [[ -r $H/workspaces.json && -r $H/monitors.json ]] || return 0
+  _update "$H/workspaces.json" --arg id "$1" --arg to "$2" --slurpfile m "$H/monitors.json" '
+    ([$m[0][] | select(.name == $to and (.disabled | not))][0]) as $t
+    | if $t == null then . else map(if (.id | tostring) == $id then .monitor = $t.name | .monitorID = $t.id else . end) end'
+}
+
+dispatch() {
+  local lua=$1 ws mon
+  ws=$(_field workspace '"([^"]*)"' "$lua")
+  mon=$(_field monitor '"([^"]*)"' "$lua")
+  case $lua in
+    hl.dsp.focus\(*)
+      [[ -n $ws ]] && echo "$ws" >"$H/focused"
+      ;;
+    hl.dsp.workspace.move\(*)
+      [[ -n $ws && -e $H/no-workspace-arg ]] && return 0
+      [[ -n $ws ]] || ws=$(cat "$H/focused" 2>/dev/null)
+      [[ -n $ws && -n $mon ]] && move_ws "$ws" "$mon"
+      ;;
+  esac
+}
+
+toggles_dir() { printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr"; }
+
 case "$*" in
-  "monitors all -j" | "-j monitors all" | "monitors -j")
-    cat "$EGPU_FAKE_DIR/hypr/monitors.json" 2>/dev/null || echo '[]'
+  "monitors all -j" | "-j monitors all")
+    cat "$H/monitors.json" 2>/dev/null || echo '[]'
+    ;;
+  "monitors -j" | "-j monitors")
+    jq -c 'map(select(.disabled | not))' "$H/monitors.json" 2>/dev/null || echo '[]'
+    ;;
+  "workspaces -j" | "-j workspaces")
+    cat "$H/workspaces.json" 2>/dev/null || echo '[]'
+    ;;
+  "-j configerrors")
+    cat "$H/configerrors.json" 2>/dev/null || echo '[""]'
+    ;;
+  configerrors)
+    jq -r '.[]' "$H/configerrors.json" 2>/dev/null || echo
+    ;;
+  reload)
+    for f in "$(toggles_dir)"/*.lua; do
+      [[ -r $f ]] || continue
+      while IFS= read -r line; do
+        [[ $line == hl.monitor\(* ]] && apply_rule "$line"
+      done <"$f"
+    done
+    errs='[]'
+    [[ -r $H/base-errors.json ]] && errs=$(cat "$H/base-errors.json")
+    if [[ -r $H/reload-errors.json ]] &&
+      { [[ ! -r $H/reload-errors-when ]] || grep -qF -- "$(cat "$H/reload-errors-when")" "$(toggles_dir)"/*.lua 2>/dev/null; }; then
+      errs=$(jq -cn --argjson a "$errs" --slurpfile b "$H/reload-errors.json" '$a + $b[0]')
+    fi
+    jq -cn --argjson e "$errs" 'if $e == [] then [""] else $e end' >"$H/configerrors.json"
+    echo ok
+    ;;
+  eval\ *)
+    [[ -e $H/eval-ignore ]] || apply_rule "${2:-}"
+    echo ok
+    ;;
+  dispatch\ *)
+    dispatch "${2:-}"
+    echo ok
     ;;
   *) exit 0 ;;
 esac

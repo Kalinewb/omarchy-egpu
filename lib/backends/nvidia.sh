@@ -316,3 +316,63 @@ be_health() {
       "With the eGPU attached during suspend, VRAM contents may be lost. They are not needed after an eject."
   fi
 }
+
+# ---------------------------------------------------------------- display roles
+#
+# Called by lib/display.sh only (the toggle file, plan-engine.md §7.2), which
+# provides va_driver_installed and glvnd_egl_vendor_file.
+#
+# Secondary role: what the session needs so it stays on the primary GPU while
+# this card is attached, and on any login with it attached. Needs, in file
+# order (display.sh renders each with the primary's values):
+#   glx_va       GLX vendor and VA-API driver of the primary. Omarchy's
+#                nvidia.lua sets NVIDIA's for the whole session whenever an
+#                NVIDIA card is present at config load (dev/e0-facts.md, E1b).
+#   hypr_config  the be_hypr_config options
+#   egl_vendor   only the primary's glvnd EGL vendor: glvnd loads every vendor
+#                otherwise, and libEGL_nvidia keeps /dev/nvidia* open
+#   qt_decode    Qt Multimedia's hardware decoders limited to the primary's
+#                (it probed CUDA/VDPAU and held ~900 MiB, dev/e0-facts.md)
+# be_session_note <need|header> prints that block's comment. @PRIMARY@ and
+# @DECODE@ become the primary's label and decode API.
+
+be_session_needs() { printf '%s\n' glx_va hypr_config egl_vendor qt_decode; }
+
+be_session_note() {
+  case $1 in
+    header) cat <<'NOTE' ;;
+Omarchy's nvidia.lua points the whole session at the NVIDIA GLX/VA-API drivers
+whenever an NVIDIA card is present at login. With an eGPU that makes the shell and
+every app render on the eGPU and cross the Thunderbolt link. Keep the session on the
+laptop GPU; apps opt in to the eGPU with the offload variables (egpu-run / Steam).
+NOTE
+    hypr_config) cat <<'NOTE' ;;
+With a second GPU driving a monitor, Hyprland's "auto" (2) falls back to a software
+cursor that moves only once per frame. Use the hardware cursor plane instead.
+NOTE
+    egl_vendor) cat <<'NOTE' ;;
+glvnd loads every installed EGL vendor, so the shell opens the NVIDIA card even when it
+renders on @PRIMARY@. That wastes power and keeps the driver busy, which blocks a safe eject.
+Apps that want the eGPU opt in through egpu-run / the Steam launch options.
+NOTE
+    qt_decode) cat <<'NOTE' ;;
+Qt Multimedia probes every hardware video decoder it can find, including CUDA/VDPAU on
+the eGPU, and the shell then keeps the card open. Restrict it to @PRIMARY@'s @DECODE@.
+NOTE
+  esac
+}
+
+# Hyprland options as dotted key=value. "auto" (2) gives a software cursor on
+# a monitor this card drives (cursor lag on the TV, dev/e0-facts.md).
+be_hypr_config() { echo cursor.no_hardware_cursors=0; }
+
+# Primary role: an NVIDIA GPU driving the session (a desktop, not this
+# plugin's case). Untested; here so the interface is complete.
+be_primary_match() { [[ $(pci_attr "$1" vendor) == 0x10de ]] && pci_is_display "$1"; }
+
+be_primary_session() {
+  local va=''
+  va_driver_installed nvidia && va=nvidia
+  printf '%s\n' label=NVIDIA glx=nvidia "va=$va" "egl=$(glvnd_egl_vendor_file libEGL_nvidia)" \
+    qt_decode=cuda decode_label=CUDA
+}
