@@ -392,3 +392,9 @@ A fresh process using the GBM platform sees the 4070 SUPER fine via NVIDIA EGL (
 - Default renderer is Mesa Intel (LNL); with __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia glxinfo reports the RTX 4070 SUPER. glxgears under offload ran on the eGPU (G, ~25% sm), 99.6 FPS (display-limited), and left no process behind.
 - Hyprland no longer appears in nvidia-smi's process list when it has no eGPU output; idle eGPU load ~6%. quickshell still shows a small compute context (loads libEGL_nvidia).
 - Conclusion: "TV on the laptop HDMI, eGPU for offload" is smoother than driving the TV from the eGPU and needs no relogin for mid-session plug-ins. Candidate default display policy.
+
+## Session env + toggle file result (fresh login, TV on laptop HDMI, eGPU attached)
+- Toggle file env: __GLX_VENDOR_LIBRARY_NAME=mesa, LIBVA_DRIVER_NAME=iHD, __EGL_VENDOR_LIBRARY_FILENAMES=50_mesa.json, QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi, plus cursor:no_hardware_cursors=0.
+- Result: eGPU idle at 0% util, P0, 14.7 W, 36 MiB, no processes in nvidia-smi. Offload test (glxgears with PRIME offload vars) runs on the RTX 4070 SUPER and leaves nothing behind.
+- Without the EGL and Qt decode lines, quickshell held ~900 MiB (libEGL_nvidia, then libcuda/nvcuvid via Qt Multimedia decode probing).
+- Still, several session processes keep /dev/nvidia* fds open although they use no GPU memory: quickshell (7), voxtype-osd-gtk (12), an electron app (1), claude-desktop (1). Module refcnts: nvidia 26, nvidia_modeset 2, nvidia_drm 11, nvidia_uvm 2. Implication for E5: unloading the NVIDIA modules will usually be blocked by such incidental holders; eject must rely on PCI remove and report held_after_eject honestly, and `holders` must list these processes by name.
