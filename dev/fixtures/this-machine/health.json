@@ -182,7 +182,7 @@
     "group": "display",
     "level": "warn",
     "title": "The toggle file is missing",
-    "detail": "/tmp/omarchy-egpu-fixtures.5smozp/this-machine/home/.local/state/omarchy/toggles/hypr/zz-omarchy-egpu.lua keeps the session's GL, EGL and video decode on the Intel GPU while the eGPU is attached (policy egpu-hdmi).",
+    "detail": "~/.local/state/omarchy/toggles/hypr/zz-omarchy-egpu.lua keeps the session's GL, EGL and video decode on the Intel GPU while the eGPU is attached (policy egpu-hdmi).",
     "fix": {
       "kind": "user",
       "label": "Write the toggle file (omarchy-egpu display apply)"
@@ -208,6 +208,17 @@
     "fix": {
       "kind": "system",
       "label": "Install the system half"
+    }
+  },
+  {
+    "id": "system.autoconnect",
+    "group": "system",
+    "level": "skipped",
+    "title": "Auto-connect",
+    "detail": "Needs the system half.",
+    "fix": {
+      "kind": "none",
+      "label": ""
     }
   },
   {

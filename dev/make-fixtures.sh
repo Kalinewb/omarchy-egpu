@@ -98,12 +98,14 @@ build() { # build <name>: runs in a subshell, writes $OUT/<name>/
   "$ENGINE" health >"$T/health.json" 2>/dev/null || { echo "  FAIL  $name: health"; return 1; }
   # Pretty-printed so a re-run's diff reads field by field, with the fake
   # machine's temp root taken back out of every path (health details name
-  # files: /tmp/…/root/etc/x reads /etc/x, as it would on a real machine) and
-  # the clock pinned. The stub stamps written_at fresh when it serves a file.
+  # files: /tmp/…/root/etc/x reads /etc/x, as it would on a real machine; the
+  # fake home reads ~, so a re-run does not differ by its temp name) and the
+  # clock pinned. The stub stamps written_at fresh when it serves a file.
   local strip="$FX_ROOT"
-  jq --arg r "$strip" 'walk(if type == "string" then gsub($r; "") else . end) | .written_at = 1791590400000' \
+  local clean='walk(if type == "string" then gsub($h; "~") | gsub($r; "") else . end)'
+  jq --arg r "$strip" --arg h "$HOME" "$clean"' | .written_at = 1791590400000' \
     "$T/status.json" >"$OUT/$name/status.json" || return 1
-  jq --arg r "$strip" 'walk(if type == "string" then gsub($r; "") else . end)' \
+  jq --arg r "$strip" --arg h "$HOME" "$clean" \
     "$T/health.json" >"$OUT/$name/health.json" || return 1
   echo "  ok    $name  $(jq -r '"\(.summary.state)  \(.summary.line)"' "$T/status.json")"
 }

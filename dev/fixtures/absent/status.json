@@ -35,6 +35,9 @@
     "name": null,
     "supported": false
   },
+  "connect": {
+    "auto": false
+  },
   "driver": {
     "bound": null,
     "modules": {},

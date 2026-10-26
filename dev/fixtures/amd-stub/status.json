@@ -42,6 +42,9 @@
     "name": "amdgpu",
     "supported": false
   },
+  "connect": {
+    "auto": false
+  },
   "driver": {
     "bound": "amdgpu",
     "modules": {},

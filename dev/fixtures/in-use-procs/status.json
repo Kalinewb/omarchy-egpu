@@ -43,6 +43,9 @@
     "name": "nvidia",
     "supported": true
   },
+  "connect": {
+    "auto": false
+  },
   "driver": {
     "bound": "nvidia",
     "modules": {
