@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import qs.Commons
+import qs.Commons as Commons
 
 // Harness stand-in for qs.Ui's KeyboardPanel, the one kit type an offscreen
 // Quickshell cannot load: it is a layer-shell PanelWindow ("No PanelWindow
@@ -48,11 +49,11 @@ Window {
   width: contentWidth
   height: contentHeight
   visible: open
-  color: Color.popups.background
+  color: Commons.Color.popups.background
 
   Rectangle {
     anchors.fill: parent
-    color: Color.popups.background
+    color: Commons.Color.popups.background
   }
 
   Item {

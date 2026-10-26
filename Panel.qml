@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "common"
 import "views"
@@ -43,17 +44,20 @@ Panel {
   // the accent (the ejected state also changes the word and the tooltip, so
   // colour is never the only signal), `bad` is the theme's urgent, and `warn`
   // is urgent softened toward the foreground so the two dots differ.
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  //
+  // Color is always `Commons.Color`: since Omarchy 4.0.5 a bare `Color` in a
+  // plugin no longer resolves to the theme (its own Ui files qualify it too).
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   function themed(fg, background) {
     return Palette.make({
       foreground: fg,
       secondary: Qt.darker(fg, 1.55),
-      accent: Color.accent,
-      good: Color.accent,
-      warn: Qt.tint(Color.urgent, Qt.rgba(fg.r, fg.g, fg.b, 0.35)),
-      bad: Color.urgent,
+      accent: Commons.Color.accent,
+      good: Commons.Color.accent,
+      warn: Qt.tint(Commons.Color.urgent, Qt.rgba(fg.r, fg.g, fg.b, 0.35)),
+      bad: Commons.Color.urgent,
       background: background,
       radius: Style.cornerRadius,
       fontFamily: root.fontFamily,
@@ -63,7 +67,7 @@ Panel {
     })
   }
 
-  readonly property var popupPalette: themed(root.foreground, Color.popups.background)
+  readonly property var popupPalette: themed(root.foreground, Commons.Color.popups.background)
   readonly property var barPalette: themed(root.barForeground, null)
 
   // -------------------------------------------------------------- status
