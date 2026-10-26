@@ -83,12 +83,13 @@ else
   echo "  ${GREEN}pass${RESET}  no QML errors, nothing that stops it loading, and no unknown members"
 fi
 
-# JS libraries: parsed by node with the `.pragma library` line removed (node
-# does not know it; QML does). qmllint only sees them through their importers.
+# JS libraries: parsed by node with the `.pragma library` and `.import` lines
+# removed (node does not know them; QML does). qmllint only sees them through
+# their importers.
 if command -v node >/dev/null 2>&1; then
   bad=()
   for js in "${jsfiles[@]}"; do
-    sed '/^\.pragma /d' "$js" >"$work/check.js"
+    sed -E '/^\.(pragma|import) /d' "$js" >"$work/check.js"
     node --check "$work/check.js" >/dev/null 2>&1 || bad+=("$js")
   done
   if (( ${#bad[@]} )); then
@@ -201,6 +202,22 @@ else
   else
     echo "  ${GREEN}pass${RESET}  notch shell imports only the allowed modules, views/ and common/"
   fi
+fi
+
+echo
+echo "${BOLD}Bindings${RESET}"
+# `engine: engine` inside an object that has an `engine` property binds that
+# property to itself, not to the id of the same name: the scope object's own
+# properties are looked up first. The views then got no engine and drew no
+# Connect or Safe eject at all. An id must never share a name with the
+# property it is handed to.
+hits=$(perl -ne 'print "    $ARGV:$.: $_" if /^\s*([a-zA-Z_]+)\s*:\s*\1\s*$/; close ARGV if eof' "${files[@]}")
+if [[ -n $hits ]]; then
+  echo "  ${RED}FAIL${RESET}  a property bound to itself (rename the id it was meant to read):"
+  printf '%s' "$hits" | head -20
+  failures=$((failures + 1))
+else
+  echo "  ${GREEN}pass${RESET}  no property is bound to a name that resolves to itself"
 fi
 
 echo

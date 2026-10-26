@@ -13,9 +13,10 @@ import Quickshell.Io
 //                       ["status", "--json"]. Never a joined string: a monitor
 //                       or game name with a space must arrive as one argument.
 //
-//   onDone({ok, json, code, error})
+//   onDone({ok, json, code, error, text})
 //     ok     exit 0
 //     json   stdout parsed, or null (prose-only verbs succeed with null)
+//     text   stdout as it came
 //     code   the exit code: 0 ok, 1 refused/failed, 3 busy, 126 declined,
 //            127 helper not installed; 2 is this file's "engine missing"
 //     error  "" on success, else the engine's {"error": …} code, or "busy",
@@ -24,6 +25,19 @@ import Quickshell.Io
 //
 // Long-running streams (`status watch`) are not run here: the Service owns that
 // one process for the session, and reads it line by line.
+//
+// Three calls that are not the engine, for Setup (ui-scope.md §2.6, §7), all
+// through the same pool so no view ever holds a Process:
+//   installCommand(mode, onDone)  the pinned command system/install.sh
+//                                 --print-command prints (no root; it only
+//                                 prints). onDone({ok, command, …})
+//   openTerminal(script, onDone)  Omarchy's floating terminal running
+//                                 `script` (common/Install.js), detached.
+//                                 127: the launcher is not there
+//   copy(text, onDone)            wl-copy; ok only once wl-copy said so
+// In development (OMARCHY_EGPU_DEV_BIN) the last two run dev/bin/egpu-launch-stub
+// instead, which records what it was given: no gate ever opens a terminal,
+// asks for a password, or touches the clipboard.
 Item {
   id: root
 
@@ -49,7 +63,11 @@ Item {
   readonly property var builtVerbs: ["status", "status watch", "health",
     "steam roots", "steam accounts", "steam list", "steam status", "steam set", "steam set-all",
     "steam apply", "steam close", "steam restore",
-    "device connect", "device eject", "device rescan", "device holders"]
+    "device connect", "device eject", "device rescan", "device holders",
+    // lib/display.sh (E4). Only the verb Setup's Fix runs is listed: the
+    // monitor verbs arrive with the Screens view (G4), and listing them now
+    // would draw the compact view's HDMI toggle before it is checked.
+    "display apply"]
   // Development only: OMARCHY_EGPU_DEV_VERBS="device connect,display off"
   // pretends more exist, so a gated button can be rendered (dev/g8-offscreen.sh)
   // before its phase lands. The stub engine still answers them "usage".
@@ -78,7 +96,12 @@ Item {
   }
 
   function run(args, onDone) {
-    var job = { args: args || [], done: onDone || null }
+    root.exec(root.argv(args), onDone)
+  }
+
+  // Any argv, through the pool. Only this file builds one.
+  function exec(argv, onDone) {
+    var job = { argv: argv, done: onDone || null }
     for (var i = 0; i < root.pool.length; i++) {
       if (!root.pool[i].busy) { root.start(root.pool[i], job); return }
     }
@@ -93,7 +116,7 @@ Item {
     proc.busy = true
     proc.job = job
     proc.collected = ""
-    proc.command = root.argv(job.args)
+    proc.command = job.argv
     proc.running = true
   }
 
@@ -120,7 +143,39 @@ Item {
       root.queue = root.queue.slice(1)
       root.start(proc, next)
     }
-    if (job && job.done) job.done({ ok: code === 0, json: json, code: code, error: err })
+    if (job && job.done) job.done({ ok: code === 0, json: json, code: code, error: err, text: out })
+  }
+
+  // ------------------------------------------------- Setup's outside calls
+
+  // The repository root: the plugin folder, or in development the checkout
+  // dev/bin sits in.
+  readonly property string repoDir: dev ? devBin.replace(/\/+$/, "") + "/../.." : pluginDir
+  readonly property string launchStub: devBin + "/egpu-launch-stub"
+
+  function installCommand(mode, onDone) {
+    var m = String(mode || "install")
+    root.exec(["bash", root.repoDir + "/system/install.sh", "--print-command", m], function (result) {
+      var cmd = String(result.text || "").replace(/\n+$/, "")
+      onDone({ ok: result.ok && cmd !== "", command: cmd, code: result.code, error: result.error })
+    })
+  }
+
+  // Detached (setsid -f): the terminal outlives this call and the pool slot
+  // is free at once. `command -v` first, so a missing launcher answers 127
+  // instead of a terminal that never appears.
+  function openTerminal(script, onDone) {
+    if (root.dev) { root.exec([root.launchStub, "terminal", String(script)], onDone); return }
+    root.exec(["bash", "-c", "command -v \"$1\" >/dev/null 2>&1 || exit 127; setsid -f \"$@\" >/dev/null 2>&1 </dev/null",
+               "--", "omarchy-launch-floating-terminal-with-presentation", String(script)], onDone)
+  }
+
+  function copy(text, onDone) {
+    if (root.dev) { root.exec([root.launchStub, "copy", String(text)], onDone); return }
+    // wl-copy forks to serve the selection; its child must not keep the
+    // pool's stdout pipe open, or the call would end only when the selection
+    // is replaced.
+    root.exec(["bash", "-c", "wl-copy -- \"$1\" >/dev/null 2>&1 </dev/null", "--", String(text)], onDone)
   }
 
   EngineProcess { id: proc0 }

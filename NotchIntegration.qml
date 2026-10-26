@@ -12,8 +12,8 @@ import "common/Notices.js" as NoticeRules
 //
 // It exists once however many monitors there are, so it owns the costs: the
 // one StatusSource (a FileView on status.json, which the plugin's own Service
-// keeps fresh) and the one Engine pool. The panel the notch creates per screen
-// (NotchPanel.qml) is handed both.
+// keeps fresh), the one HealthSource and the one Engine pool. The panel the
+// notch creates per screen (NotchPanel.qml) is handed all three.
 //
 // It does not: register IPC (the widget owns kalinewb.egpu), draw anything of
 // its own outside the notch, or write under the plugins folder.
@@ -55,7 +55,8 @@ Item {
   property Component panel: Component {
     NotchPanel {
       status: root.status
-      engine: engine
+      engine: engineRunner
+      health: healthSource
       statusNote: root.statusNote
       noticeTitle: root.noticeTitle
     }
@@ -70,7 +71,7 @@ Item {
   property Component noticeRow: Component {
     Glance {
       status: root.status
-      engine: engine
+      engine: engineRunner
       theme: root.theme
       active: true
       statusNote: root.statusNote
@@ -100,21 +101,29 @@ Item {
   property var lastClaim: null
 
   Engine {
-    id: engine
+    id: engineRunner
     pluginDir: root.pluginDir
   }
 
   StatusSource {
     id: source
-    engine: engine
+    engine: engineRunner
     blockLoading: true
     onEvent: function (record) { notices.take(record) }
+  }
+
+  // Setup's rows, read only while a panel holds it open (each NotchPanel
+  // calls hold() in open() and release() in close()).
+  HealthSource {
+    id: healthSource
+    engine: engineRunner
+    status: root.status
   }
 
   Notices {
     id: notices
     status: root.status
-    canConnect: engine.can("device connect")
+    canConnect: engineRunner.can("device connect")
     onRaised: function (notice) { root.claim(notice) }
   }
 

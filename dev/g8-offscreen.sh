@@ -149,55 +149,58 @@ for fx in "$FIX"/*/; do fx=${fx%/}; fx=${fx##*/}; jq --arg n "$fx" '{($n): .}' "
 out=$(harness states EGPU_HARNESS_DOCS="$docs" ${PNG:+EGPU_HARNESS_PNG_DIR="$PNG"})
 outv=$(harness states EGPU_HARNESS_DOCS="$docs" OMARCHY_EGPU_DEV_VERBS="$ALLVERBS")
 noerrors "states"
-# fixture | state | word | glyph role | badge | pulse | monitor | buttons with every verb
-# | buttons with only the verbs the engine has built (common/Engine.qml)
-while IFS='|' read -r fx state word role badge pulse monitor buttons built; do
+# fixture | state | word | glyph role | badge | pulse | monitor | headline (the
+# Overview's, common/Overview.js) | buttons with every verb | buttons with only
+# the verbs the engine has built (common/Engine.qml). No health rows here: what
+# the compact view shows before its first read (dev/g1-offscreen.sh has both).
+while IFS='|' read -r fx state word role badge pulse monitor headline buttons built; do
   [[ -n $fx ]] || continue
-  line=$(jq -r '.summary.line' "$FIX/$fx/status.json")
   check "$fx → glance $state: '$word', $role glyph, badge $badge, pulse $pulse, monitor $monitor" \
     "$state|$word|$role|$badge|$pulse|$monitor" "$(field "g.$fx" "$out")"
   check "$fx: glance drawn; pulse $( [[ $pulse == true ]] && echo runs || echo idle ) while active, stopped when not" \
     "true|$pulse|true" "$(field "g.$fx.drawn" "$out")|$(field "g.$fx.pulsing" "$out")|$(field "g.$fx.pulseIdle" "$out")"
-  check "$fx: compact shows the engine's line, fits 320 px" "yes|true" \
-    "$(grep -qF -- "$line" <<<"$(field "c.$fx.text" "$out")" && echo yes || echo no)|$(field "c.$fx.size" "$out")"
+  check "$fx: compact says the Overview's headline, fits 320 px" "$headline|yes|true" \
+    "$(field "c.$fx.headline" "$out")|$(grep -qF -- "$headline" <<<"$(field "c.$fx.text" "$out")" && echo yes || echo no)|$(field "c.$fx.size" "$out")"
   check "$fx: only the host's colours, only radiusFor() radii" "host-only|radiusFor" \
     "$(field "c.$fx.colours" "$out")|$(field "c.$fx.radii" "$out")"
   check "$fx: only the built verbs' buttons: $built" "$built" "$(field "c.$fx.buttons" "$out")"
   check "$fx: with the verbs: $buttons" "$buttons" "$(field "c.$fx.buttons" "$outv")"
   check "$fx: …still host colours and radii" "host-only|radiusFor" \
     "$(field "c.$fx.colours" "$outv")|$(field "c.$fx.radii" "$outv")"
+  check "$fx: nothing names Setup without a way to it" "none" "$(field "c.$fx.orphans" "$out")"
 done <<'TABLE'
-absent|absent|none|secondary|none|false|false|Open full panel|Open full panel
-stranger-no-tb|absent|none|secondary|none|false|false|Open full panel|Open full panel
-plugged-unauthorized|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
-authorized-no-pci|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
-bound-nvidia|connecting|connecting|foreground|none|true|false|Connect,Open full panel|Connect,Open full panel
-ready|ready|ready|accent|none|false|false|Safe eject,Open full panel|Safe eject,Open full panel
-ready-hdmi|in_use|in use|accent|accent|false|true|Safe eject,Turn off now,Open full panel|Safe eject,Open full panel
-in-use-procs|in_use|in use|accent|accent|false|false|Safe eject,Open full panel|Safe eject,Open full panel
-ejecting|ejecting|ejecting|foreground|none|true|false|Open full panel|Open full panel
-ejected-clean|safe_to_unplug|unplug|good|none|false|false|Reconnect,Open full panel|Reconnect,Open full panel
-ejected-held|attention|log out|good|warn|false|false|Reconnect(off),Open full panel|Reconnect(off),Open full panel
-this-machine|attention|log out|accent|warn|false|false|Safe eject,Open full panel|Safe eject,Open full panel
-amd-stub|attention|check setup|foreground|warn|false|false|Open full panel|Open full panel
-bolt-down|attention|check setup|accent|warn|false|false|Safe eject,Open full panel|Safe eject,Open full panel
-smi-hung|error|error|foreground|bad|false|false|Open full panel|Open full panel
-auth-error|error|error|foreground|bad|false|false|Open full panel|Open full panel
+absent|absent|none|secondary|none|false|false|Plug in your eGPU|Open full panel|Open full panel
+stranger-no-tb|absent|none|secondary|none|false|false|No Thunderbolt or USB4 port|Open Setup,Open full panel|Open Setup,Open full panel
+plugged-unauthorized|connecting|connecting|foreground|none|true|false|Getting your eGPU ready…|Connect,Open full panel|Connect,Open full panel
+authorized-no-pci|connecting|connecting|foreground|none|true|false|Enclosure found, no graphics card|Show me,Open full panel|Show me,Open full panel
+bound-nvidia|connecting|connecting|foreground|none|true|false|Getting your eGPU ready…|Connect,Open full panel|Connect,Open full panel
+ready|ready|ready|accent|none|false|false|eGPU ready|Safe eject,Open full panel|Safe eject,Open full panel
+ready-hdmi|in_use|in use|accent|accent|false|true|eGPU in use by a screen|Safe eject…,Turn off now,Open full panel|Safe eject…,Open full panel
+in-use-procs|in_use|in use|accent|accent|false|false|eGPU in use by vkcube and worker|Safe eject…,Open full panel|Safe eject…,Open full panel
+ejecting|ejecting|ejecting|foreground|none|true|false|Ejecting…|Ejecting…(off),Open full panel|Ejecting…(off),Open full panel
+ejected-clean|safe_to_unplug|unplug|good|none|false|false|Safe to unplug|Done,Open full panel|Done,Open full panel
+ejected-held|attention|log out|good|warn|false|false|Safe to unplug|Done,Open full panel|Done,Open full panel
+this-machine|attention|log out|accent|warn|false|false|Log out to use the HDMI monitor|Safe eject,Open full panel|Safe eject,Open full panel
+amd-stub|attention|check setup|foreground|warn|false|false|This graphics card is not supported yet|Open Setup,Open full panel|Open Setup,Open full panel
+bolt-down|attention|check setup|accent|warn|false|false|Setup has found a problem|Fix,Safe eject,Open full panel|Fix,Safe eject,Open full panel
+smi-hung|error|error|foreground|bad|false|false|The driver is not answering. Do not unplug: save your work, then log out or reboot.|Open full panel|Open full panel
+auth-error|error|error|foreground|bad|false|false|Thunderbolt could not allow your enclosure.|Try again,Open Setup,Open full panel|Try again,Open Setup,Open full panel
 TABLE
 
 has() { grep -qF -- "$2" <<<"$(field "c.$1.text" "$3")" && echo yes || echo no; }
 check "HDMI quick toggle: the first eGPU monitor, with Turn off now" "yes|yes" \
   "$(has ready-hdmi 'HDMI · HDMI-A-2' "$outv")|$(has ready-hdmi 'Turn off now' "$outv")"
 check "…and not without the display verbs" "no" "$(has ready-hdmi 'HDMI · HDMI-A-2' "$out")"
-check "temperature, utilisation and VRAM in one line while the card answers" "yes|no" \
-  "$(has ready '29 °C · 0% busy · 33 MB VRAM' "$out")|$(has absent '°C' "$out")"
+check "the card, its temperature and how busy it is in one line while it answers" "yes|no" \
+  "$(has ready 'RTX 4070 SUPER · 29 °C · idle' "$out")|$(has absent '°C' "$out")"
 check "attention: log out for the HDMI monitor" "yes" \
   "$(has this-machine 'The HDMI monitor needs a new session to appear. Offloading apps works now.' "$out")"
 check "attention: held modules" "yes" "$(has ejected-held 'Log out before plugging the eGPU in again.' "$out")"
 check "attention: smi_hung says do not unplug" "yes" \
   "$(has smi-hung 'The driver is not answering. Do not unplug: save your work, then log out or reboot.' "$out")"
 check "attention: an unsupported backend" "yes" "$(has amd-stub 'This kind of GPU is detected but not supported yet.' "$out")"
-check "attention: health errors point at Setup" "yes" "$(has bolt-down 'Setup has found a problem.' "$out")"
+check "attention: a Setup problem is the headline, and the one button is Fix" "yes|Fix" \
+  "$(has bolt-down 'Setup has found a problem' "$out")|$(field c.bolt-down.buttons "$out" | cut -d, -f1)"
 check "the HDMI monitor mark in the glance while HDMI is on" "yes" \
   "$(grep -qF -- "$(printf '\U000F0379')" <<<"$(field c.ready-hdmi.text "$out")" && echo yes || echo no)"
 
@@ -280,20 +283,26 @@ put ready 1
 o=$(harness stack ${PNG:+EGPU_HARNESS_PNG_DIR="$PNG"})
 noerrors "stack"
 check "open(main) shows the compact view, active, background is the host's colour (not painted)" "main|true|#000000" "$(field open.main "$o")"
-check "…the compact view's content" "glyph ¦ ready ¦ eGPU ready · eject before unplugging ¦ 29 °C · 0% busy · 33 MB VRAM ¦ Open full panel" \
-  "$(field main.texts "$o")"
+check "the panel insets its content by the one padding token, 16 px on every side (the notch adds none)" "16,16|16" "$(field inset "$o")"
+check "…the compact view's content: headline, facts, the one button, Open full panel" \
+  "glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject ¦ Open full panel" "$(field main.texts "$o")"
 check "no Back at the root" "false" "$(field main.back "$o")"
-check "Open full panel pushes full" "main>full" "$(field toFull "$o")"
-check "full is the shared Overview at full density, with ‹ Back" "yes|yes|yes" \
-  "$(grep -qF 'TBGAA ¦ ‹ Back' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Apps on the eGPU' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF '16.0 GT/s × 4' <<<"$(field full.texts "$o")" && echo yes || echo no)"
+check "Open full panel pushes the Overview" "main>overview" "$(field toFull "$o")"
+check "full: the tabs and ‹ Back, then the shared Overview, the state said once" "yes|yes|no" \
+  "$(grep -qF 'Overview ¦ Setup ¦ ‹ Back ¦ glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Details ›' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'TBGAA' <<<"$(field full.texts "$o")" && echo yes || echo no)"
+check "‹ Back keeps the inset from the right edge, and sits below the top inset" "16|yes" \
+  "$(field backGap "$o" | cut -d, -f1)|$( (( $(field backGap "$o" | cut -d, -f2) >= 16 )) && echo yes || echo no)"
 check "full: only the host's colours, only radiusFor() radii" "host-only|radiusFor" "$(field full.colours "$o")|$(field full.radii "$o")"
-check "unbuilt routes (games, eject) are refused, not shown blank" "main>full|main>full" "$(field unbuiltGames "$o")|$(field unbuiltEject "$o")"
-check "eject is pushed over full (stand-in sheet)" "main>full>eject" "$(field toEject "$o")"
-check "Escape: the sheet's dialog → eject → full → main → closed" \
-  "view:main>full>eject route:main>full route:main close:main|1" "$(field escape "$o")|$(field closes "$o")"
-check "opened straight at full, Escape still goes full → main → closed" "main>full route:main close:main" "$(field escapeFromFull "$o")"
+check "a Fix opens Setup on its row, pushed (Back returns)" "main>overview>setup|system.helper" "$(field toSetup "$o")"
+check "Details ›: the Details page, pushed, titled" "main>overview>details|Details" "$(field toDetails "$o")"
+check "a tab picked in the header replaces the tab on screen" "main>setup" "$(field pickTab "$o")"
+check "an unbuilt route (games) is refused, not shown blank" "main>overview" "$(field unbuiltGames "$o")"
+check "the eject sheet is built and pushed over the Overview" "main>overview>eject|Safe eject" "$(field builtEject "$o")"
+check "Escape: a view's own dialog → eject → overview → main → closed" \
+  "view:main>overview>eject route:main>overview route:main close:main|1" "$(field escape "$o")|$(field closes "$o")"
+check "opened straight at full, Escape still goes overview → main → closed" "main>overview route:main close:main" "$(field escapeFromFull "$o")"
 check "the notch opening an unbuilt route lands on main" "main" "$(field openGames "$o")"
-check "the notch rebinding route while open moves the stack" "main>full" "$(field routeRebind "$o")"
+check "the notch rebinding route while open moves the stack" "main>overview" "$(field routeRebind "$o")"
 check "close() is a real close; reopening starts at main, active" "false|main|true" "$(field closed.active "$o")|$(field reopen "$o")"
 check "sized within maxWidth/maxHeight, takes focus" "true|true|true" "$(field size "$o")|$(field focus "$o")"
 check "NotchPanel imports no view file from outside views/" "" \
@@ -326,7 +335,7 @@ o=$(descr ready)
 D_READY=$(field descriptor "$o")
 check "descriptor while ready: closedView widget, expandedView a Component, persistent-low" \
   '{"closedView":"widget","expandedView":"component","priority":"persistent-low","groupable":true,"hideable":true}' "$D_READY"
-check "…its expandedView is the compact view" "glyph ¦ ready" "$(field expandedView "$o")"
+check "…its expandedView is the compact view" "glyph ¦ eGPU ready" "$(field expandedView "$o")"
 check "in use: persistent" "persistent" "$(field descriptor "$(descr in-use-procs)" | jq -r .priority)"
 check "attention: persistent" "persistent" "$(field descriptor "$(descr this-machine)" | jq -r .priority)"
 o=$(descr absent . plugged-unauthorized ".recent_events = [$(ev 2 plugged)] | .last_event = .recent_events[-1]")

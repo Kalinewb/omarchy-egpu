@@ -26,7 +26,7 @@ import "egpu/common/Palette.js" as EgpuPalette
 //   integration   NotchIntegration loaded as the notch loads it (an async
 //                 Loader), with or without a host; `available`, claims
 //   stack         NotchPanel from the integration's `panel`: routes, Back,
-//                 Escape chain, open/close
+//                 Escape chain, open/close, its inset
 //   widget        Panel.qml's click rule and `notch` descriptor
 ShellRoot {
   id: rootObj
@@ -92,6 +92,23 @@ ShellRoot {
     if (!item || !item.visible) return out
     if (item.clicked !== undefined && typeof item.label === "string") out.push(item.label + (item.enabled ? "" : "(off)"))
     for (var i = 0; i < item.children.length; i++) rootObj.buttons(item.children[i], out)
+    return out
+  }
+
+  // Every visible text naming Setup with no way to it (ui-scope.md §0.1), as
+  // dev/qml-harness/shell.qml checks it.
+  function setupOrphans(view, item, out) {
+    if (!item || !item.visible) return out
+    if (item.font !== undefined && typeof item.text === "string" && /\bSetup\b/.test(item.text)) {
+      var ok = false
+      for (var p = item; p && p !== view.parent; p = p.parent) {
+        if (typeof p.route === "string" && p.route.indexOf("setup") === 0) { ok = true; break }
+        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.linkLabel !== "") { ok = true; break }
+        if (p.primary === true && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
+      }
+      if (!ok) out.push(item.text)
+    }
+    for (var i = 0; i < item.children.length; i++) rootObj.setupOrphans(view, item.children[i], out)
     return out
   }
 
@@ -194,6 +211,8 @@ ShellRoot {
         rootObj.log("g." + name + ".drawn", g.visible && g.implicitWidth > 0 && g.implicitHeight > 0)
         rootObj.log("c." + name + ".text", rootObj.texts(c, []).join(" ¦ "))
         rootObj.log("c." + name + ".buttons", rootObj.buttons(c, []).join(",") || "none")
+        rootObj.log("c." + name + ".orphans", rootObj.setupOrphans(c, c, []).join(" | ") || "none")
+        rootObj.log("c." + name + ".headline", c.d.headline)
         rootObj.log("c." + name + ".size", c.implicitHeight > 0 && c.width > 0 && c.width <= 320)
         var foreign = rootObj.foreignColours(g, rootObj.foreignColours(c, []))
         rootObj.log("c." + name + ".colours", foreign.length ? foreign.join(" ; ") : "host-only")
@@ -260,11 +279,14 @@ ShellRoot {
     width: 600
     height: 640
     color: "#000000"
+    // The notch's black, so a grab shows what the notch shows.
+    Rectangle { anchors.fill: parent; color: "#000000" }
     Item { id: stackSlot; anchors.fill: parent }
   }
 
-  // A stand-in for G3's eject sheet: one sub-sheet (a confirm dialog) that
-  // popView() closes first, as §7.7 says Escape must.
+  // A stand-in route holding one sub-sheet (a dialog) that popView() closes
+  // first, as §7.7 says Escape must; swapped in for `eject` (the real sheet
+  // has no dialog of its own) to walk the whole chain.
   Component {
     id: fakeEject
     Column {
@@ -276,6 +298,21 @@ ShellRoot {
   }
 
   property int closes: 0
+  // The panel's current view (the Loader inside its Flickable's column).
+  function content(p) {
+    var col = p.children[0].contentItem.children[0]
+    for (var i = 0; i < col.children.length; i++) if (col.children[i].item !== undefined) return col.children[i].item
+    return {}
+  }
+  function findLabel(item, label) {
+    if (!item || !item.visible) return null
+    if (item.label === label && item.clicked !== undefined) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var f = rootObj.findLabel(item.children[i], label)
+      if (f) return f
+    }
+    return null
+  }
   function runStack() {
     var it = integrationLoader.item
     var p = it.panel.createObject(stackSlot, { maxWidth: 560, maxHeight: 600 })
@@ -287,6 +324,9 @@ ShellRoot {
 
     p.open("main")
     rootObj.log("open.main", st() + "|" + p.active + "|" + (p.background === undefined ? "?" : p.background))
+    // The panel's own inset (the notch adds none around an integration).
+    var fl = p.children[0]
+    rootObj.log("inset", Math.round(fl.x) + "," + Math.round(fl.y) + "|" + Math.round(p.inset))
     rootObj.log("main.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("main.back", p.routeStack.length > 1)
     p.requestRoute("full")
@@ -294,10 +334,26 @@ ShellRoot {
     rootObj.log("full.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("full.colours", (function () { var f = rootObj.foreignColours(p, []); return f.length ? f.join(" ; ") : "host-only" })())
     rootObj.log("full.radii", (function () { var f = rootObj.badRadii(p, []); return f.length ? f.join(" ; ") : "radiusFor" })())
+    // ‹ Back keeps the inset from the panel's right edge and top.
+    var back = rootObj.findLabel(p, "‹ Back")
+    if (back) {
+      var pt = back.mapToItem(p, back.width, 0)
+      rootObj.log("backGap", Math.round(p.width - pt.x) + "," + Math.round(pt.y))
+    } else rootObj.log("backGap", "no back")
+    p.requestRoute("setup:system.helper")
+    rootObj.log("toSetup", st() + "|" + p.setupFocus)
+    p.back()
+    p.requestRoute("details")
+    rootObj.log("toDetails", st() + "|" + (content(p).title || ""))
+    p.back()
+    p.pickTab("setup")
+    rootObj.log("pickTab", st())
+    p.pickTab("overview")
     p.requestRoute("games")
     rootObj.log("unbuiltGames", st())
     p.requestRoute("eject")
-    rootObj.log("unbuiltEject", st())
+    rootObj.log("builtEject", st() + "|" + (content(p).title || ""))
+    p.back()
 
     // The Escape chain, with a stand-in sheet that holds a dialog.
     var routes = {}

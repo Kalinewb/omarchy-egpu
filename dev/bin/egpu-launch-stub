@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Development stand-in for what Setup launches outside the engine
+# (common/Engine.qml openTerminal and copy): Omarchy's floating terminal and
+# wl-copy. The panel calls this instead whenever OMARCHY_EGPU_DEV_BIN is set,
+# so no gate ever opens a terminal, asks for a password or replaces the
+# clipboard.
+#
+#   egpu-launch-stub terminal <script>   what the terminal would have run
+#   egpu-launch-stub copy <text>         what would have been copied
+#
+# Each call appends one JSON line {kind, text} to $EGPU_RUN/launches.jsonl
+# (the gates read it) and exits with OMARCHY_EGPU_DEV_LAUNCH_EXIT (default 0;
+# 127 stands for "the launcher is not installed").
+
+set -uo pipefail
+
+RUN=${EGPU_RUN:-${XDG_RUNTIME_DIR:-/run/user/$UID}/omarchy-egpu-dev}
+mkdir -p -- "$RUN"
+jq -cn --arg k "${1:-}" --arg t "${2:-}" '{kind: $k, text: $t}' >>"$RUN/launches.jsonl"
+exit "${OMARCHY_EGPU_DEV_LAUNCH_EXIT:-0}"

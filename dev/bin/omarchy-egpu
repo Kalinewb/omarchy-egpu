@@ -16,8 +16,14 @@
 # overwrote the real watcher's file would make the bar lie about the hardware.
 # The panel uses the same default when OMARCHY_EGPU_DEV_BIN is set.
 #
-# Verbs a later engine phase adds (device, display, steam, ...) answer exactly
-# as the real engine does today: {"error":"usage"}, exit 1.
+# Any other verb (device, display, steam, ...) is recorded as one JSON line
+# (the argv) in $EGPU_RUN/calls.jsonl, so a gate can see which verb a button
+# ran, and answered from dev/fixtures/<name>/<module>-<verb>[-<flag>].json when
+# the fixture has one (device-eject.json, device-eject-close.json, ...): those
+# answers are written from lib/device.sh's own jq templates, since producing
+# them for real needs the root helper. An answer with "error" exits 1. With no
+# such file the answer is the real engine's for a verb it does not know:
+# {"error":"usage"}, exit 1.
 
 set -uo pipefail
 
@@ -85,5 +91,18 @@ case $module:${1:-} in
   status: | status:--json) doc "${NAMES[-1]}" 1 ;;
   status:--human) jq -r '.summary.line' "$FIXTURES/${NAMES[-1]}/status.json" ;;
   health: | health:--json) cat "$FIXTURES/${NAMES[-1]}/health.json" ;;
-  *) printf '{"error":"usage"}\n'; exit 1 ;;
+  *)
+    mkdir -p "$RUN"
+    printf '%s\0' "$module" "$@" | jq -Rsc 'split("\u0000") | .[:-1]' >>"$RUN/calls.jsonl"
+    name="$module-${1:-}"
+    for a in "${@:2}"; do [[ $a == --* ]] && name+="-${a#--}"; done
+    f="$FIXTURES/${NAMES[-1]}/$name.json"
+    if [[ -r $f ]]; then
+      jq -c . "$f"
+      jq -e 'has("error")' "$f" >/dev/null && exit 1
+      exit 0
+    fi
+    printf '{"error":"usage"}\n'
+    exit 1
+    ;;
 esac

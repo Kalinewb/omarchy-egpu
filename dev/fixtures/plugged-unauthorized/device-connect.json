@@ -1,0 +1,1 @@
+{"ok":true,"phase":"ready","already":false,"bdf":"0000:03:00.0","backend":"nvidia","authorized":true,"helper_load":false,"gpu":{"ok":true,"name":"NVIDIA GeForce RTX 4070 SUPER","version":"580.178.04"},"vulkan":{"state":"ok"},"elapsed_ms":4100}

@@ -58,7 +58,7 @@ Item {
   signal event(var record)
 
   Engine {
-    id: engine
+    id: engineRunner
     pluginDir: root.pluginDir
   }
 
@@ -66,7 +66,7 @@ Item {
   // one-shot `status --json` when that goes stale. Parked while ours runs.
   StatusSource {
     id: fallback
-    engine: engine
+    engine: engineRunner
     reading: !root.ownWatcher
     onEvent: function (record) { if (!root.ownWatcher) root.event(record) }
   }
@@ -115,7 +115,7 @@ Item {
     root.watchState = "starting"
     root.liveOutcome = "waiting"
     root.startedAt = Date.now()
-    watcher.command = engine.argv(["status", "watch"])
+    watcher.command = engineRunner.argv(["status", "watch"])
     watcher.running = true
   }
 

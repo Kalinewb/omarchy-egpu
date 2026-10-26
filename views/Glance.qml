@@ -74,7 +74,7 @@ Item {
 
   Row {
     id: row
-    spacing: 6 * view.u
+    spacing: view.theme.space.row
 
     Item {
       id: mark

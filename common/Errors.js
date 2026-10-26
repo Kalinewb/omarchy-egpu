@@ -2,10 +2,14 @@
 
 // Engine error code → the sentence a person reads (plan-gui.md §6).
 //
+// The code itself never reaches the surface: a view shows the sentence, and
+// the code only under its "Details" (ui-scope.md §5, ux.md rule 3).
+//
 // One table for both shells, so the standalone popup and the notch cannot word
 // the same failure two ways. The codes are the full set of plan-engine.md §1.1;
-// a code this table has never heard of still renders ("Something went wrong:
-// <code>") rather than nothing, because an empty error line reads as success.
+// a code this table has never heard of still renders ("Something went
+// wrong.", the code under Details) rather than nothing, because an empty error
+// line reads as success.
 
 var sentences = {
   // device
@@ -15,10 +19,13 @@ var sentences = {
   smi_hung: "The driver is not answering. Do not unplug: save your work, then log out or reboot.",
   holders_present: "Some apps are still using the eGPU.",
   remove_timeout: "Do not unplug. The driver has not let go of the card. Save your work and log out; unplug after.",
-  helper_missing: "The system half is not installed. Setup shows how to install it.",
+  helper_missing: "The system helper is not installed. Open Setup to install it.",
   remove_failed: "The eGPU could not be ejected. It is still connected; nothing was removed.",
   modules_held: "Log out before reconnecting the eGPU: the driver is still loaded from before the eject.",
   rescan_failed: "The eGPU could not be reconnected. Unplug it and plug it in again.",
+  // not an engine error code: the status document's bolt.status, worded here
+  // so the Overview's error headline comes from this table too
+  auth_error: "Thunderbolt could not allow your enclosure.",
   // display
   hdmi_still_active: "The monitor on the eGPU is still on.",
   unsafe_name: "That monitor name cannot be used safely.",
@@ -47,14 +54,20 @@ var sentences = {
 var exits = {
   3: "Busy — another eGPU action is running",
   126: "Permission declined",
-  127: "The system half is not installed"
+  127: "The system helper is not installed. Open Setup to install it."
 }
 
 function message(code) {
   var c = String(code === undefined || code === null ? "" : code)
   if (c === "") return ""
   if (sentences.hasOwnProperty(c)) return sentences[c]
-  return "Something went wrong: " + c
+  return "Something went wrong."
+}
+
+// The code behind a call's answer, for a view's Details line: "" on success.
+function code(result) {
+  if (!result || result.ok) return ""
+  return String(result.error || ("exit " + result.code))
 }
 
 // Conditions in the status document that are not errors but need a sentence

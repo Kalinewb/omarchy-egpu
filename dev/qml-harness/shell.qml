@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Ui
 import "egpu" as Egpu
 import "egpu/views" as EgpuViews
+import "egpu/common" as EgpuCommon
 import "egpu/common/Palette.js" as EgpuPalette
 
 // Gate G1 offscreen (plan-gui.md §10): the REAL Panel.qml, Service.qml and
@@ -22,13 +23,22 @@ import "egpu/common/Palette.js" as EgpuPalette
 //   indicator   Panel on a bar with no shell facade → the file source
 //   service     Service + Panel whose bar hands the Service over → the stream
 //   popup       indicator, then the popup opened and grabbed to a PNG
-//   view        StatusView alone at a given density, text dumped, PNG
+//   routes      the popup's route stack: tabs, pushes, Back, Escape, first run
+//   view        one view (EGPU_HARNESS_VIEW: overview, details, setup, eject,
+//               compact) from a fixture's status and health, text and buttons
+//               dumped, optionally one button clicked (EGPU_HARNESS_CLICK) and
+//               dumped again, PNG
+//   primaries   the Overview and the compact view for every document in
+//               $EGPU_HARNESS_DOCS ({name: {status, health}}): the one
+//               primary button each shows, and any text naming Setup with no
+//               way to it
+//   setups      SetupView for every document there: its rows and buttons
 ShellRoot {
   id: rootObj
 
   readonly property string caseName: Quickshell.env("EGPU_HARNESS_CASE") || "indicator"
   readonly property int waitMs: Number(Quickshell.env("EGPU_HARNESS_WAIT_MS") || "2500")
-  readonly property bool wantsPanel: caseName === "indicator" || caseName === "service" || caseName === "popup"
+  readonly property bool wantsPanel: caseName === "indicator" || caseName === "service" || caseName === "popup" || caseName === "routes"
 
   function log(key, value) { console.log("HARNESS " + key, value) }
 
@@ -139,49 +149,173 @@ ShellRoot {
     printErrors: false
   }
 
+  readonly property var harnessTheme: EgpuPalette.make({
+    foreground: "#e0e0e0", secondary: "#8a8f94", accent: "#7aa2f7", good: "#7aa2f7",
+    warn: "#c99a6b", bad: "#a55555", background: "#101315", fontFamily: "JetBrainsMono Nerd Font",
+    unit: 1, font: { caption: 10, body: 12, title: 14, display: 24, icon: 14 }
+  })
+
+  // The views' engine: the dev stub (OMARCHY_EGPU_DEV_BIN), which answers
+  // health and the device verbs from OMARCHY_EGPU_DEV_FIXTURE and records
+  // every other call; Setup's terminal and copy go to dev/bin/egpu-launch-stub.
+  EgpuCommon.Engine { id: viewEngine; pluginDir: "" }
+  EgpuCommon.HealthSource { id: viewHealth; engine: viewEngine; status: rootObj.viewStatus }
+
+  readonly property var viewStatus: {
+    if (rootObj.caseName !== "view") return null
+    try { return JSON.parse(fixtureFile.text()) } catch (e) { return null }
+  }
+  readonly property string viewName: Quickshell.env("EGPU_HARNESS_VIEW") || "overview"
+  property var routesAsked: []
+  property int closesAsked: 0
+
   Window {
     id: viewWindow
     visible: rootObj.caseName === "view"
-    width: 380
-    height: Math.max(80, viewColumn.implicitHeight + 32)
+    // The popup's content width at its default size, plus the inset.
+    width: 328 + 32
+    height: Math.max(80, (viewLoader.item ? viewLoader.item.implicitHeight : 0) + 32)
     color: "#101315"
 
     Rectangle { anchors.fill: parent; color: "#101315" }
 
-    Column {
-      id: viewColumn
+    Loader {
+      id: viewLoader
       x: 16
       y: 16
-      width: 348
-      spacing: 12
-
-      Text {
-        text: statusView.title + "  ·  " + statusView.meta
-        color: "#e0e0e0"
-        font.family: "JetBrainsMono Nerd Font"
-        font.pixelSize: 14
-        font.bold: true
-        width: parent.width
-        wrapMode: Text.WordWrap
-      }
-
-      EgpuViews.StatusView {
-        id: statusView
-        status: {
-          if (rootObj.caseName !== "view") return null
-          try { return JSON.parse(fixtureFile.text()) } catch (e) { return null }
-        }
-        theme: EgpuPalette.make({
-          foreground: "#e0e0e0", secondary: "#8a8f94", accent: "#7aa2f7", good: "#7aa2f7",
-          warn: "#c99a6b", bad: "#a55555", background: "#101315", fontFamily: "JetBrainsMono Nerd Font",
-          unit: 1, font: { caption: 10, body: 12, title: 14, display: 24, icon: 14 }
-        })
-        density: Quickshell.env("EGPU_HARNESS_DENSITY") || "full"
-        maxWidth: 348
-        active: true
-        statusNote: Quickshell.env("EGPU_HARNESS_NOTE") || ""
+      width: 328
+      active: rootObj.caseName === "view"
+      sourceComponent: rootObj.viewName === "details" ? detailsComp : rootObj.viewName === "setup" ? setupComp
+                     : rootObj.viewName === "eject" ? ejectComp : rootObj.viewName === "compact" ? compactViewComp : overviewComp
+      onLoaded: {
+        item.requestRoute.connect(function (n) { rootObj.routesAsked = rootObj.routesAsked.concat([String(n)]) })
+        item.requestClose.connect(function () { rootObj.closesAsked += 1 })
+        viewHealth.hold()
       }
     }
+  }
+
+  Component { id: overviewComp; EgpuViews.StatusView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true; density: Quickshell.env("EGPU_HARNESS_DENSITY") || "full"; statusNote: Quickshell.env("EGPU_HARNESS_NOTE") || "" } }
+  Component { id: detailsComp; EgpuViews.DetailsView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true; statusNote: Quickshell.env("EGPU_HARNESS_NOTE") || "" } }
+  Component { id: setupComp; EgpuViews.SetupView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true; focusId: Quickshell.env("EGPU_HARNESS_FOCUS") || "" } }
+  Component { id: ejectComp; EgpuViews.EjectFlow { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
+  Component { id: compactViewComp; EgpuViews.CompactView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 320; active: true } }
+
+  // Visible buttons and links (views/ui Action and Link), by label; disabled
+  // ones marked, the primary one starred.
+  function buttons(item, out) {
+    if (!item || !item.visible) return out
+    if (item.clicked !== undefined && typeof item.label === "string" && item.label !== "")
+      out.push((item.primary === true ? "*" : "") + item.label + (item.enabled ? "" : "(off)"))
+    for (var i = 0; i < item.children.length; i++) rootObj.buttons(item.children[i], out)
+    return out
+  }
+  function findButton(item, label) {
+    if (!item || !item.visible) return null
+    if (item.clicked !== undefined && item.label === label && item.enabled) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var f = rootObj.findButton(item.children[i], label)
+      if (f) return f
+    }
+    return null
+  }
+  // The primary button: label|enabled, or "none".
+  function primaryOf(item) {
+    if (!item || !item.visible) return null
+    if (item.primary === true && typeof item.label === "string" && item.clicked !== undefined) return item.label + "|" + (item.enabled ? "on" : "off")
+    for (var i = 0; i < item.children.length; i++) {
+      var f = rootObj.primaryOf(item.children[i])
+      if (f) return f
+    }
+    return null
+  }
+  // Every visible text that names Setup without a way to it (ui-scope.md
+  // §0.1): a link or a sentence link whose route is Setup, or the primary
+  // button when its action opens Setup.
+  function setupOrphans(view, item, out) {
+    if (!item || !item.visible) return out
+    if (item.font !== undefined && typeof item.text === "string" && /\bSetup\b/.test(item.text)) {
+      var ok = false
+      for (var p = item; p && p !== view.parent; p = p.parent) {
+        if (typeof p.route === "string" && p.route.indexOf("setup") === 0) { ok = true; break }
+        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.linkLabel !== "") { ok = true; break }
+        if (p.primary === true && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
+      }
+      if (!ok) out.push(item.text)
+    }
+    for (var i = 0; i < item.children.length; i++) rootObj.setupOrphans(view, item.children[i], out)
+    return out
+  }
+  function dumpView(prefix) {
+    var v = viewLoader.item
+    var t = rootObj.texts(v, [])
+    rootObj.log(prefix + "texts", t.map(function (x) { return x === EgpuPalette.glyph ? "glyph" : x }).join(" ¦ "))
+    rootObj.log(prefix + "buttons", rootObj.buttons(v, []).join(",") || "none")
+    rootObj.log(prefix + "primary", rootObj.primaryOf(v) || "none")
+    rootObj.log(prefix + "orphans", rootObj.setupOrphans(v, v, []).join(" | ") || "none")
+    rootObj.log(prefix + "routes", rootObj.routesAsked.join(",") || "none")
+    rootObj.log(prefix + "closes", rootObj.closesAsked)
+    rootObj.log(prefix + "title", v.title === undefined ? "none" : (v.title === "" ? "empty" : v.title))
+    rootObj.log(prefix + "popView", v.popView())
+  }
+
+  // ------------------------------------------------- primaries and setups
+
+  FileView {
+    id: docsFile
+    path: rootObj.caseName === "primaries" || rootObj.caseName === "setups" ? (Quickshell.env("EGPU_HARNESS_DOCS") || "") : ""
+    blockLoading: true
+    printErrors: false
+  }
+  readonly property var docs: {
+    if (rootObj.caseName !== "primaries" && rootObj.caseName !== "setups") return ({})
+    try { return JSON.parse(docsFile.text()) } catch (e) { return ({}) }
+  }
+  Window {
+    id: docsWindow
+    visible: rootObj.caseName === "primaries" || rootObj.caseName === "setups"
+    width: 380
+    height: 600
+    color: "#101315"
+    Column { id: docsColumn; x: 16; y: 16; width: 328 }
+  }
+  Component { id: primOverview; EgpuViews.StatusView { engine: viewEngine; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
+  Component { id: primCompact; EgpuViews.CompactView { engine: viewEngine; theme: rootObj.harnessTheme; maxWidth: 320; active: true } }
+  Component { id: primSetup; EgpuViews.SetupView { engine: viewEngine; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
+
+  function runDocs() {
+    var names = Object.keys(rootObj.docs)
+    for (var i = 0; i < names.length; i++) {
+      var doc = rootObj.docs[names[i]]
+      var health = { rows: doc.health, loading: false, error: "", refresh: function () {} }
+      if (rootObj.caseName === "primaries") {
+        var o = primOverview.createObject(docsColumn)
+        var c = primCompact.createObject(docsColumn)
+        o.health = health; c.health = health
+        o.status = doc.status; c.status = doc.status
+        // Without health rows: what shows before the first read returns.
+        var o0 = primOverview.createObject(docsColumn)
+        o0.status = doc.status
+        rootObj.log("p." + names[i] + ".full", rootObj.primaryOf(o) || "none")
+        rootObj.log("p." + names[i] + ".compact", rootObj.primaryOf(c) || "none")
+        rootObj.log("p." + names[i] + ".norows", rootObj.primaryOf(o0) || "none")
+        rootObj.log("p." + names[i] + ".headline", o.d.headline + " / " + c.d.headline)
+        rootObj.log("p." + names[i] + ".orphans", (rootObj.setupOrphans(o, o, []).concat(rootObj.setupOrphans(c, c, []))).join(" | ") || "none")
+        rootObj.log("p." + names[i] + ".texts", rootObj.texts(o, []).join(" ¦ "))
+        rootObj.log("p." + names[i] + ".ctexts", rootObj.texts(c, []).join(" ¦ "))
+        o.destroy(); c.destroy(); o0.destroy()
+      } else {
+        var sv = primSetup.createObject(docsColumn)
+        sv.health = health
+        sv.status = doc.status
+        rootObj.log("s." + names[i] + ".texts", rootObj.texts(sv, []).join(" ¦ "))
+        rootObj.log("s." + names[i] + ".buttons", rootObj.buttons(sv, []).join(",") || "none")
+        rootObj.log("s." + names[i] + ".rows", sv.sum.problems.length + sv.sum.others.length + sv.sum.advanced.length)
+        rootObj.log("s." + names[i] + ".first", sv.problemRows.length > 0 ? sv.problemRows[0].id : "none")
+        sv.destroy()
+      }
+    }
+    Qt.exit(0)
   }
 
   // Every visible Text under an item, top to bottom: what a person would read.
@@ -214,22 +348,64 @@ ShellRoot {
 
   // ------------------------------------------------------------- finish
 
-  Component.onCompleted: if (rootObj.caseName === "popup") Qt.callLater(function () { realPanel.open() })
+  Component.onCompleted: {
+    if (rootObj.caseName === "popup" || rootObj.caseName === "routes") Qt.callLater(function () { realPanel.open() })
+    if (rootObj.caseName === "primaries" || rootObj.caseName === "setups") Qt.callLater(rootObj.runDocs)
+  }
+
+  Timer {
+    id: afterClick
+    property string png: ""
+    interval: Number(Quickshell.env("EGPU_HARNESS_CLICK_WAIT_MS") || "1500")
+    onTriggered: {
+      rootObj.dumpView("after.")
+      rootObj.grab(viewWindow.contentItem, png, 1, function () { Qt.exit(0) })
+    }
+  }
+
+  // The popup's route stack, driven through the same functions the header,
+  // the views and Escape call.
+  function runRoutes() {
+    var p = realPanel
+    function st() { return p.routeStack.join(">") }
+    var out = []
+    out.push("open:" + st() + ":" + (p.opened ? "open" : "closed"))
+    p.requestRoute("setup:system.helper"); out.push("fix:" + st() + ":" + p.setupFocus)
+    p.back(); out.push("back:" + st())
+    p.requestRoute("details"); out.push("details:" + st())
+    p.requestRoute("eject"); out.push("eject:" + st())
+    p.back(); p.back(); out.push("back2:" + st())
+    p.pickTab("setup"); out.push("tab:" + st())
+    p.pickTab("overview"); out.push("tab2:" + st())
+    p.requestRoute("display"); out.push("unbuilt:" + st())
+    p.requestRoute("setup"); p.requestRoute("back"); out.push("viewBack:" + st())
+    p.back(); out.push("root:" + (p.opened ? "open" : "closed"))
+    rootObj.log("routes", out.join(" "))
+    var w = rootObj.popupWindow()
+    rootObj.log("padding", w ? w.padding : "no window")
+    // The tokens scale with the shell's spacing unit (the theme's [spacing]),
+    // so the check needs the unit this run had.
+    rootObj.log("unit", realPanel.popupPalette.unit)
+    Qt.exit(0)
+  }
 
   Timer {
     interval: rootObj.waitMs
-    running: true
+    running: rootObj.caseName !== "primaries" && rootObj.caseName !== "setups"
     onTriggered: {
       var png = Quickshell.env("EGPU_HARNESS_PNG") || ""
       if (rootObj.caseName === "view") {
-        rootObj.log("title", statusView.title)
-        rootObj.log("meta", statusView.meta)
-        rootObj.log("popView", statusView.popView())
-        var t = rootObj.texts(statusView, [])
-        for (var i = 0; i < t.length; i++) rootObj.log("text", t[i])
-        rootObj.grab(viewWindow.contentItem, png, 1, function () { Qt.exit(0) })
+        rootObj.dumpView("")
+        var click = Quickshell.env("EGPU_HARNESS_CLICK") || ""
+        if (click === "") { rootObj.grab(viewWindow.contentItem, png, 1, function () { Qt.exit(0) }); return }
+        var b = rootObj.findButton(viewLoader.item, click)
+        rootObj.log("clicked", b ? "yes" : "no such button")
+        if (b) b.clicked()
+        afterClick.png = png
+        afterClick.start()
         return
       }
+      if (rootObj.caseName === "routes") { rootObj.runRoutes(); return }
       if (rootObj.caseName === "popup") {
         var w = rootObj.popupWindow()
         rootObj.log("opened", realPanel.opened)

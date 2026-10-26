@@ -59,8 +59,24 @@ function make(p) {
       title: Number(font.title) || 15 * unit,
       display: Number(font.display) || 26 * unit,
       icon: Number(font.icon) || 16 * unit
-    }
+    },
+    space: spacing(unit)
   }
+}
+
+// The one set of padding tokens (ui-scope.md §0.2, §5). Every view and both
+// shells lay out with these and nothing else, so the popup and the notch keep
+// the same distance from their edges:
+//   inset     the panel's edge to its content, on every side (the shell's)
+//   section   between the blocks of a view (headline, button, sentence, …)
+//   row       between the rows inside a block
+//   rowHeight a row with a control in it (a button, a switch, a Setup row)
+// Scaled by `unit`, which is Style.space(1) in the standalone shell.
+var SPACE = { inset: 16, section: 12, row: 6, rowHeight: 36 }
+
+function spacing(unit) {
+  var u = Number(unit) > 0 ? Number(unit) : 1
+  return { inset: SPACE.inset * u, section: SPACE.section * u, row: SPACE.row * u, rowHeight: SPACE.rowHeight * u }
 }
 
 // The palette inside the notch (plan-gui.md §5.0, §7.7): every colour from

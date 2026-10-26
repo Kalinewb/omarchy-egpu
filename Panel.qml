@@ -6,6 +6,7 @@ import qs.Ui
 import "common"
 import "views"
 import "common/Palette.js" as Palette
+import "common/SetupRows.js" as SetupRows
 
 // eGPU: the bar indicator and the standalone popup (plan-gui.md §2, §4, §5).
 //
@@ -94,14 +95,14 @@ Panel {
   }
 
   Engine {
-    id: engine
+    id: engineRunner
     pluginDir: root.pluginDir
   }
 
   StatusSource {
     id: source
     service: root.ownService
-    engine: engine
+    engine: engineRunner
   }
 
   readonly property var status: source.status
@@ -127,7 +128,7 @@ Panel {
   Notices {
     id: notices
     status: root.status
-    canConnect: engine.can("device connect")
+    canConnect: engineRunner.can("device connect")
   }
   Connections {
     target: source
@@ -166,7 +167,7 @@ Panel {
     id: glanceComponent
     Glance {
       status: root.status
-      engine: engine
+      engine: engineRunner
       theme: root.surfacePalette
       active: true
       statusNote: root.statusNote
@@ -178,7 +179,7 @@ Panel {
     id: compactComponent
     CompactView {
       status: root.status
-      engine: engine
+      engine: engineRunner
       theme: root.surfacePalette
       density: "compact"
       active: true
@@ -205,29 +206,50 @@ Panel {
 
   // --------------------------------------------------------------- routes
   //
-  // The popup's tabs are the top-level routes (§5: Overview · Display · Games ·
-  // Setup); anything else a view asks for is pushed over the current one (the
-  // eject sheet, G3). A route appears here in the phase that builds its view —
-  // until then requesting it is a no-op with a console line, never a blank page.
-  readonly property var builtRoutes: ({ overview: overviewComponent })
+  // The popup's tabs are the top-level routes (ui-scope.md §2: Overview ·
+  // Games · Screens · Setup; only the built ones show). A tab picked in the
+  // header replaces the stack; a route a view asks for is pushed over the
+  // current one (Details, the eject sheet, Setup from a Fix), so Back and
+  // Escape always return one level (ui-scope.md §2). A route appears here in
+  // the phase that builds its view — until then requesting it is a no-op
+  // with a console line, never a blank page.
+  readonly property var builtRoutes: ({ overview: overviewComponent, setup: setupComponent,
+                                        details: detailsComponent, eject: ejectComponent })
   readonly property var tabOrder: ["overview", "display", "games", "setup"]
-  readonly property var tabLabels: ({ overview: "Overview", display: "Display", games: "Games", setup: "Setup" })
+  readonly property var tabLabels: ({ overview: "Overview", display: "Screens", games: "Games", setup: "Setup" })
   readonly property var tabs: tabOrder.filter(function (t) { return !!root.builtRoutes[t] })
 
   property var routeStack: ["overview"]
   readonly property string route: routeStack[routeStack.length - 1]
+  readonly property bool onTab: root.tabOrder.indexOf(root.route) !== -1
+  // The Setup row a Fix asked for ("setup:<id>").
+  property string setupFocus: ""
+  // Whether the person has moved since the popup opened (first-run landing
+  // only happens while they have not).
+  property bool navigated: false
 
   function resetRoute(name) { root.routeStack = [name] }
 
+  function pickTab(name) {
+    if (!root.builtRoutes[name]) return
+    root.navigated = true
+    root.setupFocus = ""
+    root.resetRoute(name)
+  }
+
   function requestRoute(name) {
     var n = String(name || "")
-    if (n === "full" || n === root.route) return    // the popup IS the full panel
+    if (n === "back") { root.back(); return }
+    if (n === "full") return    // the popup IS the full panel
+    var focus = ""
+    if (n.indexOf("setup:") === 0) { focus = n.substring(6); n = "setup" }
     if (!root.builtRoutes[n]) {
       console.warn("kalinewb.egpu", "route not built yet:", n)
       return
     }
-    if (root.tabOrder.indexOf(n) !== -1) root.resetRoute(n)
-    else root.routeStack = root.routeStack.concat([n])
+    root.navigated = true
+    if (n === "setup") root.setupFocus = focus
+    if (n !== root.route) root.routeStack = root.routeStack.concat([n])
   }
 
   // Escape and the Back button (§7.7): the view's own sub-sheet first, then
@@ -239,8 +261,33 @@ Panel {
     else root.close()
   }
 
-  // Left click opens on the Overview (§4).
-  onOpenedChanged: if (opened) root.resetRoute("overview")
+  // First run (ux.md rule 4): the system helper was never installed and
+  // there is no eGPU to show, so the popup opens on Setup. Decided from the
+  // last rows read, and once more when this opening's read arrives, but only
+  // while the person has not moved.
+  readonly property var setupSummary: SetupRows.summarize(healthSource.rows)
+  readonly property bool firstRun: root.setupSummary.neverSetUp && (!root.status || !root.status.summary
+                                   || root.status.summary.state === "absent")
+  onFirstRunChanged: if (root.opened && root.firstRun && !root.navigated) root.resetRoute("setup")
+
+  // Left click opens on the Overview (§4), or on Setup on a first run.
+  onOpenedChanged: {
+    if (opened) {
+      root.navigated = false
+      root.setupFocus = ""
+      root.resetRoute(root.firstRun ? "setup" : "overview")
+      healthSource.hold()
+    } else {
+      healthSource.release()
+    }
+  }
+
+  // Setup's rows, read while the popup is open (common/HealthSource.qml).
+  HealthSource {
+    id: healthSource
+    engine: engineRunner
+    status: root.status
+  }
 
   // ---------------------------------------------------------- bar button
 
@@ -323,6 +370,11 @@ Panel {
   }
 
   // --------------------------------------------------------------- popup
+  //
+  // The panel's inset is the one padding token (common/Palette.js `space`,
+  // ui-scope.md §0.2): KeyboardPanel pads its card by it, and the scrollbar
+  // sits in that gutter rather than over the content, so nothing crowds the
+  // edge and Back keeps clear of the corner.
 
   KeyboardPanel {
     id: panel
@@ -331,8 +383,9 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(560))
+    padding: Math.round(root.popupPalette.space.inset)
+    contentWidth: panel.fittedContentWidth(Style.space(360))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(600))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -354,56 +407,25 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: scrollBar
 
-        // The right gutter is always reserved, as omarchy-face learned: the
-        // hero's Back button sits at its right edge, which is where the
-        // scrollbar's track appears on a tall view.
         Column {
           id: column
-          width: flick.width - Style.space(10)
-          spacing: Style.space(12)
+          width: flick.width
+          spacing: root.popupPalette.space.section
 
-          PanelHero {
+          Header {
+            id: header
             width: parent.width
-            title: viewLoader.item && viewLoader.item.title !== undefined ? viewLoader.item.title : "eGPU"
-            meta: viewLoader.item && viewLoader.item.meta !== undefined ? viewLoader.item.meta : ""
-            foreground: root.popupPalette.foreground
-            fontFamily: root.fontFamily
-
-            iconComponent: Component {
-              Text {
-                textFormat: Text.PlainText
-                text: Palette.glyph
-                color: root.roleColor(root.popupPalette, root.look.role)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.display
-              }
-            }
-
-            trailingControl: Component {
-              PanelActionButton {
-                visible: root.routeStack.length > 1
-                iconText: Palette.backGlyph
-                tooltipText: "Back"
-                foreground: root.popupPalette.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.back()
-              }
-            }
-          }
-
-          // Hidden while Overview is the only view built; the row exists so
-          // each later phase only adds its route to builtRoutes.
-          ButtonGroup {
-            visible: root.tabs.length > 1
-            options: root.tabs.map(function (t) { return { value: t, label: root.tabLabels[t] } })
-            value: root.routeStack[0]
-            foreground: root.popupPalette.foreground
-            accent: root.popupPalette.accent
-            fontFamily: root.fontFamily
-            focusable: false
-            onChanged: function (v) { root.requestRoute(v) }
+            theme: root.popupPalette
+            tabs: root.tabs
+            labels: root.tabLabels
+            tab: root.onTab ? root.route : ""
+            title: viewLoader.item && viewLoader.item.title !== undefined ? String(viewLoader.item.title) : ""
+            dots: ({ setup: !!(root.status && root.status.health_summary && root.status.health_summary.errors > 0) })
+            canBack: root.routeStack.length > 1
+            onTabPicked: function (name) { root.pickTab(name) }
+            onBack: root.back()
           }
 
           // One view at a time, so a view that is not on screen holds no
@@ -415,6 +437,15 @@ Panel {
           }
         }
       }
+
+      // In the panel's right gutter, outside the content.
+      ScrollBar {
+        id: scrollBar
+        x: flick.width + (panel.padding - width) / 2
+        y: 0
+        height: flick.height
+        policy: ScrollBar.AsNeeded
+      }
     }
   }
 
@@ -423,7 +454,57 @@ Panel {
     id: overviewComponent
     StatusView {
       status: root.status
-      engine: engine
+      engine: engineRunner
+      health: healthSource
+      theme: root.popupPalette
+      density: "full"
+      maxWidth: column.width
+      active: root.opened
+      statusNote: root.statusNote
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.close()
+    }
+  }
+
+  Component {
+    id: setupComponent
+    SetupView {
+      status: root.status
+      engine: engineRunner
+      health: healthSource
+      theme: root.popupPalette
+      density: "full"
+      maxWidth: column.width
+      active: root.opened
+      statusNote: root.statusNote
+      focusId: root.setupFocus
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.close()
+    }
+  }
+
+  Component {
+    id: detailsComponent
+    DetailsView {
+      status: root.status
+      engine: engineRunner
+      health: healthSource
+      theme: root.popupPalette
+      density: "full"
+      maxWidth: column.width
+      active: root.opened
+      statusNote: root.statusNote
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.close()
+    }
+  }
+
+  Component {
+    id: ejectComponent
+    EjectFlow {
+      status: root.status
+      engine: engineRunner
+      health: healthSource
       theme: root.popupPalette
       density: "full"
       maxWidth: column.width

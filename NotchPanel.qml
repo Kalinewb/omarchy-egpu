@@ -13,14 +13,20 @@ import "common/Palette.js" as Palette
 // the engine's processes) belongs to the integration, which exists once.
 //
 // Routes:  main     CompactView (§7.6)
-//          full     the standalone tabs (Overview · Display · Games · Setup)
-//          display, games, setup   full, at that tab
-//          eject    the eject sheet (G3), pushed over anything
+//          overview, setup (and display, games once built)
+//                   the standalone tabs, in the same Header; "full" is
+//                   the Overview
+//          details  the Details page, pushed over the Overview
+//          eject    the eject sheet, pushed over anything
 // A route appears in the phase that builds its view; until then asking for it
 // is refused with a console line, never a blank page. The notch's own back
 // strip is never over an integration (notch:INTEGRATION-SCOPE.md:79-81), so
 // Back is ours: Escape asks the view to pop its own sub-sheet, then pops a
-// route, and only at the root closes (eject → full → main → closed).
+// route, and only at the root closes (eject → overview → main → closed).
+//
+// The notch draws an integration's panel from its top edge with no padding
+// of its own (notch:Bar.qml integrationHost), so the inset is ours: the one
+// padding token (common/Palette.js `space.inset`) on every side.
 //
 // Colours come only from surfaceHost (common/Palette.js fromHost). Sizes
 // come from Style, which are not colours. Nothing reads Color.
@@ -38,6 +44,7 @@ Item {
   // ------------------------------------------- set by NotchIntegration.qml
   property var status: null
   property var engine: null
+  property var health: null
   property string statusNote: ""
   property string noticeTitle: ""
 
@@ -52,6 +59,7 @@ Item {
             display: Style.font.display, icon: Style.font.icon }
   })
   readonly property real u: root.theme.unit
+  readonly property real inset: root.theme.space.inset
 
   // True between the notch's open() and close(). Every view keys its live
   // work on this, never on `visible` or the window (§7.7).
@@ -59,49 +67,52 @@ Item {
 
   // ------------------------------------------------------------- routes
 
-  // Not readonly: dev/g8-offscreen.sh adds a stand-in `eject` to walk the
-  // whole Escape chain before G3 builds the real sheet.
-  property var builtRoutes: ({ main: compactComponent, full: fullComponent })
+  // Not readonly: dev/g8-offscreen.sh swaps in a stand-in `eject` holding a
+  // dialog, to walk the whole Escape chain through a view's own popView().
+  property var builtRoutes: ({ main: compactComponent, overview: overviewComponent, setup: setupComponent,
+                               details: detailsComponent, eject: ejectComponent })
   readonly property var tabOrder: ["overview", "display", "games", "setup"]
-  readonly property var tabLabels: ({ overview: "Overview", display: "Display", games: "Games", setup: "Setup" })
-  readonly property var builtTabs: ({ overview: overviewComponent })
-  readonly property var tabs: root.tabOrder.filter(function (t) { return !!root.builtTabs[t] })
+  readonly property var tabLabels: ({ overview: "Overview", display: "Screens", games: "Games", setup: "Setup" })
+  readonly property var tabs: root.tabOrder.filter(function (t) { return !!root.builtRoutes[t] })
 
   property var routeStack: ["main"]
   readonly property string current: root.routeStack[root.routeStack.length - 1]
-  property string tab: "overview"
+  readonly property bool onTab: root.tabOrder.indexOf(root.current) !== -1
+  property string setupFocus: ""
+
+  // "full" is the Overview; "setup:<id>" is Setup on that row.
+  function resolve(name) {
+    var n = String(name || "main")
+    if (n === "full") n = "overview"
+    if (n.indexOf("setup:") === 0) { root.setupFocus = n.substring(6); n = "setup" }
+    else if (n === "setup") root.setupFocus = ""
+    return n
+  }
 
   // Where an opening lands. Anything but main sits over main, so Escape from
-  // a panel opened straight at `full` still steps back through the compact
-  // view (§7.7: full → main → closed).
+  // a panel opened straight at a tab still steps back through the compact
+  // view (§7.7: overview → main → closed).
   function resetTo(name) {
-    var n = String(name || "main")
+    var n = root.resolve(name)
     if (n === "main") { root.routeStack = ["main"]; return }
-    if (root.tabOrder.indexOf(n) !== -1) {
-      if (!root.builtTabs[n]) { console.warn("kalinewb.egpu", "notch route not built yet:", n); root.routeStack = ["main"]; return }
-      root.tab = n
-      root.routeStack = ["main", "full"]
-      return
-    }
-    if (n === "full") { root.tab = root.tabs[0]; root.routeStack = ["main", "full"]; return }
     if (!root.builtRoutes[n]) { console.warn("kalinewb.egpu", "notch route not built yet:", n); root.routeStack = ["main"]; return }
     root.routeStack = ["main", n]
   }
 
-  // A view asking for another (§5.0 requestRoute).
+  // A view asking for another (§5.0 requestRoute): pushed, so Back returns.
   function requestRoute(name) {
-    var n = String(name || "")
+    if (String(name) === "back") { root.back(); return }
+    var n = root.resolve(name)
     if (n === "main") { root.routeStack = ["main"]; return }
-    if (n === "full" || root.tabOrder.indexOf(n) !== -1) {
-      if (n !== "full") {
-        if (!root.builtTabs[n]) { console.warn("kalinewb.egpu", "notch route not built yet:", n); return }
-        root.tab = n
-      }
-      if (root.current !== "full") root.routeStack = root.routeStack.concat(["full"])
-      return
-    }
     if (!root.builtRoutes[n]) { console.warn("kalinewb.egpu", "notch route not built yet:", n); return }
     if (root.current !== n) root.routeStack = root.routeStack.concat([n])
+  }
+
+  // A tab picked in the header replaces the tab on screen.
+  function pickTab(name) {
+    if (!root.builtRoutes[name]) return
+    root.setupFocus = ""
+    root.routeStack = root.onTab ? root.routeStack.slice(0, -1).concat([name]) : root.routeStack.concat([name])
   }
 
   // Escape and ‹ Back.
@@ -118,8 +129,10 @@ Item {
   // Called on every open, at the route asked for (the bar widget asks for
   // "main", a notice's panelRoute too). Everything is re-derived from
   // `status`, so a panel reopened mid-eject shows `ejecting`.
+  property bool holding: false
   function open(next) {
     root.active = true
+    if (!root.holding && root.health) { root.health.hold(); root.holding = true }
     root.resetTo(next !== undefined ? next : root.route)
     root.forceActiveFocus()
   }
@@ -128,7 +141,9 @@ Item {
   // engine call in flight is left to finish in the integration's pool.
   function close() {
     root.active = false
+    if (root.holding && root.health) { root.health.release(); root.holding = false }
   }
+  Component.onDestruction: if (root.holding && root.health) root.health.release()
 
   // `route` is bound: a later openPanel at another route changes it here.
   onRouteChanged: if (root.active) root.resetTo(root.route)
@@ -138,13 +153,14 @@ Item {
 
   // ----------------------------------------------------------------- size
 
-  readonly property real wantWidth: (root.current === "main" ? 320 : 400) * root.u
+  readonly property real wantWidth: (root.current === "main" ? 320 : 400) * root.u + 2 * root.inset
   implicitWidth: Math.min(root.maxWidth > 0 ? root.maxWidth : root.wantWidth, root.wantWidth)
-  implicitHeight: Math.min(column.implicitHeight, root.maxHeight > 0 ? root.maxHeight : column.implicitHeight)
+  implicitHeight: Math.min(column.implicitHeight + 2 * root.inset, root.maxHeight > 0 ? root.maxHeight : column.implicitHeight + 2 * root.inset)
 
   Flickable {
     id: flick
     anchors.fill: parent
+    anchors.margins: root.inset
     contentWidth: width
     contentHeight: column.implicitHeight
     clip: true
@@ -154,47 +170,23 @@ Item {
     Column {
       id: column
       width: flick.width
-      spacing: 10 * root.u
+      spacing: root.theme.space.section
 
-      // The header, below main only: the view's title, and ‹ Back at the top
-      // right as on the notch's own pages (‹ Settings, ‹ Setup).
-      Item {
+      // Below main only: the tabs (or a sub-page's title), and ‹ Back at the
+      // top right as on the notch's own pages (‹ Settings, ‹ Setup).
+      Header {
         id: header
         width: parent.width
         visible: root.routeStack.length > 1
-        implicitHeight: Math.max(titleText.implicitHeight, backText.implicitHeight)
-
-        Text {
-          id: titleText
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - backText.width - 12 * root.u
-          textFormat: Text.PlainText
-          elide: Text.ElideRight
-          text: content.item && content.item.title !== undefined ? String(content.item.title) : "eGPU"
-          color: root.theme.foreground
-          font.family: root.theme.fontFamily
-          font.pixelSize: root.theme.font.title
-          font.bold: true
-        }
-        Text {
-          id: backText
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: "‹ Back"
-          color: backArea.containsMouse ? root.theme.foreground : root.theme.secondary
-          font.family: root.theme.fontFamily
-          font.pixelSize: root.theme.font.body
-          MouseArea {
-            id: backArea
-            anchors.fill: parent
-            anchors.margins: -4 * root.u
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.back()
-          }
-        }
+        theme: root.theme
+        tabs: root.tabs
+        labels: root.tabLabels
+        tab: root.onTab ? root.current : ""
+        title: content.item && content.item.title !== undefined ? String(content.item.title) : ""
+        dots: ({ setup: !!(root.status && root.status.health_summary && root.status.health_summary.errors > 0) })
+        canBack: true
+        onTabPicked: function (name) { root.pickTab(name) }
+        onBack: root.back()
       }
 
       // One route at a time, so a view that is not on screen holds no timers.
@@ -207,12 +199,16 @@ Item {
   }
 
   // ------------------------------------------------------------ the routes
+  //
+  // The standalone popup's views at full density, from the same files
+  // (§7.6 "nothing is forked").
 
   Component {
     id: compactComponent
     CompactView {
       status: root.status
       engine: root.engine
+      health: root.health
       theme: root.theme
       density: "compact"
       maxWidth: column.width
@@ -225,61 +221,61 @@ Item {
     }
   }
 
-  // The standalone popup's tabs at full density, from the same view files
-  // (§7.6 "nothing is forked"). The tab row shows once a second tab exists.
-  Component {
-    id: fullComponent
-    Column {
-      id: full
-      spacing: 10 * root.u
-      readonly property string title: tabLoader.item && tabLoader.item.title !== undefined ? tabLoader.item.title : "eGPU"
-      function popView() {
-        var item = tabLoader.item
-        return !!(item && typeof item.popView === "function" && item.popView())
-      }
-
-      Text {
-        width: parent.width
-        visible: text !== ""
-        textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        text: tabLoader.item && tabLoader.item.meta !== undefined ? String(tabLoader.item.meta) : ""
-        color: root.theme.secondary
-        font.family: root.theme.fontFamily
-        font.pixelSize: root.theme.font.body
-      }
-
-      Row {
-        visible: root.tabs.length > 1
-        spacing: 14 * root.u
-        Repeater {
-          model: root.tabs
-          delegate: Text {
-            required property var modelData
-            textFormat: Text.PlainText
-            text: root.tabLabels[modelData]
-            color: root.tab === modelData ? root.theme.foreground : root.theme.secondary
-            font.family: root.theme.fontFamily
-            font.pixelSize: root.theme.font.body
-            font.underline: root.tab === modelData
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.tab = parent.modelData }
-          }
-        }
-      }
-
-      Loader {
-        id: tabLoader
-        width: column.width
-        sourceComponent: root.builtTabs[root.tab] || overviewComponent
-      }
-    }
-  }
-
   Component {
     id: overviewComponent
     StatusView {
       status: root.status
       engine: root.engine
+      health: root.health
+      theme: root.theme
+      density: "full"
+      maxWidth: column.width
+      active: root.active
+      statusNote: root.statusNote
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.closeRequested()
+    }
+  }
+
+  Component {
+    id: setupComponent
+    SetupView {
+      status: root.status
+      engine: root.engine
+      health: root.health
+      theme: root.theme
+      density: "full"
+      maxWidth: column.width
+      active: root.active
+      statusNote: root.statusNote
+      focusId: root.setupFocus
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.closeRequested()
+    }
+  }
+
+  Component {
+    id: detailsComponent
+    DetailsView {
+      status: root.status
+      engine: root.engine
+      health: root.health
+      theme: root.theme
+      density: "full"
+      maxWidth: column.width
+      active: root.active
+      statusNote: root.statusNote
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.closeRequested()
+    }
+  }
+
+  Component {
+    id: ejectComponent
+    EjectFlow {
+      status: root.status
+      engine: root.engine
+      health: root.health
       theme: root.theme
       density: "full"
       maxWidth: column.width
