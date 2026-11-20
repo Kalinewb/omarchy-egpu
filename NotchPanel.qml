@@ -20,13 +20,19 @@ import "common/Palette.js" as Palette
 //          eject    the eject sheet, pushed over anything
 // A route appears in the phase that builds its view; until then asking for it
 // is refused with a console line, never a blank page. The notch's own back
-// strip is never over an integration (notch:INTEGRATION-SCOPE.md:79-81), so
-// Back is ours: Escape asks the view to pop its own sub-sheet, then pops a
-// route, and only at the root closes (eject → overview → main → closed).
+// strip IS over every integration now (notch:SURFACE-HOSTING.md §4, §15) and
+// is the one visible way back: a press asks goBackInside() below, which pops
+// the view's own sub-sheet and then a route; only at the root does it answer
+// no, and the notch goes back to where it was opened from or closes. Escape
+// is its invisible alias (eject → overview → main → closed). Under a host
+// with no strip (no `panelBack` feature: an older notch) the header keeps its
+// own ‹ Back, as the standalone popup does.
 //
 // The notch draws an integration's panel from its top edge with no padding
 // of its own (notch:Bar.qml integrationHost), so the inset is ours: the one
-// padding token (common/Palette.js `space.inset`) on every side.
+// padding token (common/Palette.js `space.inset`) on every side, and at the
+// top at least the back strip's zone (`surfaceHost.backZoneHeight`), because
+// a press anywhere in that zone goes back and nothing of ours may sit in it.
 //
 // Colours come only from surfaceHost (common/Palette.js fromHost). Sizes
 // come from Style, which are not colours. Nothing reads Color.
@@ -60,6 +66,14 @@ Item {
   })
   readonly property real u: root.theme.unit
   readonly property real inset: root.theme.space.inset
+  // The host has the notch's back strip: the one visible way back, so no ‹ Back of ours.
+  readonly property bool hostHasBack: !!root.surfaceHost && !!root.surfaceHost.features
+                                      && root.surfaceHost.features.indexOf("panelBack") !== -1
+  // The strip's zone, from the host (0 when it says nothing; its resting height when it has a strip but names no zone).
+  readonly property real zoneHeight: !root.surfaceHost ? 0
+    : root.surfaceHost.backZoneHeight > 0 ? root.surfaceHost.backZoneHeight
+    : (root.hostHasBack && root.surfaceHost.restHeight > 0) ? root.surfaceHost.restHeight : 0
+  readonly property real topInset: Math.max(root.inset, root.zoneHeight)
 
   // True between the notch's open() and close(). Every view keys its live
   // work on this, never on `visible` or the window (§7.7).
@@ -115,6 +129,15 @@ Item {
     root.routeStack = root.onTab ? root.routeStack.slice(0, -1).concat([name]) : root.routeStack.concat([name])
   }
 
+  // The strip's press (notch:SURFACE-HOSTING.md §4): one step back inside the
+  // panel, true when it moved. At the root it answers no and the notch decides.
+  function goBackInside() {
+    var item = content.item
+    if (item && typeof item.popView === "function" && item.popView()) return true
+    if (root.routeStack.length > 1) { root.routeStack = root.routeStack.slice(0, -1); return true }
+    return false
+  }
+
   // Escape and ‹ Back.
   function back() {
     var item = content.item
@@ -155,12 +178,16 @@ Item {
 
   readonly property real wantWidth: (root.current === "main" ? 320 : 400) * root.u + 2 * root.inset
   implicitWidth: Math.min(root.maxWidth > 0 ? root.maxWidth : root.wantWidth, root.wantWidth)
-  implicitHeight: Math.min(column.implicitHeight + 2 * root.inset, root.maxHeight > 0 ? root.maxHeight : column.implicitHeight + 2 * root.inset)
+  implicitHeight: Math.min(column.implicitHeight + root.topInset + root.inset,
+                           root.maxHeight > 0 ? root.maxHeight : column.implicitHeight + root.topInset + root.inset)
 
   Flickable {
     id: flick
     anchors.fill: parent
-    anchors.margins: root.inset
+    anchors.leftMargin: root.inset
+    anchors.rightMargin: root.inset
+    anchors.bottomMargin: root.inset
+    anchors.topMargin: root.topInset
     contentWidth: width
     contentHeight: column.implicitHeight
     clip: true
@@ -173,7 +200,7 @@ Item {
       spacing: root.theme.space.section
 
       // Below main only: the tabs (or a sub-page's title), and ‹ Back at the
-      // top right as on the notch's own pages (‹ Settings, ‹ Setup).
+      // top right only when the host has no back strip of its own.
       Header {
         id: header
         width: parent.width
@@ -184,7 +211,7 @@ Item {
         tab: root.onTab ? root.current : ""
         title: content.item && content.item.title !== undefined ? String(content.item.title) : ""
         dots: ({ setup: !!(root.status && root.status.health_summary && root.status.health_summary.errors > 0) })
-        canBack: true
+        canBack: !root.hostHasBack
         onTabPicked: function (name) { root.pickTab(name) }
         onBack: root.back()
       }

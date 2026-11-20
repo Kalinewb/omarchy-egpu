@@ -63,3 +63,7 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
   instead of `curl`.
 
 License: MIT
+
+## In the notch
+
+Under the notch the strip at the top centre is the one way back (and Esc its invisible alias): the panel draws no `‹ Back`, starts its content below the strip's zone, and answers the strip through `goBackInside()` (dialog, then sheet, then tab, then the notch goes back to where it was opened from). Without a notch strip (the standalone popup, an older notch) the header keeps its `‹ Back`. `dev/g8-offscreen.sh` checks both.

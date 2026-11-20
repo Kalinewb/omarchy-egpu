@@ -305,6 +305,19 @@ check "the notch opening an unbuilt route lands on main" "main" "$(field openGam
 check "the notch rebinding route while open moves the stack" "main>overview" "$(field routeRebind "$o")"
 check "close() is a real close; reopening starts at main, active" "false|main|true" "$(field closed.active "$o")|$(field reopen "$o")"
 check "sized within maxWidth/maxHeight, takes focus" "true|true|true" "$(field size "$o")|$(field focus "$o")"
+
+step "one way back: under the notch's strip the panel draws no Back and keeps below the zone"
+o=$(harness stack EGPU_HARNESS_STRIP=1)
+check "the content starts below the strip's zone (32 px), not at the 16 px inset" "32" "$(field strip.top "$o")"
+check "at the root the strip's press is answered no, and nothing moved" "false:main" "$(field strip.mainAnswer "$o")"
+check "the full panel draws no ‹ Back of its own" "none" "$(field strip.full.back "$o")"
+check "…and so does the header with the tabs, on the full panel" "32" "$(field strip.fullTop "$o")"
+check "the strip's press goes through a view's dialog, the sheet, the tab, then says no at main, and never closes" \
+  "true:main>overview>eject true:main>overview true:main false:main false:main false:main|0" "$(field strip.chain "$o")|$(field strip.closes "$o")"
+check "Escape (the alias) still closes at the root" "1" "$(field strip.escapeAtRoot "$o")"
+check "without the strip (an older notch) the panel keeps its ‹ Back: asserted by the unchanged checks above" "yes" \
+  "$(grep -qF '‹ Back' <<<"$(field full.texts "$(harness stack)")" && echo yes || echo no)"
+
 check "NotchPanel imports no view file from outside views/" "" \
   "$(grep -E '^import "' "$REPO/NotchPanel.qml" | grep -vE '^import "(views|common/Palette\.js)"' )"
 

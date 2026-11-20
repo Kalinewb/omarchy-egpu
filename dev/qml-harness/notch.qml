@@ -32,6 +32,7 @@ ShellRoot {
   id: rootObj
 
   readonly property string caseName: Quickshell.env("EGPU_HARNESS_CASE") || "states"
+  readonly property bool strip: Quickshell.env("EGPU_HARNESS_STRIP") === "1"
   readonly property int waitMs: Number(Quickshell.env("EGPU_HARNESS_WAIT_MS") || "1500")
   readonly property bool withHost: Quickshell.env("EGPU_HARNESS_NO_HOST") !== "1"
 
@@ -45,7 +46,11 @@ ShellRoot {
   QtObject {
     id: host
     readonly property int contract: 1
-    readonly property var features: ["panel", "activityViews", "heartbeat"]
+    // EGPU_HARNESS_STRIP=1: a notch with the back strip (panelBack) and its zone (backZone), 180 x 32.
+    readonly property var features: rootObj.strip ? ["panel", "activityViews", "heartbeat", "panelBack", "backZone"]
+                                                  : ["panel", "activityViews", "heartbeat"]
+    readonly property real backZoneWidth: rootObj.strip ? 180 : 0
+    readonly property real backZoneHeight: rootObj.strip ? 32 : 0
     readonly property string pluginId: "kalinewb.egpu"
     property bool present: true
     property bool accepted: true
@@ -313,6 +318,29 @@ ShellRoot {
     }
     return null
   }
+  // Under a host with the notch's back strip: one visible way back, the content below the zone, and the
+  // strip's press (goBackInside) walking the same steps Escape does, short of the close.
+  function runStrip(p, fl, st) {
+    rootObj.log("strip.top", Math.round(fl.y))
+    rootObj.log("strip.mainAnswer", String(p.goBackInside()) + ":" + st())
+    p.requestRoute("full")
+    rootObj.log("strip.full.texts", rootObj.texts(p, []).join(" ¦ "))
+    rootObj.log("strip.full.back", rootObj.findLabel(p, "‹ Back") ? "drawn" : "none")
+    rootObj.log("strip.fullTop", Math.round(fl.y))
+    p.requestRoute("eject")
+    var routes = {}
+    for (var k in p.builtRoutes) routes[k] = p.builtRoutes[k]
+    routes.eject = fakeEject
+    p.builtRoutes = routes
+    p.requestRoute("eject")
+    var steps = []
+    for (var i = 0; i < 6; i++) steps.push(String(p.goBackInside()) + ":" + st())
+    rootObj.log("strip.chain", steps.join(" "))
+    rootObj.log("strip.closes", rootObj.closes)
+    p.back()
+    rootObj.log("strip.escapeAtRoot", rootObj.closes)
+    Qt.exit(0)
+  }
   function runStack() {
     var it = integrationLoader.item
     var p = it.panel.createObject(stackSlot, { maxWidth: 560, maxHeight: 600 })
@@ -329,6 +357,7 @@ ShellRoot {
     rootObj.log("inset", Math.round(fl.x) + "," + Math.round(fl.y) + "|" + Math.round(p.inset))
     rootObj.log("main.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("main.back", p.routeStack.length > 1)
+    if (rootObj.strip) { rootObj.runStrip(p, fl, st); return }
     p.requestRoute("full")
     rootObj.log("toFull", st())
     rootObj.log("full.texts", rootObj.texts(p, []).join(" ¦ "))
