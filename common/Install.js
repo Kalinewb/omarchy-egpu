@@ -51,12 +51,39 @@ function commandOk(cmd, mode) {
 // Single-quoted for bash: ' becomes '\''.
 function quote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'" }
 
+// The checksum URL and release tag inside a command that passed commandOk.
+function checksumUrl(cmd) {
+  var m = /\$\(curl -fsSL (https:\/\/raw\.githubusercontent\.com\/Kalinewb\/omarchy-egpu\/([^\/\s]+)\/\S+?)\)/.exec(String(cmd))
+  return m ? { url: m[1], tag: m[2] } : null
+}
+
+// Before sudo, ask GitHub whether the release the command points at exists:
+// an unpublished tag makes the command's own curl fail with a bare "(22) ...
+// 404" and a "Failed" that says nothing. A HEAD request, no sudo, nothing
+// changed; the command still runs only when it answers 200. Empty when the
+// command has no URL to ask about.
+function releaseCheck(cmd) {
+  var c = checksumUrl(cmd)
+  if (!c) return ""
+  var tag = quote(c.tag)
+  return "code=$(curl -sSI -o /dev/null -w '%{http_code}' --max-time 15 " + quote(c.url) + " 2>/dev/null)\n" +
+         "case $code in\n" +
+         "  200) ;;\n" +
+         "  404) printf '\\n%s\\n%s\\n%s\\n' \"Release \"" + tag + "\" of the eGPU plugin is not published on GitHub yet, so there is nothing to install from.\" " +
+         "\"Nothing was changed and sudo was not run. Try again once it is published.\" " +
+         "\"(A private repository answers the same; the README says how to fetch the checksum then.)\"; exit 1 ;;\n" +
+         "  000) printf '\\n%s\\n%s\\n' \"Could not reach GitHub to check the release.\" \"Nothing was changed and sudo was not run. Check the network and try again.\"; exit 1 ;;\n" +
+         "  *) printf '\\n%s\\n%s\\n' \"GitHub answered HTTP $code when checking the release.\" \"Nothing was changed and sudo was not run. Try again later.\"; exit 1 ;;\n" +
+         "esac\n"
+}
+
 // The script the terminal runs (one argv element of LAUNCHER, which runs it
-// with bash -c after Omarchy's logo). Ends with the command's own status so
-// the launcher's "Done" shows only after a finished run.
+// with bash -c after Omarchy's logo). The release check runs first, and the
+// command is the last line, so the launcher's "Done" shows its own status.
 function terminalScript(cmd, title) {
   var lines = ["", String(title || "Set up eGPU support"), ""].concat(EXPLAIN).concat(["", "The command:", "", String(cmd).replace(/\n+$/, ""), ""])
   return "printf '%s\\n' " + lines.map(quote).join(" ") + "\n" +
          "read -r -p 'Press Enter to continue, or close this window to cancel. ' _ || exit 130\n" +
+         releaseCheck(cmd) +
          String(cmd).replace(/\n+$/, "")
 }

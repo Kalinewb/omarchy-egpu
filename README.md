@@ -58,6 +58,9 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
   it off, the panel's Connect does. Add `--autoconnect off` before `install` in the command to start with it off,
   or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
   password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
+- The terminal Setup opens first asks GitHub whether the release the command points at is published, before
+  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.0` was never pushed, or the repository is private) it
+  says so, changes nothing and stops, instead of the command's own `curl: (22) ... 404`.
 - While the repository is private, the checksum URL needs authentication: fetch it with
   `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.0'`
   instead of `curl`.

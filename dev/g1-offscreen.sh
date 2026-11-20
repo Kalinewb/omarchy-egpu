@@ -289,8 +289,37 @@ fs.writeFileSync(process.argv[3], I.terminalScript(cmd))
 console.log(out.join("\n"))' "$REPO/common/Install.js" "$REPO/system/install.sh" "$root/script.sh" 2>&1)
 check "install.sh --print-command's install and uninstall commands pass the shape check" "true|true" "$(field install "$out")|$(field uninstall "$out")"
 check "…anything appended, replaced or added on a new line does not" "false,false,false,false" "$(field tampered "$out")"
-check "the terminal script parses, explains first, waits for Enter, then runs exactly the command" "yes|yes|yes|yes" \
-  "$(bash -n "$root/script.sh" 2>/dev/null && echo yes || echo no)|$(head -1 "$root/script.sh" | grep -qF "lets the panel connect and eject the eGPU without a password" && echo yes || echo no)|$(sed -n 2p "$root/script.sh" | grep -qF "read -r -p 'Press Enter" && echo yes || echo no)|$( [[ $(sed -n 3p "$root/script.sh") == "$(bash "$REPO/system/install.sh" --print-command install)" ]] && echo yes || echo no)"
+check "the terminal script parses, explains first, waits for Enter, checks the release, then ends with exactly the command" "yes|yes|yes|yes|yes" \
+  "$(bash -n "$root/script.sh" 2>/dev/null && echo yes || echo no)|$(head -1 "$root/script.sh" | grep -qF "lets the panel connect and eject the eGPU without a password" && echo yes || echo no)|$(sed -n 2p "$root/script.sh" | grep -qF "read -r -p 'Press Enter" && echo yes || echo no)|$(sed -n 3p "$root/script.sh" | grep -q "^code=\$(curl -sSI .*raw.githubusercontent.com/Kalinewb/omarchy-egpu/v[0-9.]*/system/install.sh.sha256" && echo yes || echo no)|$( [[ $(tail -n 1 "$root/script.sh") == "$(bash "$REPO/system/install.sh" --print-command install)" ]] && echo yes || echo no)"
+
+# The release check, run for real against a fake curl and a fake sudo: an unpublished tag (HTTP 404, the
+# user's "curl: (22) ... 404" on a fresh install) is named, not a bare curl failure, and sudo never runs;
+# no network and any other answer likewise; only a 200 goes on to the command.
+fakebin="$root/fakebin"; mkdir -p "$fakebin"
+cat >"$fakebin/curl" <<'FAKE'
+#!/bin/bash
+# `curl -sSI ... -w %{http_code}` (the check) answers $FAKE_CODE; any other curl is the command's own.
+for a in "$@"; do [[ $a == -sSI ]] && { printf '%s' "$FAKE_CODE"; exit 0; }; done
+echo "RAN-CURL"; exit 0
+FAKE
+cat >"$fakebin/sudo" <<'FAKE'
+#!/bin/bash
+echo "RAN-SUDO"
+FAKE
+chmod +x "$fakebin/curl" "$fakebin/sudo"
+release_run() { # release_run <http code> -> "<exit>|<output with newlines as /,>"
+  local o rc
+  o=$(printf '\n' | env PATH="$fakebin:$PATH" HOME="$root/home" FAKE_CODE="$1" bash "$root/script.sh" 2>&1); rc=$?
+  echo "$rc|$(tr '\n' '/' <<<"${o##*to cancel. }")"
+}
+r404=$(release_run 404); r000=$(release_run 000); r500=$(release_run 503); r200=$(release_run 200)
+check "an unpublished release (404): named, exit 1, no sudo, no curl of the command's own" "1|yes|no" \
+  "${r404%%|*}|$(grep -qF 'Release v' <<<"$r404" && grep -qF 'is not published on GitHub yet' <<<"$r404" && echo yes || echo no)|$(grep -qE 'RAN-(SUDO|CURL)' <<<"$r404" && echo yes || echo no)"
+check "no network (000): says so, exit 1, no sudo" "1|yes|no" \
+  "${r000%%|*}|$(grep -qF 'Could not reach GitHub' <<<"$r000" && echo yes || echo no)|$(grep -qE 'RAN-(SUDO|CURL)' <<<"$r000" && echo yes || echo no)"
+check "any other answer (503): names the HTTP code, exit 1, no sudo" "1|yes|no" \
+  "${r500%%|*}|$(grep -qF 'HTTP 503' <<<"$r500" && echo yes || echo no)|$(grep -qE 'RAN-(SUDO|CURL)' <<<"$r500" && echo yes || echo no)"
+check "a published release (200) goes on to the command" "yes" "$(grep -qE 'RAN-(SUDO|CURL)' <<<"$r200" && echo yes || echo no)"
 
 # =============================================================================
 step "GATE: the one primary button per state, Overview and compact (ui-scope.md §2.1)"
