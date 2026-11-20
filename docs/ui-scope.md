@@ -16,25 +16,36 @@ Navigation: a slim tab row at the top of the full panel: **Overview · Games · 
 
 ### 2.1 Overview (home)  — same content in the notch's compact view, just smaller
 ```
- eGPU ready                          <- state headline (plain words)
+ eGPU ready                          <- state headline (a word or two: see "Headlines" below)
+ Plug in your eGPU                   <- the same state in a full sentence, where the headline is only a word or two
  RTX 4070 SUPER · 41 °C · idle       <- one line of facts
  [ Safe eject ]                      <- the ONE primary button (changes with state)
  TV and games are set up.            <- one status sentence (or the problem + [Fix])
  Details ›                           <- link to the Details page
 ```
-Primary button by state:
-| state | headline | primary button | note |
-|---|---|---|---|
-| absent, never set up | "Plug in your eGPU" | **Set up eGPU support** | goes to Setup |
-| absent | "Plug in your eGPU" | (none) | shows the remembered enclosure |
-| connecting | "Getting your eGPU ready…" | (disabled, spinner) | |
-| ready | "eGPU ready" | **Safe eject** | |
-| in use | "eGPU in use by Cyberpunk" | **Safe eject…** | opens the eject sheet; names the app |
-| ejecting | "Ejecting…" | (disabled) | |
-| safe to unplug | "Safe to unplug" | **Done** | big, green, stays until unplug |
-| attention | the one-sentence problem | **Fix** | opens Setup on that row |
-| error | the sentence from Errors.js | **Try again** / **Open Setup** | code under "Details" only |
-| enclosure present, no GPU | "Enclosure found, no graphics card" | **Show me** | hint text only |
+Primary button by state. The headline is short so that, in the notch, the first row fits beside the back
+strip's keep-clear zone (a 180 x 32 area at the top centre; notch SURFACE-HOSTING.md §15); the sentence under it
+says the rest. Both views show both, from `common/Overview.js` (`headline`, `detail`):
+| state | headline | sentence under it | primary button | note |
+|---|---|---|---|---|
+| absent, never set up | "No eGPU" | "Plug in your eGPU" | **Set up eGPU support** | goes to Setup |
+| absent | "No eGPU" | "Plug in your eGPU" | (none) | shows the remembered enclosure |
+| absent, no Thunderbolt or USB4 | "No port" | "No Thunderbolt or USB4 port" | | |
+| connecting | "Connecting…" | "Getting your eGPU ready" | (disabled, spinner) | |
+| ready | "eGPU ready" | | **Safe eject** | |
+| in use | "In use" | "eGPU in use by Cyberpunk" | **Safe eject…** | opens the eject sheet; names the app |
+| ejecting | "Ejecting…" | | (disabled) | |
+| safe to unplug | "Ejected" | "Safe to unplug" | **Done** | big, green, stays until unplug |
+| attention: log out | "Log out" | the reason | | |
+| attention: a Setup problem | "Setup issue" | the one-sentence problem | **Fix** | opens Setup on that row (so does the sentence) |
+| attention: card not supported | "Unsupported" | "This graphics card is not supported yet" | | |
+| error | "Error" | the sentence from Errors.js | **Try again** / **Open Setup** | code under "Details" only |
+| enclosure present, no GPU | "No card" | "Enclosure found, no graphics card" | **Show me** | hint text only |
+
+Headlines: at most 12 characters, in the same words in both views (`dev/g8-offscreen.sh` checks the length and that
+nothing is cut short). Under the notch the compact page and the tab row are laid out around the zone: the headline
+in the left gutter, the glyph in the right one; the tabs split, the first half at the left and the rest at the
+right. Nothing is pushed down; `dev/g8-offscreen.sh` runs the notch's `backZone` rule on every route and state.
 
 ### 2.2 Details (from Overview)
 GPU model, driver version, link (e.g. "PCIe 4.0 ×4, 8 GB/s"; slow link in plain text, never alarming), temperature, power, clocks, VRAM used, apps using the eGPU (named), screens on the eGPU. All read-only, refreshed every 2 s while open.

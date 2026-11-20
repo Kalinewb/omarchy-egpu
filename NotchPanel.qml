@@ -73,7 +73,12 @@ Item {
   readonly property real zoneHeight: !root.surfaceHost ? 0
     : root.surfaceHost.backZoneHeight > 0 ? root.surfaceHost.backZoneHeight
     : (root.hostHasBack && root.surfaceHost.restHeight > 0) ? root.surfaceHost.restHeight : 0
-  readonly property real topInset: Math.max(root.inset, root.zoneHeight)
+  // The zone's width, from the host (0 when it says nothing). The first row keeps beside it, in the
+  // gutters (notch:SURFACE-HOSTING.md §15), when the panel is wide enough to leave each a usable one;
+  // otherwise the whole content starts below the zone.
+  readonly property real zoneWidth: root.surfaceHost && root.surfaceHost.backZoneWidth > 0 ? root.surfaceHost.backZoneWidth : 0
+  readonly property bool besideZone: root.zoneWidth > 0 && (root.implicitWidth - root.zoneWidth) / 2 - root.inset >= 56 * root.u
+  readonly property real topInset: root.besideZone ? root.inset : Math.max(root.inset, root.zoneHeight)
 
   // True between the notch's open() and close(). Every view keys its live
   // work on this, never on `visible` or the window (§7.7).
@@ -176,7 +181,9 @@ Item {
 
   // ----------------------------------------------------------------- size
 
-  readonly property real wantWidth: (root.current === "main" ? 320 : 400) * root.u + 2 * root.inset
+  // The compact page is as wide as the others under a back-strip zone: the headline has only the gutter
+  // beside it, and 320 leaves each gutter about 70.
+  readonly property real wantWidth: ((root.current === "main" && root.zoneWidth <= 0) ? 320 : 400) * root.u + 2 * root.inset
   implicitWidth: Math.min(root.maxWidth > 0 ? root.maxWidth : root.wantWidth, root.wantWidth)
   implicitHeight: Math.min(column.implicitHeight + root.topInset + root.inset,
                            root.maxHeight > 0 ? root.maxHeight : column.implicitHeight + root.topInset + root.inset)
@@ -193,6 +200,9 @@ Item {
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     interactive: contentHeight > height
+    // The first row sits beside the back strip's zone, and the Flickable spans it: it must not take a press
+    // there (notch:SURFACE-HOSTING.md §15; Qt 6.9 gave Flickable acceptedButtons). The wheel still scrolls.
+    Component.onCompleted: if (flick.acceptedButtons !== undefined) flick.acceptedButtons = Qt.NoButton
 
     Column {
       id: column
@@ -212,6 +222,7 @@ Item {
         title: content.item && content.item.title !== undefined ? String(content.item.title) : ""
         dots: ({ setup: !!(root.status && root.status.health_summary && root.status.health_summary.errors > 0) })
         canBack: !root.hostHasBack
+        zoneWidth: root.besideZone ? root.zoneWidth : 0
         onTabPicked: function (name) { root.pickTab(name) }
         onBack: root.back()
       }
@@ -238,6 +249,7 @@ Item {
       health: root.health
       theme: root.theme
       density: "compact"
+      zoneWidth: root.besideZone ? root.zoneWidth : 0
       maxWidth: column.width
       maxHeight: root.maxHeight
       active: root.active

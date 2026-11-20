@@ -141,6 +141,26 @@ Column {
       }
     }
 
+    // The state in a full sentence under the short headline.
+    Text {
+      width: parent.width
+      visible: text !== ""
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: view.d.detail
+      color: view.theme.foreground
+      font.family: view.theme.fontFamily
+      font.pixelSize: view.theme.font.body
+      // A Setup problem's sentence opens Setup on its row, like its headline.
+      readonly property string route: view.d.headlineRoute
+      MouseArea {
+        anchors.fill: parent
+        enabled: parent.route !== ""
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: view.requestRoute(parent.route)
+      }
+    }
+
     Text {
       width: parent.width
       visible: text !== ""

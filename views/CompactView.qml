@@ -8,7 +8,8 @@ import "../common/Overview.js" as Overview
 // Compact: the notch's first page, route `main` (plan-gui.md §7.6;
 // ui-scope.md §4, §7). The Overview, smaller, in the same words:
 //
-//   glyph  eGPU ready                   the headline (common/Overview.js)
+//   eGPU ready                     glyph   the headline (common/Overview.js), short
+//   the state in a sentence         (when the headline is only a word or two)
 //   RTX 4070 SUPER · 29 °C · idle       one facts line
 //   [ Safe eject ]                      the same ONE primary button
 //   the sentence: a Setup problem opens Setup on its row, never a dead end
@@ -34,6 +35,11 @@ Column {
   property bool active: false
   property string statusNote: ""
   property var health: null
+
+  // The width of the notch's back-strip zone, centred at the top of the panel
+  // (0 when there is none): the first row keeps out of it.
+  property real zoneWidth: 0
+  readonly property real gutter: Math.max(0, (view.width - view.zoneWidth) / 2)
 
   signal requestRoute(string name)
   signal requestClose()
@@ -100,7 +106,8 @@ Column {
   }
 
   // Sized by the shell's maxWidth (§5.0), capped so the notch stays a notch.
-  width: view.maxWidth > 0 ? Math.min(view.maxWidth, 320 * view.u) : 320 * view.u
+  readonly property real wantWidth: (view.zoneWidth > 0 ? 400 : 320) * view.u
+  width: view.maxWidth > 0 ? Math.min(view.maxWidth, view.wantWidth) : view.wantWidth
   spacing: view.sp.section
 
   // --------------------------------------------------------------- header
@@ -108,13 +115,20 @@ Column {
     width: parent.width
     spacing: view.sp.row / 2
 
-    Row {
+    // The first row. Under the notch's back strip the zone at its top centre
+    // is kept clear of text and controls (notch:SURFACE-HOSTING.md §15), so
+    // the headline sits in the gutter at the left, short enough for it, and
+    // the glyph in the gutter at the right; with no zone they sit side by side.
+    Item {
+      id: firstRow
       width: parent.width
-      spacing: view.sp.row * 1.5
+      height: Math.max(headline.implicitHeight, glance.height)
+      readonly property bool beside: view.zoneWidth > 0
 
       Glance {
         id: glance
-        anchors.verticalCenter: headline.verticalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        x: firstRow.beside ? parent.width - width : 0
         status: view.status
         engine: view.engine
         theme: view.theme
@@ -124,22 +138,46 @@ Column {
       }
       Text {
         id: headline
-        width: parent.width - glance.width - parent.spacing
+        anchors.verticalCenter: parent.verticalCenter
+        x: firstRow.beside ? 0 : glance.width + view.sp.row * 1.5
+        width: firstRow.beside ? view.gutter : parent.width - glance.width - view.sp.row * 1.5
         textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        text: view.noticeTitle !== "" ? view.noticeTitle : view.d.headline
+        elide: Text.ElideRight
+        maximumLineCount: 1
+        text: view.d.headline
         color: view.theme.foreground
         font.family: view.theme.fontFamily
         font.pixelSize: view.theme.font.body
         font.bold: true
         // A Setup problem's headline opens Setup on its row, like Fix.
-        readonly property string route: view.noticeTitle === "" ? view.d.headlineRoute : ""
+        readonly property string route: view.d.headlineRoute
         MouseArea {
           anchors.fill: parent
           enabled: headline.route !== ""
           cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
           onClicked: view.requestRoute(headline.route)
         }
+      }
+    }
+
+    // The state in a full sentence, or a live notice's title (§7.5) while
+    // one lives: what does not fit the first row goes here.
+    Text {
+      width: parent.width
+      visible: text !== ""
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: view.noticeTitle !== "" ? view.noticeTitle : view.d.detail
+      color: view.theme.foreground
+      font.family: view.theme.fontFamily
+      font.pixelSize: view.theme.font.body
+      // A Setup problem's sentence opens Setup on its row, like its headline.
+      readonly property string route: view.noticeTitle === "" ? view.d.headlineRoute : ""
+      MouseArea {
+        anchors.fill: parent
+        enabled: parent.route !== ""
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: view.requestRoute(parent.route)
       }
     }
 

@@ -11,7 +11,11 @@
 //
 // decide(status, ctx) → {
 //   key        which row of the table (for the gates)
-//   headline   the state in plain words, shown once
+//   headline   the state in a word or two, shown once: short enough for the
+//              notch's first row, which has only the room beside the back
+//              strip's zone (notch:SURFACE-HOSTING.md §15), about 11 letters
+//   detail     the same state said in a full sentence, or "": the line under
+//              the headline ("Plug in your eGPU" under "No eGPU")
 //   headlineRoute  "setup" / "setup:<row id>" when the headline is a Setup
 //              problem: tapping it opens Setup there, as Fix does, so a
 //              headline that names Setup is never a dead end (§0.1); else ""
@@ -90,7 +94,7 @@ function decide(s, ctx) {
   var can = typeof c.can === "function" ? c.can : function () { return false }
   var setup = SetupRows.summarize(c.rows)
   var busy = String(c.busy || "")
-  var r = { key: "unknown", headline: "", headlineRoute: "", facts: "", button: null, sentence: null, hints: hintsOf(s), setup: setup }
+  var r = { key: "unknown", headline: "", detail: "", headlineRoute: "", facts: "", button: null, sentence: null, hints: hintsOf(s), setup: setup }
 
   function btn(label, action, extra) {
     var b = { label: label, action: action, enabled: true, busy: false, tone: "accent", rowId: "" }
@@ -118,7 +122,8 @@ function decide(s, ctx) {
   }
 
   if (!s || !s.summary) {
-    r.headline = c.statusNote ? "eGPU status unavailable" : "Checking your eGPU…"
+    r.headline = c.statusNote ? "No status" : "Checking…"
+    r.detail = c.statusNote ? "eGPU status unavailable" : "Checking your eGPU"
     r.facts = c.statusNote ? String(c.statusNote).charAt(0).toUpperCase() + String(c.statusNote).substring(1) + "." : ""
     return r
   }
@@ -146,7 +151,8 @@ function decide(s, ctx) {
   if (state === "absent") {
     r.key = setup.neverSetUp ? "absent_setup" : "absent"
     // "Plug in your eGPU" would be wrong where nothing can be plugged in.
-    r.headline = bolt.domain === false ? "No Thunderbolt or USB4 port" : "Plug in your eGPU"
+    r.headline = bolt.domain === false ? "No port" : "No eGPU"
+    r.detail = bolt.domain === false ? "No Thunderbolt or USB4 port" : "Plug in your eGPU"
     if (bolt.domain === false) r.facts = "A Thunderbolt eGPU cannot connect to this computer."
     else if (enclosure !== "" && bolt.stored) r.facts = "Remembered: " + enclosure
     if (setup.neverSetUp) {
@@ -158,13 +164,15 @@ function decide(s, ctx) {
     r.facts = enclosure
     if (phase === "authorized" && !(s.pci && s.pci.present)) {
       r.key = "no_gpu"
-      r.headline = "Enclosure found, no graphics card"
+      r.headline = "No card"
+      r.detail = "Enclosure found, no graphics card"
       r.button = btn(c.hintsShown ? "Hide" : "Show me", "show", { tone: "foreground" })
       if (c.hintsShown) r.sentence = { text: r.hints.length > 0 ? r.hints.join(" ") : Errors.message("no_pci_device"),
                                        tone: "accent", linkLabel: "", linkRoute: "" }
     } else {
       r.key = "connecting"
-      r.headline = "Getting your eGPU ready…"
+      r.headline = "Connecting…"
+      r.detail = "Getting your eGPU ready"
       // The engine moves on by itself only with auto-connect on and nothing
       // asked of the user; otherwise Connect is what moves it (plan-gui.md
       // §5.1). Busy: a spinner, disabled.
@@ -181,40 +189,47 @@ function decide(s, ctx) {
   } else if (state === "in_use") {
     r.key = "in_use"
     var who = usedBy(s)
-    r.headline = who !== "" ? "eGPU in use by " + who : "eGPU in use"
+    r.headline = "In use"
+    r.detail = who !== "" ? "eGPU in use by " + who : "eGPU in use"
     r.facts = cardFacts
     r.button = ejectButton("Safe eject…")
   } else if (state === "ejecting") {
     r.key = "ejecting"
     r.headline = "Ejecting…"
+    r.detail = "Safe eject in progress"
     r.facts = enclosure
     r.button = btn("Ejecting…", "", { enabled: false, busy: true })
   } else if (state === "safe_to_unplug") {
     r.key = "safe"
-    r.headline = "Safe to unplug"
+    r.headline = "Ejected"
+    r.detail = "Safe to unplug"
     r.facts = enclosure
     r.button = btn("Done", "done", { tone: "good" })
   } else if (state === "attention") {
     r.facts = cardFacts !== "" ? cardFacts : enclosure
     if (relogin) {
       r.key = "attention_relogin"
-      r.headline = "Log out to use the HDMI monitor"
+      r.headline = "Log out"
+      r.detail = "Log out to use the HDMI monitor"
       r.button = phaseButton()
       r.sentence = { text: Errors.note("needs_relogin"), tone: "warn", linkLabel: "", linkRoute: "" }
     } else if (held) {
       r.key = "attention_held"
-      r.headline = phase === "ejected" ? "Safe to unplug" : "Log out before plugging in again"
+      r.headline = phase === "ejected" ? "Ejected" : "Log out"
+      r.detail = phase === "ejected" ? "Safe to unplug" : "Log out before plugging in again"
       r.button = phaseButton()
       r.sentence = { text: Errors.note("held_after_eject"), tone: "warn", linkLabel: "", linkRoute: "" }
     } else if (unsupported) {
       r.key = "attention_unsupported"
-      r.headline = "This graphics card is not supported yet"
+      r.headline = "Unsupported"
+      r.detail = "This graphics card is not supported yet"
       r.sentence = { text: Errors.message("backend_stub"), tone: "warn", linkLabel: "Open Setup", linkRoute: "setup" }
     } else {
       // A Setup problem: its sentence is the headline, Fix opens it.
       r.key = "attention"
       var err = SetupRows.firstError(setup)
-      r.headline = err ? err.sentence : "Setup has found a problem"
+      r.headline = "Setup issue"
+      r.detail = err ? err.sentence : "Setup has found a problem"
       r.headlineRoute = err ? "setup:" + err.id : "setup"
       r.button = btn("Fix", "fix", { rowId: err ? err.id : "" })
       // The eGPU underneath still needs its own way out (secondary).
@@ -225,7 +240,8 @@ function decide(s, ctx) {
   } else if (state === "error") {
     r.key = "error"
     var code = s.gpu && s.gpu.error ? String(s.gpu.error) : (bolt.status === "auth-error" ? "auth_error" : "")
-    r.headline = code !== "" ? Errors.message(code) : "Something went wrong with the eGPU."
+    r.headline = "Error"
+    r.detail = code !== "" ? Errors.message(code) : "Something went wrong with the eGPU."
     r.code = code
     r.facts = enclosure
     var e2 = SetupRows.firstError(setup)
@@ -235,7 +251,8 @@ function decide(s, ctx) {
   } else {
     // A state from a newer engine: its own words, no guess at a button.
     r.key = "other"
-    r.headline = String(s.summary.line || state)
+    r.headline = "Unknown"
+    r.detail = String(s.summary.line || state)
   }
   // The button already opens Setup on that row: the sentence would only say
   // it twice.

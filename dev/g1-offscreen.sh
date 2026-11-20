@@ -226,7 +226,7 @@ for v in "$REPO"/views/*.qml; do
   check "$n lays out with the tokens, never a raw spacing number" "yes|0" "$( (( uses > 0 )) && echo yes || echo no)|$raw"
 done
 check "both shells pad by the token: KeyboardPanel padding and NotchPanel's inset" "yes|yes" \
-  "$(grep -qF 'padding: Math.round(root.popupPalette.space.inset)' "$REPO/Panel.qml" && echo yes || echo no)|$(grep -qF 'anchors.margins: root.inset' "$REPO/NotchPanel.qml" && echo yes || echo no)"
+  "$(grep -qF 'padding: Math.round(root.popupPalette.space.inset)' "$REPO/Panel.qml" && echo yes || echo no)|$(grep -qF 'anchors.leftMargin: root.inset' "$REPO/NotchPanel.qml" && echo yes || echo no)"
 
 # =============================================================================
 step "Setup's words: every health row id has copy, in plain words (common/SetupRows.js)"
@@ -337,22 +337,22 @@ while IFS='|' read -r fx state headline label on; do
     "$headline / $headline|$want|$want" "$(field "p.$fx.headline" "$out")|$(field "p.$fx.full" "$out")|$(field "p.$fx.compact" "$out")"
   check "$fx: nothing names Setup without a way to it" "none" "$(field "p.$fx.orphans" "$out")"
 done <<'TABLE'
-stranger-no-tb|absent, never set up|No Thunderbolt or USB4 port|Set up eGPU support|on
-absent|absent|Plug in your eGPU|none|
-plugged-unauthorized|connecting|Getting your eGPU ready…|Connect|on
-bound-nvidia|connecting|Getting your eGPU ready…|Connect|on
-authorized-no-pci|connecting, no GPU|Enclosure found, no graphics card|Show me|on
+stranger-no-tb|absent, never set up|No port|Set up eGPU support|on
+absent|absent|No eGPU|none|
+plugged-unauthorized|connecting|Connecting…|Connect|on
+bound-nvidia|connecting|Connecting…|Connect|on
+authorized-no-pci|connecting, no GPU|No card|Show me|on
 ready|ready|eGPU ready|Safe eject|on
-in-use-procs|in_use|eGPU in use by vkcube and worker|Safe eject…|on
-ready-hdmi|in_use|eGPU in use by a screen|Safe eject…|on
+in-use-procs|in_use|In use|Safe eject…|on
+ready-hdmi|in_use|In use|Safe eject…|on
 ejecting|ejecting|Ejecting…|Ejecting…|off
-ejected-clean|safe_to_unplug|Safe to unplug|Done|on
-bolt-down|attention (Setup)|Thunderbolt support is not answering|Fix|on
-this-machine|attention (log out)|Log out to use the HDMI monitor|Safe eject|on
-ejected-held|attention (held)|Safe to unplug|Done|on
-amd-stub|attention (unsupported)|This graphics card is not supported yet|none|
-auth-error|error|Thunderbolt could not allow your enclosure.|Open Setup|on
-smi-hung|error (driver hung)|The driver is not answering. Do not unplug: save your work, then log out or reboot.|none|
+ejected-clean|safe_to_unplug|Ejected|Done|on
+bolt-down|attention (Setup)|Setup issue|Fix|on
+this-machine|attention (log out)|Log out|Safe eject|on
+ejected-held|attention (held)|Ejected|Done|on
+amd-stub|attention (unsupported)|Unsupported|none|
+auth-error|error|Error|Open Setup|on
+smi-hung|error (driver hung)|Error|none|
 TABLE
 check "before Setup's rows arrive, first run shows no button yet rather than a wrong one" "none" "$(field p.stranger-no-tb.norows "$out")"
 check "error with no Setup row to open: Try again" "Try again|on" "$(field p.auth-error.norows "$out")"

@@ -15,7 +15,7 @@ Inspiration: SteamOS-EGPU-Buddy (Decky plugin). What it gets right, and what we 
 | Plain disclaimer | README states what the system half changes and how to remove it (uninstall). |
 
 Rules for every screen:
-1. The first thing visible is the state in plain words ("eGPU ready", "Plug in your eGPU", "Safe to unplug") and what to do next.
+1. The first thing visible is the state in plain words ("eGPU ready", "No eGPU", "Ejected", each with its sentence under it: "Plug in your eGPU", "Safe to unplug") and what to do next.
 2. At most one primary button per screen. Dangerous or rare actions are secondary and explained.
 3. Never show an error code to the user without a plain sentence and a next step. Codes go in a "Details" disclosure.
 4. First run: if anything is missing, the panel opens on Setup with ONE button; a stranger's machine must reach "ready" without reading docs.

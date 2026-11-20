@@ -218,6 +218,7 @@ ShellRoot {
         rootObj.log("c." + name + ".buttons", rootObj.buttons(c, []).join(",") || "none")
         rootObj.log("c." + name + ".orphans", rootObj.setupOrphans(c, c, []).join(" | ") || "none")
         rootObj.log("c." + name + ".headline", c.d.headline)
+        rootObj.log("c." + name + ".detail", c.d.detail)
         rootObj.log("c." + name + ".size", c.implicitHeight > 0 && c.width > 0 && c.width <= 320)
         var foreign = rootObj.foreignColours(g, rootObj.foreignColours(c, []))
         rootObj.log("c." + name + ".colours", foreign.length ? foreign.join(" ; ") : "host-only")
@@ -318,11 +319,68 @@ ShellRoot {
     }
     return null
   }
+  // What the notch's `omarchy-shell notch backZone` reports (notch:Bar.qml backZoneReport), for a panel of
+  // this size: every visible control that takes a press, and every text whose PAINTED glyphs overlap the
+  // zone (a 180 x 32 area, centred at the panel's top edge), as "type@x,y wxh" in the zone's coordinates.
+  function zoneReport(p) {
+    var zw = host.backZoneWidth, zh = host.backZoneHeight
+    // The positioners lay out on the next polish; settle them, leaves first, so the rectangles are real.
+    function settle(item, depth) {
+      if (!item || depth > 40) return
+      var kids = item.children || []
+      for (var k = 0; k < kids.length; k++) settle(kids[k], depth + 1)
+      if (typeof item.forceLayout === "function") item.forceLayout()
+    }
+    settle(p, 0); settle(p, 0)
+    var zx = (p.width - zw) / 2
+    var hits = [], texts = [], cut = []
+    function presses(item) {
+      if (item.acceptedButtons !== undefined && item.acceptedButtons !== 0 && item.enabled) return true
+      if (item.cursorPosition !== undefined && item.enabled) return true
+      if (item.activeFocusOnTab === true && item.enabled) return true
+      var bag = item.data || []
+      for (var i = 0; i < bag.length; i++) if (bag[i] && bag[i].gesturePolicy !== undefined && bag[i].enabled !== false) return true
+      return false
+    }
+    function walk(item, depth) {
+      if (!item || depth > 40 || !item.visible || item.opacity === 0) return
+      var at = item.mapToItem(p, 0, 0)
+      var x = at.x - zx, y = at.y
+      var overlaps = item.width > 0 && item.height > 0 && x < zw && x + item.width > 0 && y < zh && y + item.height > 0
+      var backdrop = item.width >= p.width * 0.9 && item.height >= p.height * 0.9
+      if (overlaps && !backdrop && presses(item))
+        hits.push(String(item).replace(/[_(].*$/, "") + "@" + Math.round(x) + "," + Math.round(y) + " " + Math.round(item.width) + "x" + Math.round(item.height))
+      if (overlaps && typeof item.text === "string" && item.text.length > 0 && item.contentWidth !== undefined) {
+        var cw = Number(item.contentWidth)
+        var painted = (!(cw >= 0) || cw > item.width) ? { x: 0, w: item.width } : { x: 0, w: cw }
+        if (item.effectiveHorizontalAlignment === Qt.AlignRight && painted.w < item.width) painted.x = item.width - painted.w
+        else if (item.effectiveHorizontalAlignment === Qt.AlignHCenter && painted.w < item.width) painted.x = (item.width - painted.w) / 2
+        if (x + painted.x < zw && x + painted.x + painted.w > 0)
+          texts.push(item.text.slice(0, 24) + "@" + Math.round(x + painted.x) + "," + Math.round(y) + " " + Math.round(painted.w) + "x" + Math.round(item.height))
+      }
+      if (item.truncated === true) cut.push(item.text.slice(0, 24))
+      var kids = item.children || []
+      for (var k = 0; k < kids.length; k++) walk(kids[k], depth + 1)
+    }
+    walk(p, 0)
+    return "cut=" + (cut.join(" ; ") || "none") + " hits=" + (hits.join(" ; ") || "none") + " texts=" + (texts.join(" ; ") || "none")
+  }
+
   // Under a host with the notch's back strip: one visible way back, the content below the zone, and the
   // strip's press (goBackInside) walking the same steps Escape does, short of the close.
   function runStrip(p, fl, st) {
     rootObj.log("strip.top", Math.round(fl.y))
     rootObj.log("strip.mainAnswer", String(p.goBackInside()) + ":" + st())
+    rootObj.log("zone.main", rootObj.zoneReport(p) + " w=" + Math.round(p.width))
+    p.requestRoute("full")
+    rootObj.log("zone.overview", rootObj.zoneReport(p) + " w=" + Math.round(p.width))
+    p.requestRoute("setup")
+    rootObj.log("zone.setup", rootObj.zoneReport(p))
+    p.requestRoute("details")
+    rootObj.log("zone.details", rootObj.zoneReport(p))
+    p.requestRoute("eject")
+    rootObj.log("zone.eject", rootObj.zoneReport(p))
+    p.resetTo("main")
     p.requestRoute("full")
     rootObj.log("strip.full.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("strip.full.back", rootObj.findLabel(p, "‹ Back") ? "drawn" : "none")

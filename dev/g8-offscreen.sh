@@ -169,23 +169,30 @@ while IFS='|' read -r fx state word role badge pulse monitor headline buttons bu
     "$(field "c.$fx.colours" "$outv")|$(field "c.$fx.radii" "$outv")"
   check "$fx: nothing names Setup without a way to it" "none" "$(field "c.$fx.orphans" "$out")"
 done <<'TABLE'
-absent|absent|none|secondary|none|false|false|Plug in your eGPU|Open full panel|Open full panel
-stranger-no-tb|absent|none|secondary|none|false|false|No Thunderbolt or USB4 port|Open Setup,Open full panel|Open Setup,Open full panel
-plugged-unauthorized|connecting|connecting|foreground|none|true|false|Getting your eGPU ready…|Connect,Open full panel|Connect,Open full panel
-authorized-no-pci|connecting|connecting|foreground|none|true|false|Enclosure found, no graphics card|Show me,Open full panel|Show me,Open full panel
-bound-nvidia|connecting|connecting|foreground|none|true|false|Getting your eGPU ready…|Connect,Open full panel|Connect,Open full panel
+absent|absent|none|secondary|none|false|false|No eGPU|Open full panel|Open full panel
+stranger-no-tb|absent|none|secondary|none|false|false|No port|Open Setup,Open full panel|Open Setup,Open full panel
+plugged-unauthorized|connecting|connecting|foreground|none|true|false|Connecting…|Connect,Open full panel|Connect,Open full panel
+authorized-no-pci|connecting|connecting|foreground|none|true|false|No card|Show me,Open full panel|Show me,Open full panel
+bound-nvidia|connecting|connecting|foreground|none|true|false|Connecting…|Connect,Open full panel|Connect,Open full panel
 ready|ready|ready|accent|none|false|false|eGPU ready|Safe eject,Open full panel|Safe eject,Open full panel
-ready-hdmi|in_use|in use|accent|accent|false|true|eGPU in use by a screen|Safe eject…,Turn off now,Open full panel|Safe eject…,Open full panel
-in-use-procs|in_use|in use|accent|accent|false|false|eGPU in use by vkcube and worker|Safe eject…,Open full panel|Safe eject…,Open full panel
+ready-hdmi|in_use|in use|accent|accent|false|true|In use|Safe eject…,Turn off now,Open full panel|Safe eject…,Open full panel
+in-use-procs|in_use|in use|accent|accent|false|false|In use|Safe eject…,Open full panel|Safe eject…,Open full panel
 ejecting|ejecting|ejecting|foreground|none|true|false|Ejecting…|Ejecting…(off),Open full panel|Ejecting…(off),Open full panel
-ejected-clean|safe_to_unplug|unplug|good|none|false|false|Safe to unplug|Done,Open full panel|Done,Open full panel
-ejected-held|attention|log out|good|warn|false|false|Safe to unplug|Done,Open full panel|Done,Open full panel
-this-machine|attention|log out|accent|warn|false|false|Log out to use the HDMI monitor|Safe eject,Open full panel|Safe eject,Open full panel
-amd-stub|attention|check setup|foreground|warn|false|false|This graphics card is not supported yet|Open Setup,Open full panel|Open Setup,Open full panel
-bolt-down|attention|check setup|accent|warn|false|false|Setup has found a problem|Fix,Safe eject,Open full panel|Fix,Safe eject,Open full panel
-smi-hung|error|error|foreground|bad|false|false|The driver is not answering. Do not unplug: save your work, then log out or reboot.|Open full panel|Open full panel
-auth-error|error|error|foreground|bad|false|false|Thunderbolt could not allow your enclosure.|Try again,Open Setup,Open full panel|Try again,Open Setup,Open full panel
+ejected-clean|safe_to_unplug|unplug|good|none|false|false|Ejected|Done,Open full panel|Done,Open full panel
+ejected-held|attention|log out|good|warn|false|false|Ejected|Done,Open full panel|Done,Open full panel
+this-machine|attention|log out|accent|warn|false|false|Log out|Safe eject,Open full panel|Safe eject,Open full panel
+amd-stub|attention|check setup|foreground|warn|false|false|Unsupported|Open Setup,Open full panel|Open Setup,Open full panel
+bolt-down|attention|check setup|accent|warn|false|false|Setup issue|Fix,Safe eject,Open full panel|Fix,Safe eject,Open full panel
+smi-hung|error|error|foreground|bad|false|false|Error|Open full panel|Open full panel
+auth-error|error|error|foreground|bad|false|false|Error|Try again,Open Setup,Open full panel|Try again,Open Setup,Open full panel
 TABLE
+# What the short headline leaves out is said in full right under it (Overview.js `detail`), so nothing is lost.
+d_of() { field "c.$1.detail" "$out"; }
+check "the full sentences stay, one line under the headline" \
+  "Plug in your eGPU|eGPU in use by vkcube and worker|eGPU in use by a screen|Safe to unplug|Log out to use the HDMI monitor|The driver is not answering. Do not unplug: save your work, then log out or reboot.|Thunderbolt could not allow your enclosure." \
+  "$(d_of absent)|$(d_of in-use-procs)|$(d_of ready-hdmi)|$(d_of ejected-clean)|$(d_of this-machine)|$(d_of smi-hung)|$(d_of auth-error)"
+check "every headline fits the room beside the strip's zone (at most 12 characters)" "none" \
+  "$(for fx in "$FIX"/*/; do fx=${fx%/}; fx=${fx##*/}; h=$(field "c.$fx.headline" "$out"); ((${#h} <= 12)) || echo "$fx:$h"; done | head -3 | tr '\n' ' ' | grep . || echo none)"
 
 has() { grep -qF -- "$2" <<<"$(field "c.$1.text" "$3")" && echo yes || echo no; }
 check "HDMI quick toggle: the first eGPU monitor, with Turn off now" "yes|yes" \
@@ -306,15 +313,26 @@ check "the notch rebinding route while open moves the stack" "main>overview" "$(
 check "close() is a real close; reopening starts at main, active" "false|main|true" "$(field closed.active "$o")|$(field reopen "$o")"
 check "sized within maxWidth/maxHeight, takes focus" "true|true|true" "$(field size "$o")|$(field focus "$o")"
 
-step "one way back: under the notch's strip the panel draws no Back and keeps below the zone"
+step "one way back: under the notch's strip the panel draws no Back and keeps clear of the zone"
 o=$(harness stack EGPU_HARNESS_STRIP=1)
-check "the content starts below the strip's zone (32 px), not at the 16 px inset" "32" "$(field strip.top "$o")"
+check "the content starts at the 16 px inset, not pushed down: the first row sits beside the zone" "16" "$(field strip.top "$o")"
 check "at the root the strip's press is answered no, and nothing moved" "false:main" "$(field strip.mainAnswer "$o")"
 check "the full panel draws no ‹ Back of its own" "none" "$(field strip.full.back "$o")"
-check "…and so does the header with the tabs, on the full panel" "32" "$(field strip.fullTop "$o")"
+check "…and so does the header with the tabs, on the full panel" "16" "$(field strip.fullTop "$o")"
 check "the strip's press goes through a view's dialog, the sheet, the tab, then says no at main, and never closes" \
   "true:main>overview>eject true:main>overview true:main false:main false:main false:main|0" "$(field strip.chain "$o")|$(field strip.closes "$o")"
 check "Escape (the alias) still closes at the root" "1" "$(field strip.escapeAtRoot "$o")"
+
+# `omarchy-shell notch backZone`, as the harness measures it (notch:SURFACE-HOSTING.md §15): no control that
+# takes a press and no painted text in the 180 x 32 zone, on every route, for every state the panel shows.
+for fx in "$FIX"/*/; do fx=${fx%/}; fx=${fx##*/}
+  put "$fx" 1
+  o=$(harness stack EGPU_HARNESS_STRIP=1)
+  z=$(for r in main overview setup details eject; do echo "$r: $(field "zone.$r" "$o")"; done)
+  check "$fx: the zone is clear of controls and text on main, Overview, Setup, Details and the eject sheet, and no headline or title is cut short" \
+    "5 routes|none" "$(grep -c ': cut=' <<<"$z") routes|$(grep -v ': cut=none hits=none texts=none' <<<"$z" | head -2 | tr '\n' ' ' | grep . || echo none)"
+done
+put ready 1
 check "without the strip (an older notch) the panel keeps its ‹ Back: asserted by the unchanged checks above" "yes" \
   "$(grep -qF '‹ Back' <<<"$(field full.texts "$(harness stack)")" && echo yes || echo no)"
 
