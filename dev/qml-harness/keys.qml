@@ -16,6 +16,8 @@ import "egpu" as Egpu
 //   KEYS_SETS   comma list of what to run: esc (Escape and the strip), keys (Tab, Enter, Space, arrows),
 //               switch (Space on the HDMI switch; needs the ready-hdmi fixture and the display verbs),
 //               confirm (the eject sheet's confirm, with the in-use-procs fixture),
+//               failed (the eject sheet's failed step, one answer per fixture: eject-unloaded,
+//               eject-in-use-screens, eject-in-use-shared, eject-modules-held, eject-in-use-closeable),
 //               setup (a Fix from the Overview: the keyboard rests on the row asked for; this-machine),
 //               scroll (Up, Down, j and k scroll the popup; this-machine on the Setup page)
 //
@@ -184,6 +186,7 @@ ShellRoot {
           shell.hostedKeys()
           shell.hostedSwitch()
           shell.hostedConfirm()
+          shell.hostedFailed()
           shell.hostedSetup()
           shell.finish()
         }
@@ -310,6 +313,45 @@ ShellRoot {
     shell.check("once asked, the confirm's own verb is the one that can be pressed", 1, verbs.length)
     if (verbs.length) { verbs[0].forceActiveFocus(); t.keyClick(Qt.Key_Return); t.wait(1200) }
     shell.check("...and Enter on it asks the engine to close them (--close), after the first check (a second sheet ran its own)", '["device","eject"] ["device","eject"] ["device","eject","--close"]', shell.callLog())
+  }
+
+  // The eject sheet's failed step, with the fixture's answer (lib/device.sh's templates): which action takes
+  // Enter, which is not there, and that a destructive verb is never the default. One run per fixture, because
+  // the call log is the run's.
+  function hostedFailed() {
+    if (shell.sets.indexOf("failed") === -1) return
+    var t = hostedTest
+    var fx = Quickshell.env("OMARCHY_EGPU_DEV_FIXTURE")
+    var p = t.make()
+    p.open("full"); p.requestRoute("eject"); t.wait(1500)
+    var tryAgain = shell.findText(p, "Try again")
+    if (fx === "eject-unloaded") {
+      shell.check("driver_unloaded: Connect is there and Try again is not", "true|false", (!!shell.findText(p, "Connect")) + "|" + (!!tryAgain))
+      t.keyClick(Qt.Key_Return); t.wait(800)
+      shell.check("Enter, with nothing under the keyboard, runs Connect (the primary), not another eject", '["device","eject"] ["device","connect"]', shell.callLog())
+      shell.check("...and when it works the sheet goes back to the Overview", "main>overview", t.st())
+    } else if (fx === "eject-in-use-screens") {
+      var screens = shell.findText(p, "Turn the screens back on")
+      shell.check("monitors left off: Turn the screens back on is offered, with Try again beside it", "true|true", (!!screens) + "|" + (!!tryAgain))
+      if (!screens) return
+      screens.forceActiveFocus()
+      t.keyClick(Qt.Key_Space); t.wait(800)
+      shell.check("Space on it runs display enable for the monitor, once", '["device","eject"] ["display","enable","Samsung TV"]', shell.callLog())
+      shell.check("...and the button is gone once they are on", false, !!shell.findText(p, "Turn the screens back on"))
+    } else if (fx === "eject-in-use-shared") {
+      t.keyClick(Qt.Key_Return); t.wait(500)
+      shell.check("shared driver: no Try again, and Enter does not eject again", "false|" + '["device","eject"]', (!!tryAgain) + "|" + shell.callLog())
+    } else if (fx === "eject-modules-held") {
+      t.keyClick(Qt.Key_Return); t.wait(500)
+      shell.check("modules_held: no Try again, and Enter does not eject again", "false|" + '["device","eject"]', (!!tryAgain) + "|" + shell.callLog())
+    } else if (fx === "eject-in-use-closeable") {
+      var verb = shell.findText(p, "Close chromium")
+      shell.check("driver_in_use with can_close: Close <app> is there, Try again is not", "true|false", (!!verb) + "|" + (!!tryAgain))
+      if (!verb) return
+      verb.forceActiveFocus()
+      t.keyClick(Qt.Key_Return); t.wait(300)
+      shell.check("Enter on it only asks: the keyboard is on Cancel, nothing was closed", "Cancel|" + '["device","eject"]', shell.focusName(hostedWindow) + "|" + shell.callLog())
+    }
   }
 
   // A Fix from the Overview opens Setup on its row: the row is marked (selected), and the keyboard rests on

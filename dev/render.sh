@@ -109,6 +109,16 @@ setup-advanced|ready|setup|adv
 eject-holders|in-use-procs|eject
 eject-done|ready|eject
 eject-failed|ready-hdmi|eject
+held-ejected|ejected-held|overview
+held-no-card|held-no-device|overview
+eject-in-use|eject-in-use|eject
+eject-in-use-session|eject-in-use-session|eject
+eject-in-use-close|eject-in-use-closeable|eject
+eject-in-use-shared|eject-in-use-shared|eject
+eject-in-use-screens|eject-in-use-screens|eject
+eject-modules-held|eject-modules-held|eject
+eject-unloaded|eject-unloaded|eject
+eject-hung-screens|eject-hung-screens|eject
 STATES
   exit $status
 fi

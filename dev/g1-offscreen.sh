@@ -482,6 +482,34 @@ check "a monitor still on: the sentence, Try again or Cancel, the code under Det
   "$(has 'The monitor on the eGPU is still on.' "$(field texts "$out")")|$(field buttons "$out")"
 out=$(view eject ready-hdmi EGPU_HARNESS_CLICK="Cancel")
 check "Cancel asks the shell for Back" "back" "$(field after.routes "$out")"
+# The failed step, answer by answer (lib/device.sh; dev/fixtures/eject-*/device-eject.json are its templates).
+out=$(view eject eject-in-use)
+check "driver_in_use, names only: the sentence, who still uses it, no session line, Cancel and Try again, no Close" "yes|yes|no|Details,Cancel,*Try again" \
+  "$(has 'The driver is still in use, so the eGPU was left connected.' "$(field texts "$out")")|$(has 'Still using it: nvidia-persiste, quickshell and voxtype-osd-gtk.' "$(field texts "$out")")|$(has 'Your session itself' "$(field texts "$out")")|$(field buttons "$out")"
+out=$(view eject eject-in-use-session)
+check "driver_in_use with session_holds: it says the session itself holds the driver, and logging out lets go" "yes|yes" \
+  "$(has 'Still using it: Hyprland, nvidia-persiste, quickshell and voxtype-osd-gtk.' "$(field texts "$out")")|$(has 'Your session itself holds the driver; logging out lets go of it.' "$(field texts "$out")")"
+out=$(view eject eject-in-use-closeable EGPU_HARNESS_CLICK="Close chromium|Close chromium")
+check "driver_in_use with can_close: Close <app> (the confirm), then --close; Try again is not offered beside it" "Cancel,Close chromium,Details|"'["device","eject"] ["device","eject","--close"]' \
+  "$(field buttons "$out")|$(calls)"
+out=$(view eject eject-in-use-shared)
+check "driver_in_use, shared_driver: the shared-GPU sentence instead of the generic one, shut down; no Try again, no Close, no names" "yes|no|Details|no" \
+  "$(has "This computer's own NVIDIA GPU shares the driver, so the eGPU cannot be ejected safely. Shut down before unplugging." "$(field texts "$out")")|$(has 'The driver is still in use' "$(field texts "$out")")|$(field buttons "$out")|$(has 'Still using it' "$(field texts "$out")")"
+out=$(view eject eject-in-use-screens EGPU_HARNESS_CLICK="Turn the screens back on")
+check "monitors the eject turned off and the engine did not restore: Turn the screens back on runs display enable for each, then says so" "Details,Turn the screens back on,Cancel,*Try again|"'["device","eject"] ["display","enable","Samsung TV"]|yes|no' \
+  "$(field buttons "$out")|$(calls)|$(has 'The screens are back on.' "$(field after.texts "$out")")|$(has 'Turn the screens back on' "$(field after.buttons "$out")")"
+out=$(view eject eject-modules-held)
+check "modules_held with do_not_suspend: the engine's detail, Do not suspend. Log out first., and no Try again" "yes|yes|Details" \
+  "$(has 'Do not suspend the computer: log out first.' "$(field texts "$out")")|$(has 'Do not suspend. Log out first.' "$(field texts "$out")")|$(field buttons "$out")"
+out=$(view eject eject-unloaded EGPU_HARNESS_CLICK="Connect")
+check "remove_failed with driver_unloaded: the unloaded sentence and the engine's detail, Connect is the primary and Try again is not offered; Connect runs device connect and leaves the sheet" "yes|yes|Details,Cancel,*Connect|"'["device","eject"] ["device","connect"]|back' \
+  "$(has 'The driver is unloaded. Open the lid or press Connect to bring the eGPU back.' "$(field texts "$out")")|$(has 'the driver was not loaded again' "$(field texts "$out")")|$(field buttons "$out")|$(calls)|$(field after.routes "$out")"
+out=$(view eject eject-unloaded-connect-fails EGPU_HARNESS_CLICK="Connect")
+check "…and when Connect fails it says why, in its own notice, and stays on the sheet" "yes|none" \
+  "$(has 'The driver could not be loaded.' "$(field after.texts "$out")")|$(field after.routes "$out")"
+out=$(view eject eject-hung-screens)
+check "smi_hung with the screens off: the way back is the lid (a hung driver cannot be asked), no Turn the screens back on" "yes|no" \
+  "$(has 'The screens on the eGPU are off. Open the lid or turn the display back on.' "$(field texts "$out")")|$(has 'Turn the screens back on' "$(field buttons "$out")")"
 out=$(view eject absent)
 check "an engine answer it does not know still says something, never success" "yes" "$(has 'This needs a newer version' "$(field texts "$out")")"
 

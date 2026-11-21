@@ -6,7 +6,7 @@
 #
 #   ./dev/keys.sh                       every check, both shells
 #   ./dev/keys.sh --sets esc            only the Escape checks (all the unchanged panel answers)
-#                                       (sets: esc, keys; the switch, confirm and setup runs have their own)
+#                                       (sets: esc, keys; the switch, confirm, failed and setup runs have their own)
 #   ./dev/keys.sh --panel <dir>         the plugin in another checkout
 #
 # dev/qml-harness/keys.qml sends the key events with QtTest's keyClick into the real NotchPanel.qml on a
@@ -81,6 +81,10 @@ if [[ $sets == *keys* ]]; then
   run hosted ready-hdmi switch "$VERBS"
   run hosted in-use-procs confirm
   run hosted this-machine setup
+  # The eject sheet's failed step: one run per answer (the call log is the run's).
+  for fx in eject-unloaded eject-in-use-screens eject-in-use-shared eject-modules-held eject-in-use-closeable; do
+    run hosted "$fx" failed
+  done
 fi
 run standalone ready "$sets_popup"
 [[ $sets == *keys* ]] && run standalone this-machine scroll

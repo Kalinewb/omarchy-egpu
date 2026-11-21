@@ -37,11 +37,14 @@ Item {
     id: engineComp
     QtObject {
       property string mode: "holders"
+      // mode "answer": the eject answers with this document (dev/fixtures/<name>/device-eject.json)
+      property var answerJson: null
       function can(verb) { return true }
       function run(args, cb) {
         var eject = args.length > 1 && args[0] === "device" && args[1] === "eject"
         if (!eject) { cb({ ok: true, json: null, code: 0, error: "" }); return }
-        if (mode === "holders") cb({ ok: false, code: 1, error: "holders_present", json: {
+        if (mode === "answer" && answerJson) cb({ ok: false, code: 1, error: String(answerJson.error), json: answerJson })
+        else if (mode === "holders") cb({ ok: false, code: 1, error: "holders_present", json: {
           holders: [{ comm: "vkcube", closeable: true }, { comm: "worker", closeable: true }],
           incidental: [{ comm: "chromium", role: "browser" }], can_close: true } })
         else if (mode === "failed") cb({ ok: false, code: 1, error: "hdmi_still_active", json: { error: "hdmi_still_active" } })
@@ -64,7 +67,7 @@ Item {
     }
   }
 
-  // name | fixture | route | engine mode | extra (adv: Setup's Advanced open; ask: the confirm asking)
+  // fixture | route | engine mode (holders, failed, done, or answer: the eject answers with a fixture's device-eject.json) | extra (adv: Setup's Advanced open; ask: the confirm asking)
   readonly property var pages: [
     { fx: "ready-hdmi", route: "main" },
     { fx: "ejecting", route: "main" },
@@ -78,7 +81,18 @@ Item {
     { fx: "in-use-procs", route: "eject", mode: "holders" },
     { fx: "in-use-procs", route: "eject", mode: "holders", extra: "ask" },
     { fx: "ready-hdmi", route: "eject", mode: "failed" },
-    { fx: "ready", route: "eject", mode: "done" }
+    { fx: "ready", route: "eject", mode: "done" },
+    // The held states of the Overview, and the failed step answer by answer (lib/device.sh's templates)
+    { fx: "ejected-held", route: "full" },
+    { fx: "held-no-device", route: "full" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-in-use" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-in-use-session" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-in-use-closeable" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-in-use-shared" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-in-use-screens" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-modules-held" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-unloaded" },
+    { fx: "ready", route: "eject", mode: "answer", answer: "eject-hung-screens" }
   ]
 
   Column {
@@ -99,7 +113,8 @@ Item {
           // folder is importable only if the harness root imports it (it imports repo/ui only), and the panel
           // imports views/ and common/ too. A file: URL is resolved by Qt itself, folder imports and all.
           Component.onCompleted: {
-            var engine = engineComp.createObject(slot, { mode: slot.modelData.mode || "holders" })
+            var engine = engineComp.createObject(slot, { mode: slot.modelData.mode || "holders",
+                answerJson: slot.modelData.answer ? root.slurp(slot.modelData.answer + "/device-eject.json") : null })
             var health = healthComp.createObject(slot, { rows: root.slurp(slot.modelData.fx + "/health.json") })
             setSource("file://" + Quickshell.shellPath("repo/NotchPanel.qml"), {
               theme: root.theme,
