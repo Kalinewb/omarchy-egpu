@@ -12,6 +12,8 @@
 #     engine refuses a helper whose version differs from the plugin's, §1.1)
 #   - install.sh's boot-load mask list and the sleep guard's module list are
 #     the helper's module allowlist
+#   - the units that carry the sleep guard's drop-in are the same in install.sh
+#     and in lib/health.sh
 #   - README.md's install command is the one install.sh prints
 #   - if the version is tagged, the tag serves a pin that matches its own
 #     installer and this tree's
@@ -65,6 +67,12 @@ allow=$(sed -n '/^backend_select()/,/^}/p' system/omarchy-egpu-admin | sed -n 's
 [[ -n $mask && $mask == "$allow" ]] || fail "install.sh MASK_MODULES ($mask) is not the helper's allowlist ($allow)"
 guard=$(sed -n 's/^MODULES=(\(.*\))$/\1/p' system/omarchy-egpu-sleep-guard | head -n1)
 [[ -n $guard && $guard == "$allow" ]] || fail "the sleep guard's MODULES ($guard) is not the helper's allowlist ($allow)"
+
+# The units that carry the sleep guard's drop-in: the installer's list and the
+# engine's health check's list are one list.
+units=$(sed -n 's/^DROPIN_UNITS=(\(.*\))$/\1/p' system/install.sh)
+health_units=$(sed -n 's/^SYSTEM_DROPIN_UNITS=(\(.*\))$/\1/p' lib/health.sh)
+[[ -n $units && $units == "$health_units" ]] || fail "install.sh DROPIN_UNITS ($units) is not lib/health.sh's SYSTEM_DROPIN_UNITS ($health_units)"
 
 command=$(bash system/install.sh --print-command install 2>/dev/null)
 readme=$(sed -n '/^### Installing or updating the system half$/,/^```$/p' README.md |

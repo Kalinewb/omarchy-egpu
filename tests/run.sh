@@ -57,7 +57,7 @@ bad() { echo "fail $*" >>"$RESULTS"; echo "  ${RED}FAIL${RESET}  $*"; }
 # The plain tools the engine, the fakes and the fixtures may use.
 SYSTOOLS=(bash sh env cat ls readlink basename dirname realpath timeout flock sleep date mv cp
   mktemp grep sed awk find sort head tail tr cut wc stat mkdir rm rmdir touch kill pkill jq
-  python3 mkfifo paste uname ln chmod seq tee uniq xargs id true false printf compgen cmp)
+  python3 mkfifo paste uname ln chmod seq tee uniq xargs id true false printf compgen cmp sha256sum)
 mkdir -p "$WORK/sysbin"
 for t in "${SYSTOOLS[@]}"; do
   p=$(type -P "$t") || continue
@@ -82,6 +82,7 @@ setup_scenario() {
   # The engine honours EGPU_ADMIN only in test mode (lib/common.sh).
   export OMARCHY_EGPU_TEST=1 EGPU_ADMIN="$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
   export EGPU_POLICY="$FX_ROOT/usr/share/polkit-1/actions/no.kalinewb.egpu.policy"
+  export EGPU_GUARD="$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard" EGPU_SYSTEMD_DIR="$FX_ROOT/etc/systemd/system"
   export XDG_RUNTIME_DIR="$FX_XDG" HOME="$T/home" TMPDIR="$T"
   unset HYPRLAND_INSTANCE_SIGNATURE XDG_CONFIG_HOME XDG_STATE_HOME WAYLAND_DISPLAY
   for f in "$dir"/*; do

@@ -29,14 +29,19 @@ EGPU_USRSHARE="${EGPU_USRSHARE:-/usr/share}"
 EGPU_RUN="${EGPU_RUN:-${XDG_RUNTIME_DIR:-/run/user/$UID}/omarchy-egpu}"
 EGPU_STATE="${EGPU_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-egpu}"
 EGPU_CONFIG="${EGPU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-egpu/config.json}"
-# The root half (§10). Only checked for presence and version here; never run
+# The root half (§10). Only checked for presence and version here (the sleep
+# guard and its drop-ins: owner, mode and bytes, lib/health.sh); never run
 # with privileges by the engine's read-only verbs. device.sh runs it through
 # pkexec, so its path is fixed: only the test suite (tests/run.sh exports
 # OMARCHY_EGPU_TEST=1) may point it at a fake.
 if [[ ${OMARCHY_EGPU_TEST:-} == 1 ]]; then
   EGPU_ADMIN="${EGPU_ADMIN:-/usr/local/bin/omarchy-egpu-admin}"
+  EGPU_GUARD="${EGPU_GUARD:-/usr/local/bin/omarchy-egpu-sleep-guard}"
+  EGPU_SYSTEMD_DIR="${EGPU_SYSTEMD_DIR:-/etc/systemd/system}"
 else
   EGPU_ADMIN=/usr/local/bin/omarchy-egpu-admin
+  EGPU_GUARD=/usr/local/bin/omarchy-egpu-sleep-guard
+  EGPU_SYSTEMD_DIR=/etc/systemd/system
 fi
 EGPU_POLICY="${EGPU_POLICY:-/usr/share/polkit-1/actions/no.kalinewb.egpu.policy}"
 

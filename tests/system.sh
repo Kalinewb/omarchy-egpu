@@ -1207,6 +1207,52 @@ sy_tree() {
     find etc usr var -type f -exec sha256sum {} + 2>/dev/null | sort -k2)
 }
 
+# M8: health's system.helper row looks at the sleep guard and its three
+# drop-ins, not only at the helper.
+sy_test_health_guard() {
+  sy_new health-guard
+  local g=$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard d=$FX_ROOT/etc/systemd/system
+  fx_helper
+  sy_row() { "$ENGINE" health 2>/dev/null | jq -c '.[] | select(.id == "system.helper")' >"$T/row.json"; }
+  sy_row
+  sy_assert "health: the helper, the guard and the three drop-ins as installed: system.helper ok" bash -c 'jq -e ".level == \"ok\"" "$1" >/dev/null' _ "$T/row.json"
+  rm -f -- "$g"
+  sy_row
+  sy_assert "health: the guard is missing: error, needs reinstalling, the fix is the system half" \
+    bash -c 'jq -e ".level == \"error\" and (.title | test(\"needs reinstalling\")) and (.detail | test(\"sleep-guard is missing\")) and .fix.kind == \"system\"" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  rm -f -- "$d/nvidia-hibernate.service.d/omarchy-egpu-sleep-guard.conf"
+  sy_row
+  sy_assert "health: a drop-in is missing: error, and it names which" \
+    bash -c 'jq -e ".level == \"error\" and (.detail | test(\"nvidia-hibernate.service.d.*is missing\"))" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  rm -f -- "$d/nvidia-suspend-then-hibernate.service.d/omarchy-egpu-sleep-guard.conf"
+  sy_row
+  sy_assert "health: the suspend-then-hibernate drop-in is missing: error" \
+    bash -c 'jq -e ".level == \"error\" and (.detail | test(\"suspend-then-hibernate.*is missing\"))" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  chmod 777 "$g"
+  sy_row
+  sy_assert "health: the guard is world-writable: error, with its mode" \
+    bash -c 'jq -e ".level == \"error\" and (.detail | test(\"has mode 777, not 755\"))" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  printf '# edited\n' >>"$d/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf"
+  sy_row
+  sy_assert "health: a drop-in whose bytes are not the plugin's: error" \
+    bash -c 'jq -e ".level == \"error\" and (.detail | test(\"differs from the plugin\"))" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  rm -f -- "$g"
+  ln -s /bin/true "$g"
+  sy_row
+  sy_assert "health: the guard is a symlink: error" bash -c 'jq -e ".level == \"error\"" "$1" >/dev/null' _ "$T/row.json"
+  fx_guard
+  rm -f -- "$g"
+  fx_guard
+  sy_row
+  sy_assert "health: put back: ok again" bash -c 'jq -e ".level == \"ok\"" "$1" >/dev/null' _ "$T/row.json"
+  sy_done
+}
+
 sy_test_install() {
   sy_new install
   mkdir -p "$T/plugin"
@@ -1529,7 +1575,7 @@ sy_test_pins() {
   sy_pins_copy() {
     rm -rf "$T/repo"
     mkdir -p "$T/repo"
-    cp -r "$REPO/system" "$REPO/dev" "$REPO/manifest.json" "$REPO/README.md" "$T/repo/"
+    cp -r "$REPO/system" "$REPO/dev" "$REPO/lib" "$REPO/manifest.json" "$REPO/README.md" "$T/repo/"
   }
   sy_pins_fails() { # sy_pins_fails <label> <expected message>
     if out=$("$T/repo/dev/check-pins.sh" 2>&1); then bad "pins: $1 passed"
@@ -1547,6 +1593,9 @@ sy_test_pins() {
   sy_pins_copy
   sed -i 's/^MODULES=(nvidia nvidia_modeset nvidia_drm nvidia_uvm)$/MODULES=(nvidia nvidia_drm)/' "$T/repo/system/omarchy-egpu-sleep-guard"
   sy_pins_fails "a sleep guard whose module list is not the allowlist" "the sleep guard's MODULES"
+  sy_pins_copy
+  sed -i 's/^SYSTEM_DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service)$/SYSTEM_DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service)/' "$T/repo/lib/health.sh"
+  sy_pins_fails "a health check that does not list every drop-in unit" "is not lib/health.sh's SYSTEM_DROPIN_UNITS"
   sy_pins_copy
   jq '.version = "0.2.0"' "$REPO/manifest.json" >"$T/repo/manifest.json"
   sy_pins_fails "a plugin version the system half does not carry" "manifest.json says '0.2.0'"
@@ -1583,6 +1632,7 @@ test_system() {
   (sy_test_namespace)
   (sy_test_guard)
   (sy_test_files)
+  (sy_test_health_guard)
   (sy_test_install)
   (sy_test_install_masks)
   (sy_test_pins)

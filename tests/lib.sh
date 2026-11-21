@@ -152,6 +152,24 @@ fx_helper() {
 [[ \${1:-} == version ]] && echo '{\"version\":\"$v\"}'"
   chmod +x "$FX_ROOT/usr/local/bin/omarchy-egpu-admin"
   fx_write usr/share/polkit-1/actions/no.kalinewb.egpu.policy '<policyconfig/>'
+  fx_guard
+}
+
+# The sleep guard and its three drop-ins as the installer leaves them (the
+# plugin's own bytes), for the health row system.helper (M8).
+fx_guard() {
+  local u d
+  mkdir -p -- "$FX_ROOT/usr/local/bin"
+  rm -f -- "$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard"
+  cp -- "$EGPU_TEST_REPO/system/omarchy-egpu-sleep-guard" "$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard"
+  chmod 0755 -- "$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard"
+  for u in nvidia-suspend nvidia-hibernate nvidia-suspend-then-hibernate; do
+    d=$FX_ROOT/etc/systemd/system/$u.service.d
+    mkdir -p -- "$d"
+    rm -f -- "$d/omarchy-egpu-sleep-guard.conf"
+    cp -- "$EGPU_TEST_REPO/system/omarchy-egpu-sleep-guard.conf" "$d/omarchy-egpu-sleep-guard.conf"
+    chmod 0644 -- "$d/omarchy-egpu-sleep-guard.conf"
+  done
 }
 
 # The udev links of §10.3.

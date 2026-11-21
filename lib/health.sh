@@ -279,6 +279,48 @@ _check_hypr() {
   display_health_session_env "$pid"
 }
 
+# The units whose drop-in carries the sleep guard: system/install.sh's DROPIN_UNITS
+# (dev/check-pins.sh checks the two lists agree).
+SYSTEM_DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service)
+
+# _system_file_problem <installed path> <mode> <the plugin's copy>: what is not
+# as the installer leaves it (missing or a link, not owned by root, not that
+# mode, not the plugin's bytes), one sentence, or nothing. In the test suite
+# "root" is the user running it.
+_system_file_problem() {
+  local f=$1 mode=$2 src=$3 owner perm want_uid=0 got want
+  [[ ${OMARCHY_EGPU_TEST:-} == 1 ]] && want_uid=$UID
+  if [[ ! -f $f || -L $f ]]; then
+    printf '%s is missing.' "$f"
+    return 0
+  fi
+  read -r owner perm < <(stat -c '%u %a' -- "$f" 2>/dev/null) || { printf '%s cannot be read.' "$f"; return 0; }
+  if [[ $owner != "$want_uid" ]]; then
+    printf '%s is not owned by root.' "$f"
+  elif [[ $perm != "$mode" ]]; then
+    printf '%s has mode %s, not %s.' "$f" "$perm" "$mode"
+  elif [[ -r $src ]]; then
+    got=$(sha256sum -- "$f" 2>/dev/null | cut -d' ' -f1)
+    want=$(sha256sum -- "$src" 2>/dev/null | cut -d' ' -f1)
+    [[ -n $got && $got == "$want" ]] || printf '%s differs from the plugin'"'"'s copy.' "$f"
+  fi
+  return 0
+}
+
+# _system_guard_problems: the sleep guard and its drop-ins (M8), one sentence
+# per problem, or nothing.
+_system_guard_problems() {
+  local u p out=()
+  p=$(_system_file_problem "$EGPU_GUARD" 755 "$EGPU_ROOT/system/omarchy-egpu-sleep-guard")
+  [[ -n $p ]] && out+=("$p")
+  for u in "${SYSTEM_DROPIN_UNITS[@]}"; do
+    p=$(_system_file_problem "$EGPU_SYSTEMD_DIR/$u.d/omarchy-egpu-sleep-guard.conf" 644 "$EGPU_ROOT/system/omarchy-egpu-sleep-guard.conf")
+    [[ -n $p ]] && out+=("$p")
+  done
+  (( ${#out[@]} )) && printf '%s ' "${out[@]}"
+  return 0
+}
+
 _check_tools_system() {
   if command -v vulkaninfo >/dev/null 2>&1; then
     health_row tools.vulkaninfo tools ok "vulkaninfo is installed" ""
@@ -301,7 +343,14 @@ _check_tools_system() {
     elif [[ ! -r $EGPU_POLICY ]]; then
       health_row system.helper system error "The polkit action is missing" "$EGPU_POLICY" system "$SYSTEM_FIX"
     else
-      health_row system.helper system ok "System half $have installed" ""
+      local guard_problems
+      guard_problems=$(_system_guard_problems)
+      if [[ -n $guard_problems ]]; then
+        health_row system.helper system error "The system half needs reinstalling" \
+          "The helper is $have, but the sleep guard is not as installed: ${guard_problems% }" system "$SYSTEM_FIX"
+      else
+        health_row system.helper system ok "System half $have installed" ""
+      fi
     fi
   fi
 
