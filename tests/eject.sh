@@ -73,6 +73,12 @@ ej_kernel() {
         rm -f -- "$EGPU_FAKE_DIR/smi.csv"
       fi
       rm -rf -- "$d"
+      # kernel-reload-modules: something loads the stack again once the card
+      # is gone (udev, a service); -stuck: and it cannot be unloaded again.
+      if [[ $f == "$EJ_BDF" && -e $EGPU_FAKE_DIR/kernel-reload-modules ]]; then
+        fx_nvidia_modules
+        [[ -e $EGPU_FAKE_DIR/kernel-reload-stuck ]] && echo nvidia_uvm >"$EGPU_FAKE_DIR/modprobe-fail"
+      fi
     ) >/dev/null 2>&1 &
     fx_bg $!
   done
@@ -267,7 +273,7 @@ ej_test_hdmi() {
   dv_error "the TV stays on" hdmi_still_active
   dv_check "names it" ".monitors == [\"$DSP_TV\"]"
   dv_check "the error names the phase the card is left in (ready)" '.phase == "ready"'
-  dv_assert "nothing was removed: no holders, no remove" bash -c "! grep -qE '^pkexec' '$EGPU_FAKE_LOG'"
+  dv_assert "nothing was removed or unloaded (the read-only holders check ran first)" bash -c "! grep -qE '^pkexec .* (unload|remove|load) ' '$EGPU_FAKE_LOG'"
   dv_assert "no marker, lock released, phase ready" \
     bash -c "[ ! -e '$EGPU_RUN/ejected' ] && [ \"\$('$ENGINE' status --json | jq -r .phase)\" = ready ]"
   ej_done
@@ -503,6 +509,140 @@ ej_test_unload() {
 }
 
 
+# S2: the monitors are not turned off for an eject that cannot succeed, and are
+# turned back on when it fails after they were.
+ej_test_display_safety() {
+  local tv_log=$HOME/.local/state/omarchy/toggles/hypr/zz-omarchy-egpu.lua
+  echo "${BOLD}eject: only the session holds the driver: driver_in_use BEFORE any monitor is touched${RESET}"
+  ej_new tv-incidental egpu-hdmi
+  ej_ready
+  ej_world_tv
+  ej_proc 7001 quickshell "$UID" /dev/nvidia0 /dev/nvidiactl
+  ej_proc 7002 voxtype-osd-gtk "$UID" /dev/nvidia0
+  echo 12 >"$FX_ROOT/sys/module/nvidia/refcnt"
+  local toggle_before
+  toggle_before=$(cksum <"$tv_log" 2>/dev/null || echo absent)
+  ej --quiet
+  dv_error "the shell and an incidental holder keep the modules" driver_in_use
+  dv_check "the display was not touched: nothing off, nothing moved" '.display.touched == false and .display.off == [] and .display.workspaces == [] and (.display | has("restored") | not)'
+  dv_assert "the TV is still on, its workspaces still on it" \
+    test "$(dsp_mon_field "$DSP_TV" .disabled)|$(dsp_ws_monitor 2)|$(dsp_ws_monitor 3)" = "false|HDMI-A-2|HDMI-A-2"
+  dv_assert "no hyprctl eval or dispatch, and the toggle file is as it was" \
+    bash -c "! grep -qE '^hyprctl (eval|dispatch)' '$EGPU_FAKE_LOG' && [ \"\$(cksum <'$tv_log' 2>/dev/null || echo absent)\" = '$toggle_before' ]"
+  dv_assert "only the read-only holders call went to the helper" \
+    test "$(grep '^pkexec' "$EGPU_FAKE_LOG" | sed "s|$EGPU_ADMIN|H|" | paste -sd'|')" = "pkexec H holders"
+  ej_done
+
+  echo "${BOLD}eject: the apps are closed, then the driver turns out to be held: the monitors come back${RESET}"
+  ej_new tv-late egpu-hdmi
+  ej_ready
+  ej_world_tv
+  ej_app glxgears 300 term "/dev/nvidiactl"
+  echo 3 >"$FX_ROOT/sys/module/nvidia_drm/refcnt"
+  ej --quiet --close
+  dv_error "the app quits, the kernel still counts references" driver_in_use
+  dv_check "the TV went off and came back: restored, none left off" \
+    ".display.off[0].description == \"$DSP_TV\" and .display.restored == [\"$DSP_TV\"] and .display.restore_failed == []"
+  dv_assert "the TV is on again; its workspaces stay on the laptop panel" \
+    test "$(dsp_mon_field "$DSP_TV" .disabled)|$(dsp_ws_monitor 2)|$(dsp_ws_monitor 3)" = "false|eDP-1|eDP-1"
+  local off on
+  off=$(ej_line 'hyprctl eval hl.monitor.*disabled = true')
+  on=$(ej_line 'hyprctl eval hl.monitor.*desc:.*LG TV.*(mode|position|scale)')
+  [[ -n $off && -n $on ]] && (( off < on )) && ok "order: disabled (log line $off), then enabled again ($on)" || bad "order: off $off, on $on"
+  dv_assert "nothing was unloaded or removed" bash -c "! grep -qE '^pkexec .* (unload|remove) ' '$EGPU_FAKE_LOG'"
+  dv_assert "the toggle file no longer says the TV is disabled" bash -c "! grep -qF 'disabled = true' '$tv_log'"
+  ej_done
+
+  echo "${BOLD}eject: the failure after the monitors went off, and they will not come back${RESET}"
+  ej_new tv-restore-fails egpu-hdmi
+  ej_ready
+  ej_world_tv
+  echo nvidia_modeset >"$EGPU_FAKE_DIR/modprobe-fail"
+  printf '%s\n' "$EGPU_FAKE_DIR/hypr/eval-ignore" >"$EGPU_FAKE_DIR/pkexec-touch-unload"
+  ej --quiet
+  dv_error "the unload fails half way, and the compositor ignores the enable" driver_in_use
+  dv_check "named as not restored, with the TV; the answer says so" \
+    ".display.restored == [] and .display.restore_failed == [\"$DSP_TV\"]"
+  dv_assert "the failure was said on the terminal" grep -q 'Could not turn on' "$T/err"
+  ej_done
+
+  echo "${BOLD}eject: holders_present keeps the monitors off (the convention)${RESET}"
+  ej_new tv-holders egpu-hdmi
+  ej_ready
+  ej_world_tv
+  ej_app glxgears 300 term "/dev/nvidiactl"
+  ej --quiet
+  dv_error "an app with memory blocks" holders_present
+  dv_check "the screens went off and the answer says so" ".display.off[0].description == \"$DSP_TV\" and (.display | has(\"restored\") | not)"
+  dv_assert "the TV is still off" test "$(dsp_mon_field "$DSP_TV" .disabled)" = true
+  ej_done
+}
+
+# M3 and M4: a put-back that fails is reported; modules loaded again after the
+# remove get one more unload, and are never called "safe to unplug".
+ej_test_late_modules() {
+  echo "${BOLD}eject: the stack is put back after a partial unload, and the put-back fails${RESET}"
+  ej_new load-back-fails
+  ej_ready
+  echo nvidia_modeset >"$EGPU_FAKE_DIR/modprobe-fail"
+  echo nvidia_drm >"$EGPU_FAKE_DIR/modprobe-fail-load"
+  ej --quiet
+  dv_error "nvidia_modeset will not unload, nvidia_drm will not load again" driver_in_use
+  dv_check "the failed restore is in the answer and in the sentence" \
+    '.restore.ok == false and (.restore.error | type == "string") and (.detail | test("could not be loaded again"))'
+  dv_assert "and said on the terminal" grep -q 'could not be put back' "$T/err"
+  ej_done
+
+  echo "${BOLD}eject: the remove fails after a full unload, and the put-back fails${RESET}"
+  ej_new remove-load-back-fails
+  ej_ready
+  rm -f -- "${FX_PCI:?}/${EJ_BDF:?}/remove" "${FX_PCI:?}/0000:03:00.1/remove"
+  echo nvidia_uvm >"$EGPU_FAKE_DIR/modprobe-fail-load"
+  ej --quiet
+  dv_error "no remove attribute, and the driver cannot be loaded again" remove_failed
+  dv_check "the failed restore is in the answer" '.restore.ok == false and (.restore.error | type == "string")'
+  ej_done
+
+  echo "${BOLD}eject: a put-back that works says so (restore.ok)${RESET}"
+  ej_new load-back-ok
+  ej_ready
+  rm -f -- "${FX_PCI:?}/${EJ_BDF:?}/remove" "${FX_PCI:?}/0000:03:00.1/remove"
+  ej --quiet
+  dv_error "the remove fails" remove_failed
+  dv_check "restore ok" '.restore == {ok: true, rc: 0, error: null}'
+  ej_done
+
+  echo "${BOLD}eject: the driver is loaded again after the remove, and one more unload works${RESET}"
+  ej_new reload-ok
+  ej_ready
+  touch "$EGPU_FAKE_DIR/kernel-reload-modules"
+  ej
+  dv_check "ejected; unloaded by the second try" '.ok == true and .phase == "ejected" and .modules.held_after_eject == false and .modules.unloaded == true and .modules.unload.ok == true'
+  dv_assert "two unloads were asked for, the second after the remove" \
+    bash -c "[ \"\$(grep -c 'pkexec .* unload nvidia' '$EGPU_FAKE_LOG')\" = 2 ] && [ \"\$(grep 'pkexec' '$EGPU_FAKE_LOG' | sed 's|$EGPU_ADMIN|H|' | paste -sd'|')\" = 'pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF|pkexec H unload nvidia' ]"
+  dv_assert "\"Safe to unplug\" is said" dv_log_has '^notify-send .*Safe to unplug the eGPU'
+  ej_done
+
+  echo "${BOLD}eject: the driver is loaded again after the remove and will not unload: not \"safe to unplug\"${RESET}"
+  ej_new reload-stuck
+  ej_ready
+  touch "$EGPU_FAKE_DIR/kernel-reload-modules" "$EGPU_FAKE_DIR/kernel-reload-stuck"
+  ej_proc 7001 quickshell "$UID" /dev/nvidiactl
+  ej
+  dv_error "the modules stay loaded with no card" modules_held
+  dv_check "do not suspend, log out; phase ejected; the card is gone" \
+    '.do_not_suspend == true and .phase == "ejected" and .bdf == "0000:03:00.0" and (.removed | length) == 2 and (.detail | test("Do not suspend") and test("log out"))'
+  dv_assert "no \"Safe to unplug\" anywhere: not on the terminal, not in a notification" \
+    bash -c "! grep -q 'Safe to unplug' '$T/err' '$EGPU_FAKE_LOG' '$T/out.json'"
+  dv_assert "a \"Do not suspend\" notification" dv_log_has '^notify-send .*Do not suspend the computer'
+  dv_assert "the marker is there and names who holds the driver" \
+    bash -c "jq -e '.bdf == \"$EJ_BDF\" and (.held_by | type == \"array\")' '$EGPU_RUN/ejected' >/dev/null"
+  dv_assert "status: ejected, held_after_eject (the guard's state), not safe_to_unplug" \
+    bash -c "'$ENGINE' status --json | jq -e '.phase == \"ejected\" and .modules.held_after_eject == true' >/dev/null"
+  dv_assert "lock released" dv_unlocked
+  ej_done
+}
+
 ej_test_failures() {
   echo "${BOLD}eject: the helper's remove times out${RESET}"
   ej_new remove-timeout
@@ -679,14 +819,19 @@ ej_test_cycles() {
   ej_done
 }
 
+# EJ_ONLY="ej_test_unload ej_test_late_modules" runs just those groups.
+ej_run() { [[ -z ${EJ_ONLY:-} || " $EJ_ONLY " == *" $1 "* ]] && ("$1"); return 0; }
+
 test_eject() {
-  (ej_test_clean)
-  (ej_test_hdmi)
-  (ej_test_holders)
-  (ej_test_unload)
-  (ej_test_failures)
-  (ej_test_rescan)
-  (ej_test_holders_verb)
-  (ej_test_events)
-  (ej_test_cycles)
+  ej_run ej_test_clean
+  ej_run ej_test_hdmi
+  ej_run ej_test_holders
+  ej_run ej_test_unload
+  ej_run ej_test_display_safety
+  ej_run ej_test_late_modules
+  ej_run ej_test_failures
+  ej_run ej_test_rescan
+  ej_run ej_test_holders_verb
+  ej_run ej_test_events
+  ej_run ej_test_cycles
 }

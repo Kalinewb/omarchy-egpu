@@ -40,13 +40,15 @@
 # Errors beyond §1.1's device codes: remove_failed (the helper refused or
 # failed a remove, or could not list holders, during eject), driver_in_use
 # (eject: the driver cannot be unloaded because something holds it, so the
-# eGPU is left attached), modules_held and rescan_failed (rescan),
-# holders_failed (the holders verb).
+# eGPU is left attached), modules_held (rescan; and eject, when the driver is
+# loaded again with the card already removed: do not suspend), rescan_failed
+# (rescan), holders_failed (the holders verb).
 #
 # Events: a failed connect or rescan posts `connect_failed` to the running
 # watcher (it cannot be derived from two status documents); `authorized` and
 # `ready` come from the watcher itself as the phase moves. Eject posts all of
-# its own: eject_started, then eject_ready {held, held_by} or eject_failed
+# its own: eject_started, then eject_ready {held, held_by} (held is always false
+# now: a driver left loaded is eject_failed modules_held) or eject_failed
 # {error, ...}; the watcher no longer derives them (lib/status.sh).
 
 # shellcheck source=lib/status.sh
@@ -170,6 +172,17 @@ _dev_notify() {
 # the watcher then reads the phase the job leaves behind, not `ejecting`.
 _dev_fail() {
   local code=$1 extra=${2:-'{}'} rc=${3:-1}
+  # An eject that fails with the card still attached and in service turns the
+  # monitors it turned off back on (S2). Not for the answers whose convention is
+  # that they stay off (holders_present, hdmi_still_active: the next eject starts
+  # from there), and not where the card is gone or in an unknown state
+  # (remove_timeout, modules_held).
+  if [[ ${DEV_FAIL_EVENT:-} == eject_failed ]]; then
+    case $code in
+      holders_present | hdmi_still_active | remove_timeout | modules_held) ;;
+      *) _dev_display_restore && extra=$(jq -c --argjson d "$DEV_DISPLAY" '. + {display: $d}' <<<"$extra") ;;
+    esac
+  fi
   extra=$(jq -c --arg p "${DEV_PHASE:-}" '. + {phase: (if $p == "" then null else $p end)}' <<<"$extra")
   json_error "$code" "$extra"
   _dev_unlock
@@ -748,6 +761,36 @@ _dev_display_off() {
   return 0
 }
 
+# _dev_display_restore: an eject that turned the eGPU's monitors off and then
+# failed with the card still attached: `display enable` for each of them, each
+# bounded by display.sh's own waits (DSP_WAIT_MS per monitor and the display
+# lock's wait). Their workspaces stay on the laptop panel (moving them back is
+# the user's). Sets DEV_DISPLAY .restored and .restore_failed (descriptions);
+# status 0 when it tried, 1 when nothing had been turned off.
+_dev_display_restore() {
+  local off n i desc out rc restored=() failed=()
+  off=$(jq -c '.off // []' <<<"${DEV_DISPLAY:-}" 2>/dev/null) || return 1
+  n=$(jq 'length' <<<"$off" 2>/dev/null) || return 1
+  (( n > 0 )) || return 1
+  jq -e 'has("restored")' <<<"$DEV_DISPLAY" >/dev/null 2>&1 && return 0
+  say "Turning the eGPU's monitors back on…"
+  for ((i = 0; i < n; i++)); do
+    desc=$(jq -r ".[$i].description" <<<"$off")
+    # In a subshell: display.sh's lock is a descriptor of its own, closed with it.
+    out=$(display_enable_disable enable "$desc" 2>/dev/null)
+    rc=$?
+    if (( rc == 0 )) && jq -e '.enabled == true' <<<"$out" >/dev/null 2>&1; then
+      restored+=("$desc")
+    else
+      failed+=("$desc")
+    fi
+  done
+  DEV_DISPLAY=$(jq -c --arg r "$(printf '%s\n' "${restored[@]:-}")" --arg f "$(printf '%s\n' "${failed[@]:-}")" '
+    . + {restored: ($r | split("\n") | map(select(length > 0))), restore_failed: ($f | split("\n") | map(select(length > 0)))}' <<<"$DEV_DISPLAY")
+  (( ${#failed[@]} == 0 )) || say "Could not turn on: ${failed[*]}. Turn them on from the Displays panel."
+  return 0
+}
+
 # _dev_lit_connectors <bdf>: the card's connectors the kernel has enabled, one
 # per line (card1-HDMI-A-2). Hyprland can say a monitor is off while the
 # kernel still scans it out (or the console does, with fbdev=1); the helper
@@ -782,8 +825,13 @@ _dev_wait_dark() {
 #      backend backend_stub; a missing or outdated helper is helper_missing.
 #      Nothing has been changed when any of these answers.
 #   2. it is now `eject` (status: ejecting) and posts eject_started
+#  2b. checks that change nothing (S2): holders (_dev_survey) and, when nothing
+#      an app could release holds the modules (only the shell, the compositor,
+#      incidental holders and kernel references), driver_in_use right here,
+#      with every monitor still on and `display.touched` false.
 #   3. the eGPU's monitors off (_dev_display_off): hdmi_still_active
-#   4. holders (_dev_survey). Real users block: holders_present, listing them,
+#   4. holders (_dev_survey, again only if monitors were turned off). Real
+#      users block: holders_present, listing them,
 #      the incidental ones and whether --close can help. --close sends SIGTERM
 #      to this user's blocking apps, waits eject.close_timeout_s, and answers
 #      holders_present again if any survive. Never SIGKILL, never the shell
@@ -792,18 +840,27 @@ _dev_wait_dark() {
 #      bus), and only then the PCI remove. Anything that still holds the
 #      modules (incidental holders, the compositor, the shell, nvidia-persistenced)
 #      aborts the eject as driver_in_use, listing them: nothing is removed,
-#      no marker is written, the eGPU stays attached and in service (the
-#      screens turned off in step 3 stay off and are reported in `display`).
+#      no marker is written, the eGPU stays attached and in service. A stack
+#      unloaded in part is put back (`load`, the result reported in `restore`).
 #      Nothing is killed to make the modules free; --close helps only with
 #      the apps it can close, and those were dealt with in step 4.
+#      Every failure from step 3 on that leaves the card attached and in
+#      service turns the monitors step 3 turned off back on (_dev_display_restore,
+#      `display enable`; `display.restored` / `display.restore_failed`). The
+#      exceptions keep the old convention or have no card to light: holders_present
+#      and hdmi_still_active leave them off, remove_timeout and modules_held
+#      touch nothing.
 #   6. the ejected marker ($EGPU_RUN/ejected), then `pkexec helper remove
 #      <bdf>` (every function of the slot), then a wait for the functions,
 #      the card node and the by-path link to go: remove_timeout. A failed
-#      remove takes the marker back, and puts the driver back (helper `load`)
-#      unless the remove hung (then: do not unplug, log out).
-#   7. the lock released (status: ejected, safe_to_unplug), eject_ready
-#      {held, held_by} posted, "Safe to unplug" notified. `held` is false
-#      unless the modules were loaded again behind the eject's back.
+#      remove takes the marker back, and puts the driver back (helper `load`,
+#      the result reported in `restore`) unless the remove hung (then: do not
+#      unplug, log out).
+#   7. modules loaded again after the remove (the state a removed GPU oopses the
+#      next suspend in): one more `unload`; if they stay, the answer is
+#      modules_held with do_not_suspend, never "Safe to unplug" (M4). Otherwise
+#      the lock released (status: ejected, safe_to_unplug), eject_ready
+#      {held: false, held_by: []} posted, "Safe to unplug" notified.
 #
 # Why unload first (DECISION 2026-11-21, replacing 2026-10-10's "unload is not
 # required"): a removed GPU with nvidia and nvidia_uvm still loaded is a kernel
@@ -833,6 +890,7 @@ device_eject() {
   [[ $secs =~ ^[0-9]+$ ]] || secs=10
   started=$(now_ms)
   DEV_FAIL_EVENT=eject_failed
+  DEV_RESTORE=null
 
   _dev_lock eject-check
   case $? in
@@ -849,7 +907,7 @@ device_eject() {
   trap '_dev_unlock' EXIT
 
   # ---- 1. where things stand
-  local doc bdf be_name be_supported bolt_uuid gpu_error held
+  local doc bdf be_name be_supported bolt_uuid gpu_error
   doc=$(_dev_nolock status_collect '{"errors":0,"warnings":0}' null 0 '[]') || doc='{}'
   DEV_PHASE=$(jq -r '.phase // "absent"' <<<"$doc")
   bdf=$(jq -r '.pci.bdf // empty' <<<"$doc")
@@ -900,6 +958,31 @@ device_eject() {
   _dev_job eject
   _dev_event eject_started "$(jq -cn --arg bdf "$bdf" --argjson close "$([[ $close == 1 ]] && echo true || echo false)" '{bdf: $bdf, close: $close}')"
 
+  # ---- 2b. checks that change nothing (S2): who uses the card, and whether the
+  # driver could be unloaded at all. If nothing an app could release is in the
+  # way (only the shell, the compositor, incidental holders and kernel
+  # references hold the modules), the answer is driver_in_use now, with every
+  # monitor still on: with the lid closed an eGPU monitor can be the only one.
+  local rc closed='[]' blocking busy busy_json arc
+  DEV_DISPLAY=$(jq -cn --arg p "$(_dsp_policy)" '{policy: $p, off: [], workspaces: [], touched: false}')
+  _dev_survey "$bdf" "$family"
+  rc=$?
+  if (( rc == 3 )); then
+    _dev_fail smi_hung "$(jq -cn --arg bdf "$bdf" --argjson g "$DEV_GPU" --argjson d "$DEV_DISPLAY" '{bdf: $bdf, gpu: $g, display: $d}')"
+    return
+  elif (( rc == 2 )); then
+    _dev_eject_helper_fail holders
+    return
+  fi
+  blocking=$(jq -c '[.[] | select(.blocks)]' <<<"$DEV_SURVEY")
+  if [[ $blocking == '[]' ]] && _dev_modules_loaded; then
+    busy=$(_dev_modules_busy)
+    if [[ -n $busy ]]; then
+      _dev_driver_in_use "$busy" "$closed"
+      return
+    fi
+  fi
+
   # ---- 3. monitors
   say "Turning off the eGPU's monitors…"
   if ! _dev_display_off; then
@@ -914,10 +997,15 @@ device_eject() {
     return
   fi
 
-  # ---- 4. who uses the card
-  local rc closed='[]' blocking
-  _dev_survey "$bdf" "$family"
-  rc=$?
+  # ---- 4. who uses the card, now that the monitors are off (an app that was
+  # on an eGPU monitor has been moved)
+  # Read again only if monitors were turned off just now (the survey from step
+  # 2b is otherwise current).
+  rc=0
+  if [[ $(jq '.off | length' <<<"$DEV_DISPLAY") != 0 ]]; then
+    _dev_survey "$bdf" "$family"
+    rc=$?
+  fi
   if (( rc == 3 )); then
     _dev_fail smi_hung "$(jq -cn --arg bdf "$bdf" --argjson g "$DEV_GPU" --argjson d "$DEV_DISPLAY" '{bdf: $bdf, gpu: $g, display: $d}')"
     return
@@ -960,7 +1048,7 @@ device_eject() {
   fi
 
   # ---- 5. unload the driver, with the card still on the bus
-  local unload=null unloaded=false busy busy_json arc
+  local unload=null unloaded=false
   if _dev_modules_loaded; then
     busy=$(_dev_modules_busy)
     if [[ -n $busy ]]; then
@@ -977,9 +1065,7 @@ device_eject() {
         modules_in_use | modules_failed | device_present)
           # A stack unloaded in part is put back, so the eGPU stays in service.
           if [[ $(jq '(.unloaded // []) | length' <<<"$DEV_ADMIN_OUT" 2>/dev/null) -gt 0 ]]; then
-            local keep=$DEV_ADMIN_OUT
-            _dev_admin load "$EGPU_BACKEND" >/dev/null
-            DEV_ADMIN_OUT=$keep
+            _dev_load_back
           fi
           busy_json=$(_dev_modules_busy)
           _dev_driver_in_use "$busy_json" "$closed" "$DEV_ADMIN_OUT"
@@ -1017,35 +1103,48 @@ device_eject() {
     sleep "$DEV_POLL_S"
   done
 
-  # ---- 7. done. The modules are gone by now; this reads them once more, and
-  # only if they are loaded again says who holds them.
-  local after='{"holders":[]}' held_by='[]'
-  held=false
+  # ---- 7. done. The modules are gone by now. If they are loaded again, that is
+  # the state a removed GPU oopses the next suspend in (M4): the unload is
+  # tried once more, and if the modules stay, the answer is a refusal, not
+  # "Safe to unplug": the card is gone, so the only thing left to say is not to
+  # suspend and to log out.
+  local after='{"holders":[]}' held_by='[]' retry=null
   if _dev_modules_loaded; then
-    if _dev_admin holders && jq -e '.holders | type == "array"' <<<"$DEV_ADMIN_OUT" >/dev/null 2>&1; then
-      after=$DEV_ADMIN_OUT
+    say "The driver is loaded again with no card; unloading it once more…"
+    _dev_admin unload "$EGPU_BACKEND"
+    arc=$?
+    retry=$(jq -c --argjson rc "$arc" 'if type == "object" then . + {rc: $rc} else {rc: $rc} end' <<<"$DEV_ADMIN_OUT" 2>/dev/null) || retry=null
+    if _dev_modules_loaded; then
+      if _dev_admin holders && jq -e '.holders | type == "array"' <<<"$DEV_ADMIN_OUT" >/dev/null 2>&1; then
+        after=$DEV_ADMIN_OUT
+      fi
+      held_by=$(jq -c '[.holders[].comm] | map(select(length > 0)) | unique' <<<"$after")
+      jq -c --argjson h "$held_by" '.held_by = $h' "$marker" 2>/dev/null | write_atomic "$marker"
+      DEV_PHASE=ejected
+      _dev_notify "Do not suspend the computer" "The eGPU is removed but its driver is loaded again. Log out before you suspend or lock."
+      say "The card is removed, but the driver is loaded again$(jq -r 'if length > 0 then " (held by: \(join(", ")))" else "" end' <<<"$held_by"). Do not suspend the computer: log out first."
+      _dev_fail modules_held "$(jq -cn --arg bdf "$bdf" --argjson removed "$removed" --argjson held_by "$held_by" \
+        --argjson d "$DEV_DISPLAY" --argjson unload "$retry" '
+        {bdf: $bdf, removed: $removed, held_by: $held_by, display: $d, unload: $unload, do_not_suspend: true,
+         detail: "The eGPU was removed, but its driver is loaded again\(if ($held_by | length) > 0 then " (held by \($held_by | join(", ")))" else "" end). Do not suspend the computer: log out first, then unplug."}')"
+      return
     fi
-    held=true
-    held_by=$(jq -c '[.holders[].comm] | map(select(length > 0)) | unique' <<<"$after")
-    jq -c --argjson h "$held_by" '.held_by = $h' "$marker" 2>/dev/null | write_atomic "$marker"
+    # The second unload worked: as if the first had.
+    unloaded=true
+    unload=$retry
   fi
   local result
   result=$(jq -cn --arg bdf "$bdf" --arg b "$EGPU_BACKEND" --argjson removed "$removed" --argjson d "$DEV_DISPLAY" \
-    --argjson s "$DEV_SURVEY" --argjson closed "$closed" --argjson held "$held" --argjson held_by "$held_by" \
+    --argjson s "$DEV_SURVEY" --argjson closed "$closed" \
     --argjson unloaded "$unloaded" --argjson unload "$unload" --argjson ms "$(( $(now_ms) - started ))" '
     {ok: true, phase: "ejected", already: false, bdf: $bdf, backend: $b, removed: $removed,
      display: $d, closed: $closed, incidental: [$s[] | select(.blocks | not) | {pid, comm, role}],
-     modules: {held_after_eject: $held, held_by: $held_by, unloaded: $unloaded, unload: $unload},
+     modules: {held_after_eject: false, held_by: [], unloaded: $unloaded, unload: $unload},
      elapsed_ms: $ms}')
   _dev_unlock
   _dev_event eject_ready "$(jq -c '{bdf, held: .modules.held_after_eject, held_by: .modules.held_by}' <<<"$result")"
-  if [[ $held == true ]]; then
-    say "Safe to unplug. The driver is loaded again, held by: $(jq -r 'join(", ")' <<<"$held_by"); log out before plugging the eGPU in again."
-    _dev_notify "Safe to unplug the eGPU" "Log out before plugging it in again."
-  else
-    say "Safe to unplug."
-    _dev_notify "Safe to unplug the eGPU"
-  fi
+  say "Safe to unplug."
+  _dev_notify "Safe to unplug the eGPU"
   printf '%s\n' "$result"
 }
 
@@ -1066,13 +1165,13 @@ _dev_driver_in_use() {
   helper=$(jq -c 'select(type == "object")' <<<"$helper" 2>/dev/null) || helper=null
   [[ -n $helper ]] || helper=null
   _dev_fail driver_in_use "$(jq -cn --argjson s "$DEV_SURVEY" --argjson m "$mods" --argjson c "$closed" \
-    --argjson d "$DEV_DISPLAY" --argjson h "$helper" '
+    --argjson d "$DEV_DISPLAY" --argjson h "$helper" --argjson r "${DEV_RESTORE:-null}" '
     ([$s[].comm | select(length > 0)] | unique) as $names
     | ([$s[] | select(.closeable)] | length > 0) as $can
     | ([$s[] | select(.role == "compositor" or .role == "shell")] | length > 0) as $session
     | (($h // {}).error == "device_present") as $shared
     | {names: $names, holders: $s, modules: $m, closed: $c, can_close: $can, session_holds: $session,
-       shared_driver: $shared, display: $d, helper: $h,
+       shared_driver: $shared, display: $d, helper: $h, restore: $r,
        detail: (if $shared then "The driver is shared with another NVIDIA GPU in this machine, so it cannot be unloaded and the eGPU cannot be ejected safely. The eGPU is left attached."
                 elif ($names | length) > 0
                 then "The driver cannot be unloaded: \($names | join(", ")) still use it. The eGPU is left attached."
@@ -1080,7 +1179,8 @@ _dev_driver_in_use() {
                      + (if $session then " The session itself holds it: log out to let go." else " Close them, then eject again." end)
                 elif (($h // {}).error == "modules_failed") and ($m | length) == 0
                 then "The driver could not be unloaded (\(($h.module // "?")): \(($h.detail // "failed"))). The eGPU is left attached."
-                else "The driver cannot be unloaded: the kernel still counts references to it. The eGPU is left attached." end)}')"
+                else "The driver cannot be unloaded: the kernel still counts references to it. The eGPU is left attached." end)
+              + (if ($r != null and $r.ok == false) then " The driver could not be loaded again after the failed unload; the eGPU may not work until you log out." else "" end)}')"
 }
 
 # _dev_restore_driver <unloaded> <rc>: the eject failed at the remove, after the
@@ -1095,8 +1195,26 @@ _dev_restore_driver() {
   case $rc in 2 | 3 | 126 | 127) return 0 ;; esac
   [[ $(jq -r '.error // empty' <<<"$keep" 2>/dev/null) == remove_timeout ]] && return 0
   say "Putting the driver back…"
+  _dev_load_back
+  return 0
+}
+
+# _dev_load_back: the driver put back (helper `load`) after an unload that was
+# only partly done, or a remove that failed. The result is looked at, not
+# ignored (M3): DEV_RESTORE is {ok, rc, error} for the answer's `restore`
+# field, and a failure is said on the terminal. The helper's answer to whatever
+# came before stays in DEV_ADMIN_OUT.
+_dev_load_back() {
+  local keep=$DEV_ADMIN_OUT rc
   _dev_admin load "$EGPU_BACKEND" >/dev/null
+  rc=$?
+  DEV_RESTORE=$(jq -c --argjson rc "$rc" '
+    if type == "object" then {ok: ($rc == 0 and .ok == true), rc: $rc, error: (.error // null)}
+    else {ok: false, rc: $rc, error: "unreadable"} end' <<<"$DEV_ADMIN_OUT" 2>/dev/null) ||
+    DEV_RESTORE=$(jq -cn --argjson rc "$rc" '{ok: false, rc: $rc, error: "unreadable"}')
   DEV_ADMIN_OUT=$keep
+  [[ $(jq -r '.ok' <<<"$DEV_RESTORE") == true ]] ||
+    say "The driver could not be put back (helper status $rc). The eGPU may not work until you log out."
   return 0
 }
 
@@ -1126,8 +1244,9 @@ _dev_eject_helper_fail() {
   if [[ $code == remove_timeout ]]; then
     _dev_notify "Do not unplug the eGPU" "The driver has not let go of the card. Save your work and log out; unplug after."
   fi
-  _dev_fail "$code" "$(jq -cn --arg v "$verb" --argjson h "$h" --argjson rc "$arc" '
+  _dev_fail "$code" "$(jq -cn --arg v "$verb" --argjson h "$h" --argjson rc "$arc" --argjson r "${DEV_RESTORE:-null}" '
     {step: $v, helper: $h, rc: $rc}
+    + (if $r != null then {restore: $r} else {} end)
     + (if $rc == 126 then {pkexec: 126, detail: "permission declined"}
        elif $rc == 127 then {pkexec: 127, detail: "not authorized"} else {} end)')" \
     "$( (( arc == 126 || arc == 127 )) && echo "$arc" || echo 1)"
