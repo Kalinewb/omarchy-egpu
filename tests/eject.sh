@@ -643,6 +643,26 @@ ej_test_late_modules() {
   ej_done
 }
 
+# Every error code lib/device.sh can answer has a sentence in common/Errors.js
+# (S3), except the ones listed here on purpose.
+ej_test_error_sentences() {
+  echo "${BOLD}errors: every device error code has a sentence in common/Errors.js${RESET}"
+  local codes code missing=() gap=' holders_failed ' known
+  # holders_failed: only the read-only `device holders` verb answers it; no sheet shows it.
+  codes=$(grep -ohE '(_dev_fail|json_error) [a-z_]+|code=[a-z_]+' "$REPO/lib/device.sh" | sed -E 's/^[a-z_]+[ =]//' | sort -u)
+  known=$(sed -n '/^var sentences = {/,/^}/p' "$REPO/common/Errors.js" | sed -nE 's/^[[:space:]]*([a-z_]+):.*/\1/p')
+  for code in $codes; do
+    grep -qxF -- "$code" <<<"$known" && continue
+    [[ $gap == *" $code "* ]] && continue
+    missing+=("$code")
+  done
+  if (( ${#missing[@]} == 0 )) && [[ -n $codes ]] && grep -qxF driver_in_use <<<"$known"; then
+    ok "all $(wc -w <<<"$codes") codes have a sentence (driver_in_use included)"
+  else
+    bad "no sentence in common/Errors.js for: ${missing[*]:-(none found: the extraction found no codes)}"
+  fi
+}
+
 ej_test_failures() {
   echo "${BOLD}eject: the helper's remove times out${RESET}"
   ej_new remove-timeout
@@ -829,6 +849,7 @@ test_eject() {
   ej_run ej_test_unload
   ej_run ej_test_display_safety
   ej_run ej_test_late_modules
+  ej_run ej_test_error_sentences
   ej_run ej_test_failures
   ej_run ej_test_rescan
   ej_run ej_test_holders_verb
