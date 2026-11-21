@@ -1087,6 +1087,14 @@ device_eject() {
   if (( arc != 0 )); then
     rm -f -- "$marker"
     _dev_restore_driver "$unloaded" "$arc"
+    # The helper (0.1.2) refuses to remove a card under a loaded driver. We
+    # unloaded it a moment ago, so something loaded it again in the gap: the
+    # same answer as our own check gave, driver_in_use, with the card still
+    # attached and in service (the put-back above has run).
+    if (( arc == 1 )) && [[ $(jq -r '.error // empty' <<<"$DEV_ADMIN_OUT" 2>/dev/null) == modules_loaded ]]; then
+      _dev_driver_in_use "$(_dev_modules_busy)" "$closed" "$DEV_ADMIN_OUT"
+      return
+    fi
     _dev_eject_helper_fail remove "$arc"
     return
   fi
@@ -1173,6 +1181,8 @@ _dev_driver_in_use() {
     | {names: $names, holders: $s, modules: $m, closed: $c, can_close: $can, session_holds: $session,
        shared_driver: $shared, display: $d, helper: $h, restore: $r,
        detail: (if $shared then "The driver is shared with another NVIDIA GPU in this machine, so it cannot be unloaded and the eGPU cannot be ejected safely. The eGPU is left attached."
+                elif (($h // {}).error == "modules_loaded")
+                then "The driver was loaded again just before the card was to be removed (\(($h.module // "?"))). The eGPU is left attached."
                 elif ($names | length) > 0
                 then "The driver cannot be unloaded: \($names | join(", ")) still use it. The eGPU is left attached."
                      + (if $can then " --close asks the apps it may to quit." else "" end)

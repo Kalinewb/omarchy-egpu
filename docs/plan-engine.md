@@ -42,7 +42,7 @@ Same as face:system/omarchy-face-admin:11-14.
 
 | module | codes |
 |---|---|
-| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing`; added in E5: `remove_failed` (the helper refused or failed during eject), `modules_held` and `rescan_failed` (rescan), `holders_failed` (`device holders`); added in 0.1.1: `driver_in_use` (eject: the driver cannot be unloaded, so the eGPU is left attached) |
+| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing`; added in E5: `remove_failed` (the helper refused or failed during eject), `modules_held` and `rescan_failed` (rescan), `holders_failed` (`device holders`); added in 0.1.1: `driver_in_use` (eject: the driver cannot be unloaded, so the eGPU is left attached; since 0.1.2 also the answer when the helper's `remove` refuses with `modules_loaded`, a module loaded again after the unload) |
 | display | `hdmi_still_active`, `unsafe_name` |
 | any backend call | `backend_stub` |
 | steam | `steam_not_found`, `account_not_found`, `steam_running`, `game_running`, `steam_close_timeout`, `vdf_parse_failed`, `vdf_check_failed`, `vdf_changed_underneath`, `token_modified`, `manual_offload`, `backup_failed` |
@@ -576,7 +576,16 @@ Order (REVISION 2026-10-09: display first):
    nothing (the card is in an unknown state, or gone).
 6. **Remove.** Run `pkexec omarchy-egpu-admin remove <bdf>`. The helper removes every
    function of the slot (GPU and HDMI audio). On `remove_timeout`, tell the user
-   **not** to unplug, and treat logging out as the recovery.
+   **not** to unplug, and treat logging out as the recovery. Since 0.1.2 the helper
+   itself refuses (`modules_loaded`) while any of the backend's allowlisted modules is
+   loaded: the polkit action is `allow_active`, so a hostile process of the same user
+   could otherwise remove the card under a loaded driver (the state that oopses the
+   next suspend) without going through this engine. The engine always unloads first, so
+   a normal eject never meets it; a module loaded again in the gap between the unload
+   and the remove makes the helper refuse, the driver is put back, and the answer is
+   `driver_in_use` (the same answer as the engine's own check: the card is attached and
+   in service, the helper's document is in `helper`, the sentence says the driver was
+   loaded again just before the card was to be removed).
 7. **Settle.** Wait for the card node and by-path link to disappear.
 8. If the modules are loaded again by now (the state a removed GPU oopses the next
    suspend in), `unload` is asked once more. If they stay, the answer is `modules_held`
@@ -1036,7 +1045,7 @@ handling, because unload is unsupported for them (§4.2).
 | `load <backend>` | `modprobe` the allowlisted set for that backend, in fixed order; clears the eject latch (the user connects) | a matching device exists in `/sys/bus/pci/devices` (never load with no card, binding fact 1) |
 | `load auto` | the same, backend from the device (the udev rule's call) | as above, and the eject latch does not name a present device on the same connection (`eject_latched`) |
 | `unload <backend>` | `modprobe -r` in fixed reverse order | no display device of that vendor exists that is not an eGPU (removable, not boot VGA; since 0.1.1 the eGPU itself may be on the bus: eject unloads before it removes), and every refcnt is accounted for by the allowlisted modules |
-| `remove <bdf>` | writes the eject latch, then `1` to `remove` for every function in that slot, in a child with a 20 s timeout | BDF matches `^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`, class 0x03xxxx, not `boot_vga`, `removable` = `removable`; no connector under the card's `drm/card*/card*-*/enabled` reads `enabled` (`monitor_active`) |
+| `remove <bdf>` | writes the eject latch, then `1` to `remove` for every function in that slot, in a child with a 20 s timeout | BDF matches `^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$` (the domain is four or more digits: Intel VMD), class 0x03xxxx, not `boot_vga`, `removable` = `removable`; no connector under the card's `drm/card*/card*-*/enabled` reads `enabled` (`monitor_active`); since 0.1.2 none of the backend's allowlisted modules is loaded (`modules_loaded`: the engine always unloads before it removes, and the polkit action is `allow_active`, so a hostile same-user process could otherwise remove the card under a loaded driver, the state that oopses the next suspend) |
 | `rescan` | writes `1` to `/sys/bus/pci/rescan` | — |
 | `holders` | read-only list of pids/comm/uid holding allowlisted nodes | — |
 | `inspect-initramfs` | read-only module list per image | — |

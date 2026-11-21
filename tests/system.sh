@@ -297,9 +297,23 @@ sy_test_remove() {
   sy_assert "  …removed nothing, latched nothing" test -d "$FX_PCI/$SY_EGPU" -a ! -e "$FX_ROOT/run/omarchy-egpu-admin.ejected"
   fx_connector "$SY_EGPU" card1 HDMI-A-2 connected disabled
 
+  # S-A (0.1.2): the driver must be unloaded first. Any allowlisted module
+  # loaded refuses the remove, whoever asks (the polkit action is allow_active).
+  local m
+  for m in nvidia nvidia_modeset nvidia_drm nvidia_uvm; do
+    fx_modules "$m"
+    sy_admin remove "$SY_EGPU"
+    sy_error "helper: remove with $m loaded" modules_loaded
+    jq -e ".device == \"$SY_EGPU\" and .module == \"$m\"" "$T/out.json" >/dev/null 2>&1 &&
+      ok "  …names the device and the module" || bad "  …names the device and the module: $(cat "$T/out.json")"
+    sy_assert "  …removed nothing, latched nothing" test -d "$FX_PCI/$SY_EGPU" -a -d "$FX_PCI/$SY_AUDIO" -a ! -e "$FX_ROOT/run/omarchy-egpu-admin.ejected"
+    fx_modules_remove "$m"
+  done
+  fx_modules nvidia_peermem snd_hda_intel          # not on the allowlist: not a reason to refuse
+
   # The eGPU: both functions go, audio first, GPU last.
   sy_admin remove "$SY_EGPU"
-  sy_check "helper: remove the eGPU removes every function of its slot" \
+  sy_check "helper: remove the eGPU removes every function of its slot (no allowlisted module loaded)" \
     ".ok == true and .device == \"$SY_EGPU\" and .removed == [\"$SY_AUDIO\", \"$SY_EGPU\"]"
   sy_assert "  …and they are gone from sysfs" test ! -e "$FX_PCI/$SY_EGPU" -a ! -e "$FX_PCI/$SY_AUDIO"
   sy_assert "  …the iGPU is untouched" test -d "$FX_PCI/$SY_IGPU"
@@ -587,8 +601,16 @@ sy_test_namespace() {
   sy_assert "  …the caller's modprobe never ran" test ! -e "$T/evil-path-ran"
   sy_assert "  …the action was logged (fake logger)" sy_log_has '^logger .*load nvidia'
   sy_kernel "$SY_EGPU" "$SY_AUDIO"
+  # S-A as uid 0: the modules `load nvidia` just loaded refuse the remove (the
+  # real-path /sys is read, not the decoy root), and unloading first allows it.
+  sy_ns remove "$SY_EGPU"
+  sy_error "namespace (uid 0): remove the eGPU with the driver loaded" modules_loaded
+  sy_assert "  …removed nothing" test -d "$FX_PCI/$SY_EGPU"
+  sy_ns unload nvidia
+  sy_check "namespace (uid 0): unload first" '.ok == true and (.unloaded | length) == 4'
   sy_ns remove "$SY_EGPU"
   sy_check "namespace (uid 0): remove the eGPU, ignoring the decoy test root" '.ok == true and (.removed | length) == 2'
+  fx_nvidia_modules
   sy_ns remove ../../../etc
   sy_error "namespace (uid 0): path traversal" bad_address
   printf 'touch %q\n' "$T/bash-env-ran" >"$T/bash-env"

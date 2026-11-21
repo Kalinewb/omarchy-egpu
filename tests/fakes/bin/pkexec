@@ -6,7 +6,8 @@
 # answer like a refused prompt instead. $EGPU_FAKE_DIR/pkexec-touch-<verb>
 # (the verb being $2, after the helper's path) holds a path the fake creates
 # just before it runs that verb: a test's way to change the world between two
-# of the engine's calls.
+# of the engine's calls; pkexec-mkdir-<verb> likewise makes a directory (a
+# module's /sys/module entry appearing between the engine's unload and remove).
 printf 'pkexec %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
 if [[ -r $EGPU_FAKE_DIR/pkexec-rc ]]; then
   exit "$(cat "$EGPU_FAKE_DIR/pkexec-rc")"
@@ -17,5 +18,8 @@ if [[ -z ${FX_ROOT:-} || ${1:-} != "$FX_ROOT"/* ]]; then
 fi
 if [[ -r $EGPU_FAKE_DIR/pkexec-touch-${2:-} ]]; then
   touch "$(cat "$EGPU_FAKE_DIR/pkexec-touch-$2")"
+fi
+if [[ -r $EGPU_FAKE_DIR/pkexec-mkdir-${2:-} ]]; then
+  mkdir -p -- "$(cat "$EGPU_FAKE_DIR/pkexec-mkdir-$2")"
 fi
 exec "$@"

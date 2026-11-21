@@ -52,7 +52,9 @@ script, the sleep guard (below): both await a security review before they are in
   turned the eGPU's monitors off it turns them back on (their workspaces stay on the laptop panel). If the driver
   is loaded again after the card was removed it unloads once more, and if that fails it says **do not suspend,
   log out first** (`modules_held`), never "Safe to unplug". This is a change from 0.1.0, which removed first and
-  left the driver loaded.
+  left the driver loaded. From 0.1.2 the helper's own `remove` also refuses (`modules_loaded`) while any of the
+  four NVIDIA modules is loaded, so another program of yours cannot remove the card under a loaded driver by
+  calling the helper directly; the engine unloads first, so a normal eject never meets it.
 - The **sleep guard** (`/usr/local/bin/omarchy-egpu-sleep-guard`, run before the NVIDIA sleep actions of
   `nvidia-suspend.service`, `nvidia-hibernate.service` and `nvidia-suspend-then-hibernate.service` by a drop-in
   in `/etc/systemd/system/`) is a **partial** net for a card that left without a safe eject (a cable pull, a

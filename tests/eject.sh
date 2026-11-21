@@ -457,6 +457,21 @@ ej_test_unload() {
     bash -c "[ -d '$FX_ROOT/sys/module/nvidia_uvm' ] && [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ]"
   ej_done
 
+  echo "${BOLD}eject: a module is loaded again between the unload and the remove (helper 0.1.2 refuses)${RESET}"
+  ej_new reload-gap
+  ej_ready
+  echo "$FX_ROOT/sys/module/nvidia_uvm" >"$EGPU_FAKE_DIR/pkexec-mkdir-remove"
+  ej --quiet
+  dv_error "the helper refuses the remove under a loaded module: the engine's own answer" driver_in_use
+  dv_check "the helper's refusal is attached, the sentence says the driver was loaded again" \
+    '.helper.error == "modules_loaded" and .helper.module == "nvidia_uvm" and (.detail | test("loaded again just before")) and .shared_driver == false'
+  dv_assert "unload, remove (refused), then the driver was put back" \
+    bash -c "[ \"\$(grep '^pkexec' '$EGPU_FAKE_LOG' | sed 's|$EGPU_ADMIN|H|' | paste -sd'|')\" = 'pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF|pkexec H load nvidia' ]"
+  dv_check "put back, and said so" '.restore == {ok: true, rc: 0, error: null}'
+  dv_assert "the card is still attached, nothing latched, no marker, the modules are loaded" \
+    bash -c "[ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ] && [ ! -e '$FX_ROOT/run/omarchy-egpu-admin.ejected' ] && [ -d '$FX_ROOT/sys/module/nvidia' ]"
+  ej_done
+
   echo "${BOLD}eject: the remove hangs after the unload: nothing more is touched${RESET}"
   ej_new remove-hangs
   ej_ready

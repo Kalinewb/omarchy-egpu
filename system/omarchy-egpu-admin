@@ -39,7 +39,10 @@
 #   remove <bdf>         writes 1 to `remove` for every function of the slot,
 #                        in a child with a 20 s deadline (remove_timeout).
 #                        Refused (monitor_active) while a connector of the
-#                        card is enabled. Writes the eject latch first
+#                        card is enabled, and (modules_loaded) while any
+#                        allowlisted module is loaded: unload first, a card
+#                        removed under a loaded driver oopses the next
+#                        suspend. Writes the eject latch first
 #   rescan               writes 1 to /sys/bus/pci/rescan. Refused while the
 #                        backend's modules are loaded with no card (O2)
 #   holders              read-only: pid/comm/uid of every process holding a
@@ -608,6 +611,15 @@ case $verb in
         [[ $(attr "$c/enabled") == enabled ]] &&
           die monitor_active "\"device\":$(json_string "$f"),\"connector\":$(json_string "${c##*/}")"
       done
+    done
+    # The driver must be unloaded first, as the engine's eject does: a card
+    # removed with the modules still loaded is the state that oopses the next
+    # suspend (nvidia_uvm writing through the removed GPU's BAR). The polkit
+    # action is allow_active, so this cannot rest on the engine having checked.
+    # A module loaded again in the gap between the engine's unload and here is
+    # refused too; the engine puts the driver back and reports a failed eject.
+    for m in "${MODULES[@]}"; do
+      module_loaded "$m" && die modules_loaded "\"device\":$(json_string "$bdf"),\"module\":$(json_string "$m")"
     done
     latch_write "$bdf"
     work_dir
