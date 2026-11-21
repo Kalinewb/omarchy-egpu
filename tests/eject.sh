@@ -472,6 +472,37 @@ ej_test_unload() {
     bash -c "[ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ] && [ ! -e '$FX_ROOT/run/omarchy-egpu-admin.ejected' ] && [ -d '$FX_ROOT/sys/module/nvidia' ]"
   ej_done
 
+  # Minor 6b: the driver was unloaded, then pkexec/the helper could not be used
+  # for the remove: the driver stays unloaded (no load is tried) and the answer
+  # says so, with the way back.
+  echo "${BOLD}eject: the unload worked, then polkit declines the remove: the answer says the driver is unloaded${RESET}"
+  ej_new remove-declined
+  ej_ready
+  echo 126 >"$EGPU_FAKE_DIR/pkexec-rc-remove"
+  ej --quiet
+  dv_error "the remove is declined" remove_failed 126
+  dv_check "driver_unloaded, and the sentence names Connect and the lid" \
+    '.driver_unloaded == true and .pkexec == 126 and (.detail | test("Press Connect") and test("open the lid") and test("unloaded"))'
+  dv_assert "unload, remove (declined); no load was tried; the card is attached, no marker" \
+    bash -c "[ \"\$(grep '^pkexec' '$EGPU_FAKE_LOG' | sed 's|$EGPU_ADMIN|H|' | paste -sd'|')\" = 'pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF' ] && [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ] && [ ! -d '$FX_ROOT/sys/module/nvidia' ]"
+  dv_assert "and said on the terminal" grep -q 'could not be loaded again' "$T/err"
+  ej_done
+  ej_new remove-busy
+  ej_ready
+  echo 3 >"$EGPU_FAKE_DIR/pkexec-rc-remove"
+  ej --quiet
+  dv_error "the helper is busy at the remove" busy 3
+  dv_check "busy says the driver is unloaded too" '.driver_unloaded == true and (.detail | test("Press Connect"))'
+  ej_done
+  echo "${BOLD}eject: a remove the helper itself fails keeps its put-back and says nothing of an unloaded driver${RESET}"
+  ej_new remove-fails-no-note
+  ej_ready
+  rm -f -- "${FX_PCI:?}/${EJ_BDF:?}/remove" "${FX_PCI:?}/0000:03:00.1/remove"
+  ej --quiet
+  dv_error "no remove attribute" remove_failed
+  dv_check "no driver_unloaded: it was put back" '(has("driver_unloaded") | not) and .restore.ok == true'
+  ej_done
+
   echo "${BOLD}eject: the remove hangs after the unload: nothing more is touched${RESET}"
   ej_new remove-hangs
   ej_ready
@@ -611,6 +642,23 @@ ej_test_display_safety() {
   dv_check "named as not restored, with the TV; the answer says so" \
     ".display.restored == [] and .display.restore_failed == [\"$DSP_TV\"]"
   dv_assert "the failure was said on the terminal" grep -q 'Could not turn on' "$T/err"
+  ej_done
+
+  # Minor 6a: the driver stops answering after the monitors went off: nothing is
+  # re-enabled on it (smi_hung joins holders_present in the no-restore list).
+  echo "${BOLD}eject: the driver hangs after the monitors were turned off: not restored${RESET}"
+  ej_new tv-smi-hung egpu-hdmi
+  ej_ready
+  ej_world_tv
+  # The first survey's holders call makes nvidia-smi hang for the second one (after the monitors are off).
+  echo "$EGPU_FAKE_DIR/smi-hang" >"$EGPU_FAKE_DIR/pkexec-touch-holders"
+  ej --quiet
+  dv_error "nvidia-smi hangs at the survey that follows the monitors going off" smi_hung
+  dv_check "the TV was turned off and the answer says so, with no restore attempted" \
+    ".display.off[0].description == \"$DSP_TV\" and (.display | has(\"restored\") | not)"
+  dv_assert "the TV is still off, no enable was sent" \
+    test "$(dsp_mon_field "$DSP_TV" .disabled)" = true
+  dv_assert "nothing was unloaded or removed" bash -c "! grep -qE '^pkexec .* (unload|remove) ' '$EGPU_FAKE_LOG'"
   ej_done
 
   echo "${BOLD}eject: holders_present keeps the monitors off (the convention)${RESET}"

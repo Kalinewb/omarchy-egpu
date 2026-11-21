@@ -133,7 +133,10 @@ _dev_admin_ready() {
   if [[ -n $reason ]]; then
     DEV_ADMIN_OUT=$(json_error helper_missing "$(jq -cn --arg r "$reason" --arg p "$EGPU_ADMIN" \
       --arg have "${have:-}" --arg want "$want" \
-      '{reason: $r, helper: $p, want: $want} + (if $have == "" then {} else {have: $have} end)')")
+      '{reason: $r, helper: $p, want: $want} + (if $have == "" then {} else {have: $have} end)
+       + {detail: (if $r == "version" then "The system helper is out of date (\(if $have == "" then "no answer" else $have end), this plugin needs \($want)). Reinstall the system half: Setup, or the install command in the README."
+                   elif $r == "no_pkexec" then "pkexec (polkit) is not installed, so the system helper cannot be run."
+                   else "The system helper is not installed. Install the system half: Setup, or the install command in the README." end)}')")
     return 2
   fi
   return 0
@@ -176,10 +179,11 @@ _dev_fail() {
   # monitors it turned off back on (S2). Not for the answers whose convention is
   # that they stay off (holders_present, hdmi_still_active: the next eject starts
   # from there), and not where the card is gone or in an unknown state
-  # (remove_timeout, modules_held).
+  # (remove_timeout, modules_held), and not where the driver is not answering
+  # (smi_hung): re-enabling a monitor on it would only hang on the same driver.
   if [[ ${DEV_FAIL_EVENT:-} == eject_failed ]]; then
     case $code in
-      holders_present | hdmi_still_active | remove_timeout | modules_held) ;;
+      holders_present | hdmi_still_active | remove_timeout | modules_held | smi_hung) ;;
       *) _dev_display_restore && extra=$(jq -c --argjson d "$DEV_DISPLAY" '. + {display: $d}' <<<"$extra") ;;
     esac
   fi
@@ -895,6 +899,7 @@ device_eject() {
   started=$(now_ms)
   DEV_FAIL_EVENT=eject_failed
   DEV_RESTORE=null
+  DEV_DRIVER_UNLOADED=0
 
   _dev_lock eject-check
   case $? in
@@ -1274,7 +1279,11 @@ _dev_driver_in_use() {
 _dev_restore_driver() {
   local unloaded=$1 rc=$2 keep=$DEV_ADMIN_OUT
   [[ $unloaded == true ]] || return 0
-  case $rc in 2 | 3 | 126 | 127) return 0 ;; esac
+  # The helper could not be asked (or polkit refused): the driver stays unloaded
+  # with the eGPU still attached. The answer says so (DEV_DRIVER_UNLOADED). No
+  # `load` is tried: after a refusal by polkit or a missing helper it would be
+  # refused the same way, and there is no bounded way to know otherwise.
+  case $rc in 2 | 3 | 126 | 127) DEV_DRIVER_UNLOADED=1; return 0 ;; esac
   [[ $(jq -r '.error // empty' <<<"$keep" 2>/dev/null) == remove_timeout ]] && return 0
   say "Putting the driver back…"
   _dev_load_back
@@ -1300,6 +1309,22 @@ _dev_load_back() {
   return 0
 }
 
+# _dev_note_unloaded <json>: when the eject unloaded the driver and then could not
+# ask the helper to remove (or put the driver back), the answer says so: the
+# card is still attached but the driver is gone, so with the lid closed and the
+# eGPU monitor the only screen the screen is blank. The sentence replaces any
+# `detail` (the pkexec ones say only that the call was refused) and names the
+# way back: Connect loads the driver, opening the lid lights the laptop panel.
+_dev_note_unloaded() {
+  if (( ${DEV_DRIVER_UNLOADED:-0} )); then
+    jq -c '. + {driver_unloaded: true,
+      detail: ((.detail // "") + (if (.detail // "") == "" then "" else ": " end)
+        + "The driver was unloaded for the eject and could not be loaded again, so the eGPU is connected but does not work and its monitors stay dark. Press Connect to load the driver again, or open the lid to use the laptop screen.")}' <<<"$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 # _dev_eject_helper_fail <verb> [status]: the helper's answer (to remove, holders
 # or unload) as eject's error.
 # helper_missing as such; pkexec's 126/127 (declined, not authorized) and 3
@@ -1309,12 +1334,15 @@ _dev_eject_helper_fail() {
   local verb=$1 arc=${2:-${DEV_ADMIN_RC:-1}} h code
   h=$(jq -c 'select(type == "object")' <<<"$DEV_ADMIN_OUT" 2>/dev/null) || h=''
   [[ -n $h ]] || h=null
+  if (( ${DEV_DRIVER_UNLOADED:-0} )); then
+    say "The driver was unloaded and could not be loaded again. The eGPU is still connected but does not work until you press Connect; open the lid to use the laptop screen."
+  fi
   if (( arc == 2 )); then
-    _dev_fail helper_missing "$(jq -c 'del(.error)' <<<"$DEV_ADMIN_OUT")"
+    _dev_fail helper_missing "$(_dev_note_unloaded "$(jq -c 'del(.error)' <<<"$DEV_ADMIN_OUT")")"
     return
   fi
   if (( arc == 3 )); then
-    _dev_fail busy '{"detail":"the helper is busy"}' 3
+    _dev_fail busy "$(_dev_note_unloaded '{"detail":"the helper is busy"}')" 3
     return
   fi
   code=remove_failed
@@ -1326,11 +1354,11 @@ _dev_eject_helper_fail() {
   if [[ $code == remove_timeout ]]; then
     _dev_notify "Do not unplug the eGPU" "The driver has not let go of the card. Save your work and log out; unplug after."
   fi
-  _dev_fail "$code" "$(jq -cn --arg v "$verb" --argjson h "$h" --argjson rc "$arc" --argjson r "${DEV_RESTORE:-null}" '
+  _dev_fail "$code" "$(_dev_note_unloaded "$(jq -cn --arg v "$verb" --argjson h "$h" --argjson rc "$arc" --argjson r "${DEV_RESTORE:-null}" '
     {step: $v, helper: $h, rc: $rc}
     + (if $r != null then {restore: $r} else {} end)
     + (if $rc == 126 then {pkexec: 126, detail: "permission declined"}
-       elif $rc == 127 then {pkexec: 127, detail: "not authorized"} else {} end)')" \
+       elif $rc == 127 then {pkexec: 127, detail: "not authorized"} else {} end)')")" \
     "$( (( arc == 126 || arc == 127 )) && echo "$arc" || echo 1)"
 }
 

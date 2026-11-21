@@ -20,7 +20,7 @@ var sentences = {
   holders_present: "Some apps are still using the eGPU.",
   driver_in_use: "The driver is still in use, so the eGPU was left connected. Do not unplug it. Close what is using it, or log out, then eject again.",
   remove_timeout: "Do not unplug. The driver has not let go of the card. Save your work and log out; unplug after.",
-  helper_missing: "The system helper is not installed. Open Setup to install it.",
+  helper_missing: "The system helper is not installed or out of date. Open Setup to install it.",
   remove_failed: "The eGPU could not be ejected. It is still connected; nothing was removed.",
   modules_held: "The driver is still loaded without the card. Do not suspend or sleep this computer: log out first.",
   rescan_failed: "The eGPU could not be reconnected. Unplug it and plug it in again.",

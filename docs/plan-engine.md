@@ -48,7 +48,11 @@ Same as face:system/omarchy-face-admin:11-14.
 | steam | `steam_not_found`, `account_not_found`, `steam_running`, `game_running`, `steam_close_timeout`, `vdf_parse_failed`, `vdf_check_failed`, `vdf_changed_underneath`, `token_modified`, `manual_offload`, `backup_failed` |
 
 `helper_missing` is reported when `/usr/local/bin/omarchy-egpu-admin` is absent or its
-`version` differs from the plugin's. The check happens before pkexec is called.
+`version` differs from the plugin's. The check happens before pkexec is called. The
+answer's `detail` says which (not installed, or out of date: have X, want Y) and, for an
+old helper, to reinstall the system half. A release that changes a root-owned file bumps
+the version for exactly this reason: 0.1.2 exists so the engine can tell the new helper
+and guard from the older one installed here, which reports the same number as 0.1.1.
 
 ---
 
@@ -541,7 +545,14 @@ terminals.
 
 Order (REVISION 2026-10-09: display first):
 
-1. Lock. Status must be `bound` or `ready`, or eject exits 0 with nothing to do.
+1. Lock. Status must be `bound` or `ready`, or eject exits 0 with nothing to do, with
+   one exception (0.1.2): with no card on the bus but the driver still loaded (a cable pull,
+   or this verb run again after `modules_held`, which is what the UI's "Try again" does),
+   the answer is never `already: true` / "Safe to unplug". The engine unloads once more
+   if nothing holds the modules (the helper is asked, `unload`), and answers the ordinary
+   `already: true` with `modules.unloaded: true` if that worked; otherwise `modules_held`
+   with `do_not_suspend: true`, the holders' names and a sentence that says not to
+   suspend, as at the end of a real eject.
 1b. **Checks that change nothing (0.1.1).** Holders are surveyed, and if no app that
    could be asked to quit is in the way but the modules are still held (only the shell,
    the compositor, incidental holders or kernel references), the answer is
@@ -628,6 +639,16 @@ Order (REVISION 2026-10-09: display first):
   `modules.unloaded` says the engine unloaded them. A machine with another NVIDIA GPU (the laptop's own) cannot
   unload the shared driver: the helper answers `device_present` and the eject answers
   `driver_in_use` with `shared_driver: true`.
+- 0.1.2: a remove that cannot be asked for after the unload worked (pkexec's 126 or 127, the
+  helper busy, or missing) leaves the driver **unloaded** with the eGPU still attached; no
+  `load` is tried, because after a refusal by polkit (or a missing helper) it would be
+  refused the same way and there is no bounded way to know otherwise. The answer says so:
+  `driver_unloaded: true` and a `detail` that names the way back (press Connect, which
+  loads the driver; open the lid to use the laptop screen: with the lid closed and the
+  eGPU monitor the only screen, the screen is blank until then). `smi_hung`, found after
+  the monitors were turned off, no longer tries to turn them back on (the driver is not
+  answering): like `holders_present`, it leaves them off and lists them in `display`.
+  `helper_missing` carries a `detail` that says to reinstall when the helper is out of date.
 - Before the remove the kernel's own `enabled` attribute of every connector must
   read disabled (the helper refuses `monitor_active` otherwise); a port still lit
   (also by the console with fbdev=1) is `hdmi_still_active`.
@@ -1225,7 +1246,11 @@ with root.
   `/var/run/nvidia-sleep/Xorg.vt_number`. In the driver, `nv_set_system_power_state`
   returns `NV_OK` immediately when the requested state equals the current one, and the
   state starts as `NV_POWER_STATE_RUNNING` (set in module init): `resume` with no
-  prior `suspend` touches no device, no UVM and takes no lock. So a resume after a
+  prior `suspend` touches no device and no UVM. It does take
+  `down(&nv_system_power_state_lock)` (`nv.c:4758`) before the equality check (`nv.c:4760`);
+  that semaphore is held only while a power transition runs, so with none in progress it
+  cannot block, and `nv_system_pm_lock`, the one the suspend path write-locks, is not
+  taken. So a resume after a
   skipped suspend is a no-op, not a hang or an oops, and no matching condition on the
   resume unit is needed. `uvm_suspend` is reached only through `nv_uvm_suspend` from
   that procfs write, and the device power-management callbacks (`nv_pmops_*`) only run
@@ -1236,7 +1261,9 @@ with root.
   drop-in can gate a package's sleep hook, so on a machine that really uses
   suspend-then-hibernate the later hibernate step can still reach the oops. Here
   `nvidia-suspend-then-hibernate.service` is `disabled` and nothing pulls it in, so this
-  is a known open item, not a case that occurs on this machine today.
+  is a known open item, not a case that occurs on this machine today. A user who sets
+  `HandleLidSwitch=suspend-then-hibernate` (or runs `systemctl suspend-then-hibernate`)
+  reaches that path and is not protected by the guard.
 
 **Bounds.**
 
@@ -1250,20 +1277,32 @@ with root.
   starts a child only to log, under the same deadline.
 - *What waits on it.* Systemd does: the unit is `Type=oneshot` and `Before=` the sleep
   service, so the sleep waits for it, up to those bounds (about 14 s, 20 s at the
-  `timeout`, 22 s with its kill grace). A child stuck in the kernel (uninterruptible)
-  cannot be killed by anything; it is left, and systemd waits for the unit's cgroup to
-  empty until `TimeoutStopSec` (5 s here), so the worst case is about 27 s and needs a
-  kernel that is already stuck. Systemd cleans up the unit's leftovers at the end of the
+  `timeout`, 22 s with its kill grace). The delay the guard adds to a sleep is bounded,
+  not nil: about 15 s in the typical worst case (a `modprobe` that never returns), 23 s
+  measured when the guard ignores SIGTERM and `timeout` has to send SIGKILL, and about
+  32 s if a process stuck in the kernel (uninterruptible) makes systemd spend two 5 s
+  stop phases (`TimeoutStopSec` is 5 s here; read from the unit semantics, **not
+  tested**). Such a child cannot be killed by anything; it is left, and systemd waits for
+  the unit's cgroup to empty. Systemd cleans up the unit's leftovers at the end of the
   unit; the guard's children are in their own sessions, so `timeout`'s process-group
   kill does not reach them, the cgroup does.
-- *Every failure of the script is exit 0 for the sleep's purposes.* Step 1 ends in
-  exit 0 on every path and its line has a `-`. Step 2's exit status is decided in one
-  place, an `EXIT` trap, which returns 1 only after the verdict set `SKIP=1` and 0 on
-  every other way out (an unset variable, a failed builtin, a signal bash can catch).
-  An uncatchable kill (SIGKILL, the OOM killer) would be a unit failure, which does not
-  block the sleep (above) but also does not run the NVIDIA actions. A syntax error in the
-  file exits 2, a skip: which is why the file is pinned and health compares it with the
-  plugin's copy (`system.helper`, M8).
+- *What a bad end of the script does to the sleep.* It never fails or blocks the sleep
+  itself; the worst a bad end does is fail or skip the NVIDIA unit, a `Wants=` of the sleep
+  service, i.e. the sleep without the NVIDIA actions. Step 1 ends in exit 0 on every path
+  it controls and its line has a `-`. Step 2's exit status is decided in one place, an
+  `EXIT` trap, which returns 1 only after the verdict set `SKIP=1` and 0 on every other
+  way out the shell can see: an unset variable, a failed builtin, and (0.1.2) SIGTERM,
+  SIGHUP and SIGINT, which now have a trap that exits 0. Before 0.1.2 the claim "every end
+  is exit 0" was wrong: bash runs the `EXIT` trap and then dies by the signal, so SIGTERM
+  gave 143 and SIGHUP 129 (measured by the second security review), which fails the unit
+  (no NVIDIA actions: the same effect as a skip, minus the log line). Not covered: an
+  uncatchable kill (SIGKILL, the OOM killer) is a unit failure, and a syntax error in the
+  file exits 2 at the parse, before any trap exists, which is a skip (health compares the
+  file with the plugin's copy, `system.helper`, M8). Only root and systemd can send the
+  guard a signal; an unprivileged user cannot. The new trap is tested with real signals
+  (`tests/system.sh`, the guard group), except SIGINT: a background process of a
+  non-interactive shell starts with SIGINT ignored, which bash does not let a script trap,
+  so the test cannot send it (under systemd it is not ignored).
 
 **Threat model.**
 
@@ -1307,15 +1346,48 @@ with root.
   `load` or `unload` that runs at the instant the system goes to sleep. Both only load
   or unload the same four modules, so the worst case is one of them reporting a module
   busy or already gone. Documented, not changed.
+- *Test-mode overrides.* `EGPU_GUARD` and `EGPU_SYSTEMD_DIR` (`lib/common.sh`) exist only
+  when `OMARCHY_EGPU_TEST=1`, the test suite's switch; otherwise the guard and the drop-in
+  directory are the fixed `/usr/local/bin/omarchy-egpu-sleep-guard` and
+  `/etc/systemd/system`. They are used only by `lib/health.sh`, read-only (`stat`,
+  `sha256sum`, comparing bytes with the plugin's copy); the engine never runs the guard.
+- *Audit lines.* The helper's `unload_refused` lines (the journal line for a refused
+  `unload`) are not tested directly: `audit` is a no-op in the helper's test mode (no
+  `logger` outside the namespace group). The namespace group (uid 0, fake `logger`) does
+  check that a refusal is logged (`unload nvidia: refused (modules_in_use`). Documented,
+  no test seam added.
+- *An external bound on `--check`: considered, not shipped.* `ExecCondition=/usr/bin/timeout
+  -k 1 10 .../omarchy-egpu-sleep-guard --check` with `SuccessExitStatus=203 124 137` would
+  make a timed-out check mean "proceed". Verified with `systemd-run --user` transient units
+  that the mechanics work (exit 124 with `SuccessExitStatus=124` proceeds; exit 1 still
+  skips; without it a 124 skips) and why it was not shipped: (1) `SuccessExitStatus=` is
+  per unit, not per line, so it also applies to the unit's own `ExecStart`
+  (`nvidia-sleep.sh`): checked, an `ExecStart` exiting 124 then counts as success, hiding
+  a real timeout of the NVIDIA actions; (2) when `timeout` has to use its kill grace it
+  kills itself with SIGKILL, which systemd sees as death by a signal (result `signal`: a
+  failure), not exit 137, so `137` in the list does not help and `KILL` would hide a real
+  kill of the NVIDIA actions as well; (3) `--check` is already bounded inside (builtin
+  reads of sysfs, and at most `LOG_BUDGET` seconds of logging), so the only remaining hang
+  is a read of a wedged device's attribute in uninterruptible sleep, which no signal ends,
+  so the wrapper would not fire when it matters. `TimeoutStartSec` is never set on the
+  unit: `nvidia-sleep.sh` can legitimately take long.
+
 - *Residual risk.* A false "no NVIDIA GPU on the bus" while a GPU is present (a PCI
-  enumeration glitch during suspend) would, in step 1, unload a driver that is not in
-  use (the kernel refuses if anything holds it; `modprobe` reloads on next use) and, in
-  step 2, skip the NVIDIA suspend of a GPU that needs it: the verdict acts only on a
-  bus it read completely, every device classified, with no NVIDIA display device in
-  it, but a glitch that dropped one device from the listing would look the same. Unloading
-  the modules of a removed GPU, and the skip, are **unverified** on hardware: the unload
-  is the order EGPU-Buddy uses, the oops is on the suspend path and the skip removes that
-  path, but none of it was run here.
+  enumeration glitch at the instant of the check) would, in step 1, unload a driver that is
+  not in use (the kernel refuses if anything holds it; `modprobe` reloads on next use) and, in
+  step 2, skip the NVIDIA suspend of a GPU that needs it. The consequence is worse than a
+  missed VT switch. On this machine `/etc/modprobe.d/nvidia.conf` sets
+  `NVreg_PreserveVideoMemoryAllocations=1`; for a GPU that is bound (open, or with persistent state) and suspended without the
+  `/proc/driver/nvidia/suspend` write the skip leaves out, `nvidia_suspend` returns
+  `NV_ERR_NOT_SUPPORTED` (`nv.c:4517-4526`) and `nv_pmops_suspend` returns `-EIO`
+  (`nv.c:4798-4807`), so the kernel **aborts the sleep** (an abort, not a hang: the
+  computer stays up and the sleep is refused). It needs the
+  glitch to fall at the instant of the check. The verdict acts only on a bus it read
+  completely, every device classified, with no NVIDIA display device in it, but a glitch
+  that dropped one device from the listing would look the same. Unloading the modules of a
+  removed GPU, and the skip, are **unverified** on hardware: the unload is the order
+  EGPU-Buddy uses, the oops is on the suspend path and the skip removes that path, but none
+  of it was run here.
 
 
 ---

@@ -246,7 +246,7 @@ dv_test_helper() {
   rm -f -- "$EGPU_ADMIN"
   dv_connect --quiet --timeout 2
   dv_error "no helper" helper_missing
-  dv_check "reason not_installed, names the helper path" ".reason == \"not_installed\" and .helper == \"$EGPU_ADMIN\""
+  dv_check "reason not_installed, names the helper path" ".reason == \"not_installed\" and .helper == \"$EGPU_ADMIN\" and (.detail | test(\"not installed\"))"
   dv_assert "pkexec never called" bash -c "! grep -q '^pkexec' '$EGPU_FAKE_LOG'"
   dv_done
 
@@ -257,6 +257,7 @@ dv_test_helper() {
   dv_connect --quiet --timeout 2
   dv_error "helper version differs from the plugin's" helper_missing
   dv_check "reason version, both versions named" '.reason == "version" and .have == "0.0.0-old"'
+  dv_check "the detail says to reinstall (0.1.2: an older helper must not be mistaken for the new one)" '.detail | test("out of date") and test("Reinstall")'
   dv_assert "pkexec never called" bash -c "! grep -q '^pkexec' '$EGPU_FAKE_LOG'"
   dv_done
 

@@ -85,7 +85,7 @@ export LC_ALL=C
 VERSION=0.1.1
 RAW_URL=https://raw.githubusercontent.com/Kalinewb/omarchy-egpu
 PLUGIN_ID=kalinewb.egpu
-BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+BDF_RE='^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
 
 # The files root installs, by their name in system/. Each must hash to its pin
 # below; there is no other list, so a name missing here is never copied.
@@ -97,8 +97,8 @@ declare -A PINS=(
   [no.kalinewb.egpu.policy]=b8bbe2b6c2b633ed407f486be9cdf071ad9b15aa578af85051b4fffbbe60af74
   [61-omarchy-egpu.rules]=e9c95c46641ade3f860ca47e35010b50699745a66133028ba9df40a273e20b4b
   [omarchy-egpu-modules.conf]=0c286ef1856803955ce50ab600f5372258b995cd9c5d58d8966bced39442e6ed
-  [omarchy-egpu-sleep-guard]=9fefd81bcf231522b70618214ef125b639fbd2c4366c602e4b6b866994c1c00b
-  [omarchy-egpu-sleep-guard.conf]=52ef32567947e043d2d73f8e49a00e3db12d5c5a565b431539569e6bf701827b
+  [omarchy-egpu-sleep-guard]=c2f288126309fefc41d693c2a3216b3886f78a7261981a36cba01322879bd8d8
+  [omarchy-egpu-sleep-guard.conf]=df9dfb14e6a45da356909be2c0a1c7b35f819c7ba619359596f29fa7986c168a
 )
 # pins:end
 

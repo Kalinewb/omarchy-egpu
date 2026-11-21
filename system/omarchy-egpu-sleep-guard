@@ -46,8 +46,11 @@
 # "resume" to /proc/driver/nvidia/suspend and restores a VT only if a suspend
 # wrote its VT file. The driver (nv_set_system_power_state in nv.c) starts in
 # the RUNNING state and returns NV_OK at once for "resume" when it is already
-# RUNNING: no device or UVM resume, no lock taken. A resume after a skipped
-# suspend is therefore a no-op, not a hang. The only other paths into
+# RUNNING: no device or UVM resume. It does take down(&nv_system_power_state_lock)
+# first (nv.c:4758, before the equality check at 4760), a semaphore held only
+# while a power transition runs, so with no transition in progress it cannot
+# block; nv_system_pm_lock, the one the suspend path write-locks, is not taken.
+# A resume after a skipped suspend is therefore a no-op, not a hang. The only other paths into
 # nv_uvm_suspend are device power-management callbacks, and with no NVIDIA
 # device on the bus there is no device to call them for.
 #
@@ -72,14 +75,24 @@
 #     `modprobe -r` on each loaded module in the fixed reverse order, nvidia_uvm
 #     first, and step 2 skips the NVIDIA sleep actions if any is still loaded
 #
-# Nothing here fails the sleep. Step 1 ends in exit 0 on every path, and the
-# unit's `-` ignores any other status. Step 2 exits 0 or 1 by an EXIT trap that
-# turns every other end (an unset variable, a failed builtin, a signal that can
-# be caught) into 0; only a deliberate SKIP=1 gives 1. A failed start of the
-# script (not found, not executable) is status 203, which the drop-in's
-# SuccessExitStatus=203 makes "go on" (verified in a user manager: without it a
-# missing file would skip the unit; ExecCondition= exit 255 or a signal would
-# fail it, which still only fails the NVIDIA unit, a Wants= of the sleep).
+# What the guard does to a sleep, exactly. It never fails or blocks the sleep
+# itself: the worst a bad end can do is fail or skip the NVIDIA unit, a Wants= of
+# the sleep service, which is the same as the sleep without the NVIDIA actions
+# (not what an unguarded sleep does, but never worse than the oops it is for).
+# Step 1 ends in exit 0 on every path it controls, and the unit's `-` ignores any
+# other status. Step 2 exits 0 or 1 by an EXIT trap that turns every other end
+# the shell can see (an unset variable, a failed builtin, SIGTERM, SIGHUP and
+# SIGINT, which have a trap that exits 0: bash otherwise runs the EXIT trap and
+# then dies by the signal, status 143 / 129, which fails the unit) into 0; only
+# a deliberate SKIP=1 gives 1. Not covered, and measured or read, not fixed: a
+# SIGKILL or the OOM killer (a failed unit), and a syntax error in this file
+# (bash exits 2 at the parse, before any trap exists: a skip, which is why the
+# file is pinned and health compares it with the plugin's copy). Only root and
+# systemd can send a signal to it. A failed start of the script (not found, not
+# executable) is status 203, which the drop-in's SuccessExitStatus=203 makes "go
+# on" (verified in a user manager: without it a missing file would skip the unit;
+# ExecCondition= exit 255 or a signal would fail it, which still only fails the
+# NVIDIA unit).
 #
 # Bounds a security review should check, all in this text:
 #
@@ -90,8 +103,12 @@
 #     and the drop-in's `timeout -k 2 20` kills the guard and its group at 20 s
 #     (the units are Type=oneshot with TimeoutStartSec=infinity: nothing else
 #     would). A child stuck in the kernel (state D) cannot die; systemd waits
-#     for the unit's cgroup to be empty until its TimeoutStopSec (5 s here), so
-#     the worst case is about 27 s, and only with a kernel that is already stuck.
+#     for the unit's cgroup to be empty until its TimeoutStopSec (5 s here). The
+#     delay the guard adds to a sleep is therefore bounded, not nil: about 15 s
+#     in the typical worst case (a modprobe that never returns), 23 s measured
+#     when the guard ignores SIGTERM and `timeout` has to send SIGKILL, and about
+#     32 s if a process stuck in the kernel makes systemd spend two 5 s stop
+#     phases (read from the unit semantics, not tested).
 #   * No argument, no input and no environment variable is read as root. The
 #     only argument is the constant `--check`, compared as a string; anything
 #     else does nothing. It takes no verb, no path and no module name; the module
@@ -148,6 +165,7 @@ export LC_ALL=C
 # other way out, including an error nobody foresaw.
 SKIP=0
 trap 'if ((SKIP == 1)); then exit 1; else exit 0; fi' EXIT
+trap 'exit 0' TERM HUP INT
 
 cd / 2>/dev/null || exit 0
 

@@ -261,6 +261,17 @@ sy_test_remove() {
   sy_admin remove 10000:e0:06.0
   sy_error "helper: remove a VMD-domain address (10000:e0:06.0) is an address, refused as not an eGPU" not_egpu
   fx_pci_remove 10000:e0:06.0
+  # M1: the engine's by-path parse (config primary.bypath) takes a wide domain too.
+  mkdir -p "$(dirname -- "$EGPU_CONFIG")"
+  printf '{"primary":{"bypath":"pci-10000:e0:06.0-card"}}\n' >"$EGPU_CONFIG"
+  sy_assert "common: pci_primary reads pci-10000:e0:06.0-card from the config as 10000:e0:06.0" \
+    bash -c 'source "$1/lib/common.sh" && [[ $(pci_primary) == 10000:e0:06.0 ]]' _ "$REPO"
+  printf '{"primary":{"bypath":"pci-10000:e0:06.0-card"}}\n' | sed 's/10000/1000/' >"$EGPU_CONFIG"
+  sy_assert "  …and a four-digit domain still" bash -c 'source "$1/lib/common.sh" && [[ $(pci_primary) == 1000:e0:06.0 ]]' _ "$REPO"
+  printf '{"primary":{"bypath":"pci-10:e0:06.0-card"}}\n' >"$EGPU_CONFIG"
+  sy_assert "  …a three-digit one is not an address (falls back to the boot VGA device)" \
+    bash -c 'source "$1/lib/common.sh" && [[ $(pci_primary) == 0000:00:02.0 ]]' _ "$REPO"
+  rm -f -- "$EGPU_CONFIG"
   sy_admin remove "$SY_IGPU"
   sy_error "helper: remove the iGPU" not_egpu
   sy_check_reason() { jq -e --arg r "$1" '.reason == $r' "$T/out.json" >/dev/null 2>&1 && ok "  …reason $1" || bad "  …reason: $(cat "$T/out.json")"; }
@@ -1068,6 +1079,26 @@ sy_test_guard() {
   rm -f "$EGPU_FAKE_DIR/logger-hang"
   fx_modules_remove nvidia_uvm nvidia_drm nvidia_modeset nvidia
 
+  # M1 (round 3): a signal that bash can catch ends the guard with 0 (an EXIT
+  # trap alone left 143 for SIGTERM and 129 for SIGHUP: the unit then fails), or 1
+  # if the verdict was already SKIP. Real signals, sent to a guard that is
+  # waiting on a hung child. tests/guard-signal.py.
+  local sig got
+  for sig in SIGTERM SIGHUP SIGINT; do
+    fx_nvidia_modules
+    touch "$EGPU_FAKE_DIR/modprobe-hang"
+    got=$(OMARCHY_EGPU_GUARD_TEST_ROOT="$FX_ROOT" OMARCHY_EGPU_GUARD_TEST_DEADLINE=6 timeout 30 python3 -I "$TESTS/guard-signal.py" "$SY_GUARD" "$sig" unload)
+    sy_assert "guard: $sig while waiting on a hung modprobe: exit 0, not the signal's 128+n" test "$got" = 0
+    rm -f "$EGPU_FAKE_DIR/modprobe-hang"
+    fx_nvidia_modules
+    touch "$EGPU_FAKE_DIR/logger-hang"
+    got=$(OMARCHY_EGPU_GUARD_TEST_ROOT="$FX_ROOT" OMARCHY_EGPU_GUARD_TEST_DEADLINE=6 timeout 30 python3 -I "$TESTS/guard-signal.py" "$SY_GUARD" "$sig" check)
+    sy_assert "guard --check: $sig after the verdict was SKIP (waiting on its log line): still 1, the skip stands" test "$got" = 1
+    rm -f "$EGPU_FAKE_DIR/logger-hang"
+    sy_done
+    fx_modules_remove nvidia_uvm nvidia_drm nvidia_modeset nvidia
+  done
+
   # S4: a modprobe that has a child of its own (the fake starts a sleep 30
   # that outlives it) is killed as a whole group at the deadline.
   fx_nvidia_modules
@@ -1577,6 +1608,11 @@ i2c-dev'
   sy_check "install: --primary picks one" '.primary == "0000:00:02.0"'
   sy_install --yes --primary 0000:03:00.0 install "$T/plugin" "$me"
   sy_error "install: --primary that does not exist" no_primary
+  # M1: a wider domain (Intel VMD) is an address for --primary and for the detection.
+  fx_pci 10000:e0:06.0 0x030000 0x8086 0x1234 boot_vga=1
+  sy_install --yes --primary 10000:e0:06.0 install "$T/plugin" "$me"
+  sy_check "install: --primary 10000:e0:06.0 (VMD domain) is accepted" '.primary == "10000:e0:06.0"'
+  fx_pci_remove 10000:e0:06.0
 
   # A hand-edited installed rule is not deleted by uninstall.
   printf '# my own rule now\n' >"$FX_ROOT/etc/udev/rules.d/61-omarchy-egpu.rules"

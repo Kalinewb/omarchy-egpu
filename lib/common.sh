@@ -172,7 +172,7 @@ pci_egpu_candidates() {
 pci_primary() {
   local bypath bdf
   bypath=$(config_str primary.bypath "")
-  if [[ $bypath =~ ^pci-([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])-card$ ]]; then
+  if [[ $bypath =~ ^pci-([0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])-card$ ]]; then
     printf '%s\n' "${BASH_REMATCH[1]}"
     return 0
   fi

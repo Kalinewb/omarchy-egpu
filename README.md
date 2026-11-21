@@ -51,7 +51,8 @@ script, the sleep guard (below): both await a security review before they are in
   eject say so until you log out or close it. It checks that before it touches a monitor, and if it fails after it
   turned the eGPU's monitors off it turns them back on (their workspaces stay on the laptop panel). If the driver
   is loaded again after the card was removed it unloads once more, and if that fails it says **do not suspend,
-  log out first** (`modules_held`), never "Safe to unplug". This is a change from 0.1.0, which removed first and
+  log out first** (`modules_held`), never "Safe to unplug"; so does an eject run again with no card and the driver
+  still loaded (it unloads once more if nothing holds the driver). This is a change from 0.1.0, which removed first and
   left the driver loaded. From 0.1.2 the helper's own `remove` also refuses (`modules_loaded`) while any of the
   four NVIDIA modules is loaded, so another program of yours cannot remove the card under a loaded driver by
   calling the helper directly; the engine unloads first, so a normal eject never meets it.
@@ -66,9 +67,13 @@ script, the sleep guard (below): both await a security review before they are in
   suspends, without them. Log out and unload the modules (`sudo modprobe -r nvidia_uvm nvidia_drm
   nvidia_modeset nvidia`) when it says so. With an NVIDIA GPU on the bus the guard does nothing; so on a hybrid
   laptop with a working NVIDIA GPU it never acts, and ejecting an eGPU there answers `shared_driver` (the
-  driver is shared, so it cannot be unloaded). It never blocks or fails a sleep. Not covered: the
-  suspend-then-hibernate path in `/usr/lib/systemd/system-sleep/nvidia`, which writes to the driver outside
-  any unit. The guard does not take the helper's lock, and `modprobe -r` also removes dependencies nothing
+  driver is shared, so it cannot be unloaded). It bounds the delay it adds to a sleep (about 15 s in the typical
+  worst case, 23 s measured when the guard ignores SIGTERM, about 32 s if a process stuck in the kernel costs two
+  5 s stop phases, which was not tested); a signal that kills it fails the NVIDIA unit, not the sleep. Not
+  covered: the suspend-then-hibernate path in `/usr/lib/systemd/system-sleep/nvidia`, which writes to the driver
+  outside any unit; a user who sets `HandleLidSwitch=suspend-then-hibernate` reaches it and is not protected.
+  (A rare false "no NVIDIA GPU" at the instant of the check would skip the NVIDIA suspend of a working GPU, and
+  with `NVreg_PreserveVideoMemoryAllocations=1` the kernel then aborts that sleep: an abort, not a hang.) The guard does not take the helper's lock, and `modprobe -r` also removes dependencies nothing
   else uses (`video`, `drm_ttm_helper`). Its log lines carry the tag `omarchy-egpu-sleep-guard`; the journal
   does not authenticate a tag, so read them with `journalctl -t omarchy-egpu-sleep-guard _UID=0`. Threat
   model and what was and was not verified: `docs/plan-engine.md` §10.5.

@@ -8,6 +8,8 @@
 # just before it runs that verb: a test's way to change the world between two
 # of the engine's calls; pkexec-mkdir-<verb> likewise makes a directory (a
 # module's /sys/module entry appearing between the engine's unload and remove).
+# pkexec-rc-<verb> holds an exit status for that verb alone (a polkit refusal
+# of one verb after the others worked).
 printf 'pkexec %s\n' "$*" >>"${EGPU_FAKE_LOG:-/dev/null}"
 if [[ -r $EGPU_FAKE_DIR/pkexec-rc ]]; then
   exit "$(cat "$EGPU_FAKE_DIR/pkexec-rc")"
@@ -15,6 +17,9 @@ fi
 if [[ -z ${FX_ROOT:-} || ${1:-} != "$FX_ROOT"/* ]]; then
   echo "fake pkexec: refusing ${1:-nothing}: not in the fixture tree" >&2
   exit 127
+fi
+if [[ -r $EGPU_FAKE_DIR/pkexec-rc-${2:-} ]]; then
+  exit "$(cat "$EGPU_FAKE_DIR/pkexec-rc-$2")"
 fi
 if [[ -r $EGPU_FAKE_DIR/pkexec-touch-${2:-} ]]; then
   touch "$(cat "$EGPU_FAKE_DIR/pkexec-touch-$2")"

@@ -197,3 +197,17 @@ The engine and the shared sentence now say "do not suspend" for `modules_held`. 
 
 Also from 0.1.2, `device eject` can answer `driver_unloaded: true` on a `remove_failed`/`busy`/`helper_missing`
 answer: see "driver_unloaded" below; the UI should show its `detail` there and a Connect button.
+
+## `driver_unloaded` (0.1.2, `device eject`)
+
+When the driver was unloaded for the eject and the engine then could not ask the helper to remove the card or to put the
+driver back (pkexec exit 126 or 127, the helper busy, or helper_missing), the eGPU is still attached but its driver is
+gone, so its monitors stay dark. The error answer (`remove_failed` with `pkexec: 126/127`, `busy`, or `helper_missing`)
+now carries `driver_unloaded: true` and a `detail` that says so: "The driver was unloaded for the eject and could not be
+loaded again, so the eGPU is connected but does not work and its monitors stay dark. Press Connect to load the driver
+again, or open the lid to use the laptop screen." The UI should show `detail` (not the generic sentence) and make
+Connect the primary action when `driver_unloaded` is true. The engine does not try to `load` again in this state: polkit
+just refused.
+
+`helper_missing` also carries a `detail` now ("The system helper is out of date (0.1.1, this plugin needs 0.1.2).
+Reinstall the system half..."), and `Errors.sentences.helper_missing` says "not installed or out of date".
