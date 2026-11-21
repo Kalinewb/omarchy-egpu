@@ -8,7 +8,7 @@
 #
 #   /usr/local/bin/omarchy-egpu-admin                    the root helper
 #   /usr/local/bin/omarchy-egpu-sleep-guard              unloads a stale driver before sleep
-#   /etc/systemd/system/nvidia-{suspend,hibernate}.service.d/omarchy-egpu-sleep-guard.conf
+#   /etc/systemd/system/nvidia-{suspend,hibernate,suspend-then-hibernate}.service.d/omarchy-egpu-sleep-guard.conf
 #                                                        runs the guard before those units
 #   /usr/share/polkit-1/actions/no.kalinewb.egpu.policy  its polkit actions
 #   /etc/udev/rules.d/61-omarchy-egpu.rules              links + auto-connect
@@ -97,8 +97,8 @@ declare -A PINS=(
   [no.kalinewb.egpu.policy]=b8bbe2b6c2b633ed407f486be9cdf071ad9b15aa578af85051b4fffbbe60af74
   [61-omarchy-egpu.rules]=e9c95c46641ade3f860ca47e35010b50699745a66133028ba9df40a273e20b4b
   [omarchy-egpu-modules.conf]=0c286ef1856803955ce50ab600f5372258b995cd9c5d58d8966bced39442e6ed
-  [omarchy-egpu-sleep-guard]=0b684ee95783baffec86a201efe167a09564d47e455b21971898632a350b5182
-  [omarchy-egpu-sleep-guard.conf]=c3fa920bf85bd966a0aa5e430a1808e1918abb727d8e51065dabb5da41538e2a
+  [omarchy-egpu-sleep-guard]=9fefd81bcf231522b70618214ef125b639fbd2c4366c602e4b6b866994c1c00b
+  [omarchy-egpu-sleep-guard.conf]=52ef32567947e043d2d73f8e49a00e3db12d5c5a565b431539569e6bf701827b
 )
 # pins:end
 
@@ -242,7 +242,7 @@ HELPER=$BIN_DIR/omarchy-egpu-admin
 GUARD=$BIN_DIR/omarchy-egpu-sleep-guard
 # The sleep guard's drop-ins: the same bytes under each NVIDIA sleep unit.
 SYSD_DIR=$R/etc/systemd/system
-DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service)
+DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service)
 DROPINS=()
 for _u in "${DROPIN_UNITS[@]}"; do DROPINS+=("$SYSD_DIR/$_u.d/omarchy-egpu-sleep-guard.conf"); done
 unset _u

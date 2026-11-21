@@ -3,12 +3,15 @@
 # omarchy-egpu system half
 # omarchy-egpu-version: 0.1.1
 #
-# The sleep guard. Run as root by systemd, before the NVIDIA sleep actions:
+# The sleep guard. Run as root by systemd, as ExecCondition= lines of the NVIDIA
+# sleep units, before their sleep actions:
 #
 #   /etc/systemd/system/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf
-#   /etc/systemd/system/nvidia-hibernate.service.d/omarchy-egpu-sleep-guard.conf
+#   (the same bytes under nvidia-hibernate and nvidia-suspend-then-hibernate)
 #   [Service]
-#   ExecStartPre=-/usr/local/bin/omarchy-egpu-sleep-guard
+#   SuccessExitStatus=203
+#   ExecCondition=-/usr/bin/timeout -k 2 20 /usr/local/bin/omarchy-egpu-sleep-guard
+#   ExecCondition=/usr/local/bin/omarchy-egpu-sleep-guard --check
 #
 # Why: when the eGPU leaves the PCI bus (a cable pull, an unplug, a crash, or
 # any removal the plugin did not do itself) and the NVIDIA modules stay loaded,
@@ -19,46 +22,108 @@
 # plugin unloads the modules before it removes the card, so it never leaves that
 # state; this is the net for the removals it never saw.
 #
+# THE CONDITION, plainly: the guard can unload the modules only when nothing
+# holds them. modprobe -r refuses a module with a non-zero refcount, and on a
+# desktop session the refcount is rarely zero: the compositor, the shell, Electron
+# apps and the like keep /dev/nvidia* open all session. So after a cable pull the
+# unload often fails. That is why there are two steps:
+#
+#   1. no argument: try to unload (below). Never fails, any status is ignored
+#      (the leading `-`), hard-bounded by /usr/bin/timeout.
+#   2. --check: the verdict. Exit 1 ONLY when the modules are still loaded and
+#      the bus positively shows no NVIDIA display GPU; systemd then skips the
+#      whole unit (ExecCondition=: exit 1 to 254 skips it without a failure),
+#      so /proc/driver/nvidia/suspend is not written and the oops does not
+#      happen. Every other case, and every error of the script itself, is exit
+#      0 and the sleep actions run as they would without the guard. The cost of
+#      the skip: no VT switch and no NVIDIA suspend for a driver that has no GPU
+#      left to suspend. The cost of not skipping is the oops.
+#
+# Why the skip is safe for the resume side (read, not run: /usr/bin/nvidia-sleep.sh
+# and the 580.178.04 driver source in /usr/src; docs/plan-engine.md 10.5):
+# nvidia-resume.service is unconditional and runs `nvidia-sleep.sh resume` (and
+# so does the "post" case of /usr/lib/systemd/system-sleep/nvidia), which writes
+# "resume" to /proc/driver/nvidia/suspend and restores a VT only if a suspend
+# wrote its VT file. The driver (nv_set_system_power_state in nv.c) starts in
+# the RUNNING state and returns NV_OK at once for "resume" when it is already
+# RUNNING: no device or UVM resume, no lock taken. A resume after a skipped
+# suspend is therefore a no-op, not a hang. The only other paths into
+# nv_uvm_suspend are device power-management callbacks, and with no NVIDIA
+# device on the bus there is no device to call them for.
+#
+# NOT covered: /usr/lib/systemd/system-sleep/nvidia writes "hibernate" or
+# "suspend" to /proc/driver/nvidia/suspend itself in the suspend-then-hibernate
+# case (pre:hibernate, pre:suspend-after-failed-hibernate), outside any unit.
+# A guard cannot gate a package's sleep hook, so on a machine that really uses
+# suspend-then-hibernate the later hibernate step can still reach the oops.
+#
 # The whole rule:
 #
 #   * if none of nvidia nvidia_modeset nvidia_drm nvidia_uvm is loaded: nothing
 #   * if any PCI device with vendor 0x10de and a display (0x03xxxx) class is on
 #     the bus: nothing at all, not even a log line. A laptop's own NVIDIA GPU, an
 #     attached eGPU, a GPU bound to vfio: the sleep actions are theirs to run
+#     (so on a hybrid laptop with a working dGPU the guard never acts, and an
+#     eject of an eGPU there answers shared_driver)
 #   * if the PCI bus cannot be read, or a device on it cannot be classified:
 #     nothing but one log line. The guard acts only on a positive "no NVIDIA
 #     GPU is here"
-#   * otherwise (modules loaded, no NVIDIA GPU on the bus) `modprobe -r` each
-#     loaded module in the fixed reverse order, nvidia_uvm first, under hard
-#     deadlines, and log what happened to the journal
+#   * otherwise (modules loaded, no NVIDIA GPU on the bus) step 1 runs
+#     `modprobe -r` on each loaded module in the fixed reverse order, nvidia_uvm
+#     first, and step 2 skips the NVIDIA sleep actions if any is still loaded
 #
-# It never fails the sleep: every path ends in exit 0 (and the drop-in's `-`
-# ignores any other status). It never waits: all of it fits in GUARD_BUDGET
-# seconds, and a modprobe that outlives its slice is sent SIGKILL and
-# abandoned (run_bounded, as in omarchy-egpu-admin). A module something still
-# holds is logged and left: modprobe -r refuses an in-use module (the kernel's
-# own refcount; nothing is forced, no process is touched), and the sleep goes on
-# as it would have without the guard.
+# Nothing here fails the sleep. Step 1 ends in exit 0 on every path, and the
+# unit's `-` ignores any other status. Step 2 exits 0 or 1 by an EXIT trap that
+# turns every other end (an unset variable, a failed builtin, a signal that can
+# be caught) into 0; only a deliberate SKIP=1 gives 1. A failed start of the
+# script (not found, not executable) is status 203, which the drop-in's
+# SuccessExitStatus=203 makes "go on" (verified in a user manager: without it a
+# missing file would skip the unit; ExecCondition= exit 255 or a signal would
+# fail it, which still only fails the NVIDIA unit, a Wants= of the sleep).
 #
 # Bounds a security review should check, all in this text:
 #
-#   * No argument, no input and no environment variable is read as root. It
-#     takes no verb, no path and no module name; the module list is the four
-#     names below, the same allowlist as the helper's (dev/check-pins.sh
-#     checks the two agree).
+#   * Step 1 does not wait unboundedly. Every child (modprobe, logger) runs in
+#     its own session and is sent SIGKILL as a whole process group at its
+#     deadline (run_bounded), so a modprobe that spawned a child does not leave
+#     it behind. All of it fits in GUARD_BUDGET + LOG_BUDGET seconds (10 + 4),
+#     and the drop-in's `timeout -k 2 20` kills the guard and its group at 20 s
+#     (the units are Type=oneshot with TimeoutStartSec=infinity: nothing else
+#     would). A child stuck in the kernel (state D) cannot die; systemd waits
+#     for the unit's cgroup to be empty until its TimeoutStopSec (5 s here), so
+#     the worst case is about 27 s, and only with a kernel that is already stuck.
+#   * No argument, no input and no environment variable is read as root. The
+#     only argument is the constant `--check`, compared as a string; anything
+#     else does nothing. It takes no verb, no path and no module name; the module
+#     list is the four names below, the same allowlist as the helper's
+#     (dev/check-pins.sh checks the two agree).
 #   * PATH=/usr/bin, LC_ALL=C, `bash -p` (nothing imported from the environment;
 #     run any other way it does nothing), umask 077, cwd /. No temp file, no
 #     file written, nothing created anywhere.
-#   * It reads only /sys/module/<name> (is it a directory) and, for every
+#   * It reads only /sys/module/<name> (is it a directory; for a log line, its
+#     refcnt and the names in its holders/ directory) and, for every
 #     /sys/bus/pci/devices/<bdf> whose name matches the PCI address regex, the
 #     `vendor` and `class` attributes. It writes nothing; the one thing it
-#     changes is that it asks modprobe to unload the four modules.
+#     changes is that it asks modprobe to unload the four modules. modprobe -r
+#     also removes dependencies nothing else uses (video, drm_ttm_helper and the
+#     like): kernel behaviour, not the guard's choice.
+#   * The log lines carry the tag omarchy-egpu-sleep-guard and the journal does
+#     not authenticate a tag: any user can write a line with it. Read them with
+#     `journalctl -t omarchy-egpu-sleep-guard _UID=0`.
+#   * The guard does not take the helper's lock. It can overlap a helper call
+#     (a load or an unload) that happens to run at the instant the system goes to
+#     sleep; the two only unload or load the same four modules, so the worst case
+#     is that one of them reports the module as busy or gone.
 #   * The test seam, OMARCHY_EGPU_GUARD_TEST_ROOT (a directory the sysfs paths
 #     are read under), OMARCHY_EGPU_GUARD_TEST_DEADLINE (the budget) and a
-#     modprobe/logger found through the caller's PATH, is honoured only when
-#     this process is NOT root, i.e. when it has no privilege to misuse. As root
-#     all of them are ignored and unset; unprivileged without the seam it does
-#     nothing.
+#     modprobe/logger/setsid found through the caller's PATH, is honoured only
+#     when this process is NOT root, i.e. when it has no privilege to misuse. As
+#     root all of them are ignored and unset; unprivileged without the seam it
+#     does nothing.
+#   * Hostile hardware: the vendor and class are what a device says about itself.
+#     A Thunderbolt device that presents 0x10de with a display class makes the
+#     guard do nothing (no unload, no skip); one that presents another ID is not
+#     seen as an NVIDIA GPU. Neither gives more than "the guard did not act".
 #
 # Who may run it: systemd, as root, through the drop-ins above. The file is
 # root-owned 0755 and nobody but root can change it or the drop-ins. An
@@ -78,13 +143,21 @@ shopt -u expand_aliases
 shopt -s nullglob
 umask 077
 export LC_ALL=C
+
+# The one place the exit status is decided: 1 only after SKIP=1, 0 on every
+# other way out, including an error nobody foresaw.
+SKIP=0
+trap 'if ((SKIP == 1)); then exit 1; else exit 0; fi' EXIT
+
 cd / 2>/dev/null || exit 0
 
 # The same allowlist, in the same load order, as omarchy-egpu-admin's
 # backend_select. Unloaded in reverse.
 MODULES=(nvidia nvidia_modeset nvidia_drm nvidia_uvm)
-BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+BDF_RE='^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+# Seconds: the unload loop, all the journal lines together, and the longest one.
 GUARD_BUDGET=10
+LOG_BUDGET=4
 LOG_DEADLINE=3
 
 # R is the root every path is read under. Always "" as root.
@@ -99,6 +172,7 @@ if ((EUID != 0)); then
   TEST_MODE=1
   if [[ ${OMARCHY_EGPU_GUARD_TEST_DEADLINE:-} =~ ^[1-9][0-9]?$ ]]; then
     GUARD_BUDGET=$OMARCHY_EGPU_GUARD_TEST_DEADLINE
+    LOG_BUDGET=$GUARD_BUDGET
     LOG_DEADLINE=$GUARD_BUDGET
   fi
 else
@@ -107,18 +181,33 @@ else
 fi
 unset OMARCHY_EGPU_GUARD_TEST_ROOT OMARCHY_EGPU_GUARD_TEST_DEADLINE
 
+# The only argument there is, read as a constant: none (step 1), --check (step
+# 2). Anything else does nothing.
+MODE=unload
+if (($# > 0)); then
+  if (($# == 1)) && [[ $1 == --check ]]; then
+    MODE=check
+  else
+    printf 'omarchy-egpu-sleep-guard: unknown argument; doing nothing\n' >&2
+    exit 0
+  fi
+fi
+
 PCI=$R/sys/bus/pci/devices
 MODULE_DIR=$R/sys/module
+SECONDS=0
+LOG_USED=0
 
-# run_bounded <seconds> <command...>: the command in the background with its
-# output discarded, waited for at most <seconds>. Returns its status, or 124
-# when the deadline passed; a child that outlives it is sent SIGKILL and
-# abandoned (one stuck in the kernel cannot die, and waiting would hang the
-# sleep).
+# run_bounded <seconds> <command...>: the command in the background, in its own
+# session, with its output discarded, waited for at most <seconds>. Returns its
+# status, or 124 when the deadline passed; then the whole process group is sent
+# SIGKILL (a child of the command dies with it) and abandoned: one stuck in the
+# kernel cannot die, and waiting would hang the sleep. setsid does not fork
+# here (a background child is never a group leader), so $pid is the group's id.
 run_bounded() {
   local secs=$1 pid i
   shift
-  "$@" </dev/null >/dev/null 2>&1 &
+  setsid -- "$@" </dev/null >/dev/null 2>&1 &
   pid=$!
   for ((i = 0; i < secs * 10; i++)); do
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -127,16 +216,26 @@ run_bounded() {
     fi
     sleep 0.1
   done
+  kill -KILL -- "-$pid" 2>/dev/null
   kill -KILL "$pid" 2>/dev/null
   return 124
 }
 
-# log <priority> <message>: a journal line, under its own deadline: a logger
-# stuck on a wedged journal is abandoned like any other child. In the test seam
-# the line is also on stderr.
+# log <priority> <message>: a journal line. The lines share one budget
+# (LOG_BUDGET seconds spent in logger, in all) and each has its own deadline, so
+# a logger stuck on a wedged journal is abandoned like any other child and costs
+# at most LOG_BUDGET in all; a line after the budget is spent is dropped. In the test seam the line is also
+# on stderr.
 log() {
+  local left=$((LOG_BUDGET - LOG_USED)) t0=$SECONDS rc
   ((TEST_MODE)) && printf 'omarchy-egpu-sleep-guard: %s\n' "$2" >&2
-  run_bounded "$LOG_DEADLINE" logger -t omarchy-egpu-sleep-guard -p "daemon.$1" -- "$2" || true
+  ((left > 0)) || return 0
+  ((left > LOG_DEADLINE)) && left=$LOG_DEADLINE
+  run_bounded "$left" logger -t omarchy-egpu-sleep-guard -p "daemon.$1" -- "$2"
+  rc=$?
+  # A deadline passed costs all of it; otherwise what the clock says.
+  if ((rc == 124)); then LOG_USED=$((LOG_USED + left)); else LOG_USED=$((LOG_USED + SECONDS - t0)); fi
+  return 0
 }
 
 # attr <file>: the first line of a sysfs attribute, status 1 when unreadable.
@@ -149,9 +248,25 @@ attr() {
 
 module_loaded() { [[ -d $MODULE_DIR/$1 ]]; }
 
+# who_holds <module>: what the kernel says holds it, for a log line: its
+# refcount (open /dev/nvidia* files and dependent modules) and the modules that
+# depend on it. Only what reads as a number or a module name is repeated.
+who_holds() {
+  local m=$1 ref='' h held=()
+  ref=$(attr "$MODULE_DIR/$m/refcnt") || ref=''
+  [[ $ref =~ ^[0-9]{1,9}$ ]] || ref=''
+  for h in "$MODULE_DIR/$m"/holders/*; do
+    h=${h##*/}
+    [[ $h =~ ^[A-Za-z0-9_-]{1,64}$ ]] && held+=("$h")
+  done
+  [[ -n $ref || ${#held[@]} -gt 0 ]] || return 0
+  printf ' (refcnt %s%s)' "${ref:-?}" "${held[*]:+, held by modules: ${held[*]}}"
+}
+
 # nvidia_gpu_on_bus: 0 one is there, 1 none is, 2 the bus cannot be told. Every
-# device is classified; one whose vendor or class cannot be read, or no device
-# at all (a real machine always has some), is "cannot be told", never "none".
+# device whose name is a PCI address is classified; one whose vendor or class
+# cannot be read, or no such device at all (a real machine always has some), is
+# "cannot be told", never "none". Names that are not PCI addresses are never read.
 nvidia_gpu_on_bus() {
   local d n vendor class seen=0
   for d in "$PCI"/*; do
@@ -173,7 +288,20 @@ done
 ((${#loaded[@]})) || exit 0
 
 nvidia_gpu_on_bus
-case $? in
+gpu=$?
+
+# Step 2, the verdict: skip the unit only for modules still loaded and a bus
+# that positively shows no NVIDIA GPU.
+if [[ $MODE == check ]]; then
+  if ((gpu == 1)); then
+    SKIP=1
+    log warning "skipping the NVIDIA sleep actions: ${loaded[*]} still loaded with no NVIDIA GPU on the PCI bus, and suspending them oopses the kernel. The sleep goes on without them. Log out of every session using /dev/nvidia*, then unload them (modprobe -r ${loaded[*]})"
+  fi
+  exit 0
+fi
+
+# Step 1, the unload.
+case $gpu in
   0) exit 0 ;;
   1) ;;
   *)
@@ -199,9 +327,12 @@ for ((i = ${#MODULES[@]} - 1; i >= 0; i--)); do
   if ((rc == 124)); then
     failed+=("$m")
     log warning "modprobe -r $m timed out; abandoned"
-  elif ((rc != 0)) || module_loaded "$m"; then
+  elif ((rc != 0)); then
     failed+=("$m")
-    log warning "modprobe -r $m failed ($rc); something still holds it"
+    log warning "modprobe -r $m failed ($rc); still loaded$(who_holds "$m")"
+  elif module_loaded "$m"; then
+    failed+=("$m")
+    log warning "modprobe -r $m returned success but $m is still loaded$(who_holds "$m")"
   else
     unloaded+=("$m")
   fi
