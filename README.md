@@ -32,7 +32,7 @@ Connect, eject and rescan need a small root helper, `/usr/local/bin/omarchy-egpu
 (`no.kalinewb.egpu.policy`, one per helper verb), a udev rule (`/etc/udev/rules.d/61-omarchy-egpu.rules`: the
 `/dev/dri/omarchy-egpu-primary` and `-external` links, and auto-connect), a boot-load mask in
 `/etc/modules-load.d/` named after the file the driver package ships, the auto-connect flag
-`/etc/omarchy-egpu/autoconnect`, and (0.1.1) the sleep guard with its two systemd drop-ins. `omarchy plugin add` never runs sudo, so this half is installed afterwards, from
+`/etc/omarchy-egpu/autoconnect`, and (0.1.1) the sleep guard with its three systemd drop-ins. `omarchy plugin add` never runs sudo, so this half is installed afterwards, from
 a terminal, from the installed plugin folder. The helper takes only fixed verbs and loads only
 `nvidia nvidia_modeset nvidia_drm nvidia_uvm`; see the header of `system/omarchy-egpu-admin`. It passed a
 security review with conditions; the changes made for it (auto-connect switch, eject latch) await a re-review.
@@ -48,13 +48,28 @@ script, the sleep guard (below): both await a security review before they are in
   removed GPU with the driver left loaded oopses `nvidia_uvm` at the next suspend and then freezes the
   machine.) Nothing is killed to free the driver; `--close` still asks only your own GPU apps to quit. A
   session that holds the card for its whole life (the compositor, the shell, `nvidia-persistenced`) makes the
-  eject say so until you log out or close it. This is a change from 0.1.0, which removed first and left the
-  driver loaded.
-- The **sleep guard** (`/usr/local/bin/omarchy-egpu-sleep-guard`, run before `nvidia-suspend.service` and
-  `nvidia-hibernate.service` by a drop-in in `/etc/systemd/system/`) is the net for a card that left without a
-  safe eject (a cable pull, a crash): if the NVIDIA modules are loaded and no NVIDIA GPU is on the PCI bus it
-  unloads them, within about 10 s, and logs to the journal (`journalctl -t omarchy-egpu-sleep-guard`). With a
-  GPU present it does nothing, and it never fails or blocks a sleep. Threat model: `docs/plan-engine.md` §10.5.
+  eject say so until you log out or close it. It checks that before it touches a monitor, and if it fails after it
+  turned the eGPU's monitors off it turns them back on (their workspaces stay on the laptop panel). If the driver
+  is loaded again after the card was removed it unloads once more, and if that fails it says **do not suspend,
+  log out first** (`modules_held`), never "Safe to unplug". This is a change from 0.1.0, which removed first and
+  left the driver loaded.
+- The **sleep guard** (`/usr/local/bin/omarchy-egpu-sleep-guard`, run before the NVIDIA sleep actions of
+  `nvidia-suspend.service`, `nvidia-hibernate.service` and `nvidia-suspend-then-hibernate.service` by a drop-in
+  in `/etc/systemd/system/`) is a **partial** net for a card that left without a safe eject (a cable pull, a
+  crash). If the NVIDIA modules are loaded and no NVIDIA GPU is on the PCI bus, it first tries to unload them,
+  which works **only if nothing holds them**. On a desktop session something usually does (the shell, Electron
+  apps and the like keep `/dev/nvidia*` open all session), so the unload often fails. When it fails the guard
+  makes systemd **skip the NVIDIA suspend/hibernate actions** for that sleep (nothing is written to
+  `/proc/driver/nvidia/suspend`, which is what oopses the kernel with no GPU), and logs it; the computer still
+  suspends, without them. Log out and unload the modules (`sudo modprobe -r nvidia_uvm nvidia_drm
+  nvidia_modeset nvidia`) when it says so. With an NVIDIA GPU on the bus the guard does nothing; so on a hybrid
+  laptop with a working NVIDIA GPU it never acts, and ejecting an eGPU there answers `shared_driver` (the
+  driver is shared, so it cannot be unloaded). It never blocks or fails a sleep. Not covered: the
+  suspend-then-hibernate path in `/usr/lib/systemd/system-sleep/nvidia`, which writes to the driver outside
+  any unit. The guard does not take the helper's lock, and `modprobe -r` also removes dependencies nothing
+  else uses (`video`, `drm_ttm_helper`). Its log lines carry the tag `omarchy-egpu-sleep-guard`; the journal
+  does not authenticate a tag, so read them with `journalctl -t omarchy-egpu-sleep-guard _UID=0`. Threat
+  model and what was and was not verified: `docs/plan-engine.md` §10.5.
 
 ### Installing or updating the system half
 

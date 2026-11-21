@@ -542,6 +542,12 @@ terminals.
 Order (REVISION 2026-10-09: display first):
 
 1. Lock. Status must be `bound` or `ready`, or eject exits 0 with nothing to do.
+1b. **Checks that change nothing (0.1.1).** Holders are surveyed, and if no app that
+   could be asked to quit is in the way but the modules are still held (only the shell,
+   the compositor, incidental holders or kernel references), the answer is
+   `driver_in_use` now, with every monitor still on (`display.touched: false`). With
+   the lid closed an eGPU monitor can be the only screen, so it is not turned off for an
+   eject that cannot succeed.
 2. **Display off first.** For each monitor on the eGPU (§7.3):
    - Move every workspace on it to the primary panel.
    - Disable it with `hyprctl eval 'hl.monitor({ output = "<name>", disabled = true })'`,
@@ -558,14 +564,24 @@ Order (REVISION 2026-10-09: display first):
    holder like any other.
 5. **Unload (0.1.1; before the remove).** Read the refcounts of the backend's modules.
    If anything but the stack's own modules holds one, answer `driver_in_use` and stop:
-   nothing is removed, no marker is written, the eGPU stays attached and in service
-   (the screens turned off in step 2 stay off and are reported in `display`). Otherwise
-   `pkexec omarchy-egpu-admin unload <backend>` with the card still on the bus.
+   nothing is removed, no marker is written, the eGPU stays attached and in service,
+   and the screens turned off in step 2 are turned back on (`display enable`; the
+   answer's `display` says `restored` and `restore_failed`; their workspaces stay on the
+   laptop panel). Otherwise `pkexec omarchy-egpu-admin unload <backend>` with the card
+   still on the bus. The same restore follows any other failure that leaves the card
+   attached and in service (a refused or failed helper call, the kernel's holder found
+   by the helper). `holders_present` and `hdmi_still_active` keep the older convention:
+   the screens stay off, the answer lists them in `display`, and the next eject
+   continues from there. `remove_timeout` and the `modules_held` of step 8 touch
+   nothing (the card is in an unknown state, or gone).
 6. **Remove.** Run `pkexec omarchy-egpu-admin remove <bdf>`. The helper removes every
    function of the slot (GPU and HDMI audio). On `remove_timeout`, tell the user
    **not** to unplug, and treat logging out as the recovery.
 7. **Settle.** Wait for the card node and by-path link to disappear.
-8. Notify "Safe to unplug". Phase becomes `ejected`.
+8. If the modules are loaded again by now (the state a removed GPU oopses the next
+   suspend in), `unload` is asked once more. If they stay, the answer is `modules_held`
+   with `do_not_suspend: true` and a sentence that says to log out first, never "Safe
+   to unplug". Otherwise notify "Safe to unplug". Phase becomes `ejected`.
 
 **Crash risk of yanking (documented to the user in the panel and README).**
 - NVIDIA does not guarantee stability when an eGPU in use is unplugged
@@ -595,9 +611,12 @@ Order (REVISION 2026-10-09: display first):
   so it cannot help with incidental holders, the shell or the compositor; the
   error's `can_close` says so. After the unload, a failed remove puts the driver
   back (`load`), except after `remove_timeout` (the card is in an unknown state:
-  nothing more is touched). `modules.held_after_eject` in an eject's answer is false
-  unless the modules were loaded again behind its back; `modules.unloaded` says the
-  engine unloaded them. A machine with another NVIDIA GPU (the laptop's own) cannot
+  nothing more is touched); so does an unload done in part. The result of that `load`
+  is looked at, not ignored: the answer carries `restore: {ok, rc, error}`, and a
+  failed put-back is said in the sentence and on the terminal. `modules.held_after_eject`
+  in a successful eject's answer is always false (modules loaded again after the remove
+  get one more unload, step 8, and a failure there is `modules_held`, not a success);
+  `modules.unloaded` says the engine unloaded them. A machine with another NVIDIA GPU (the laptop's own) cannot
   unload the shared driver: the helper answers `device_present` and the eject answers
   `driver_in_use` with `shared_driver: true`.
 - Before the remove the kernel's own `enabled` attribute of every connector must
@@ -1088,7 +1107,7 @@ annotation copies face:system/no.user.face.policy:26-35.
 - `system/install.sh` is face's mechanism, with egpu names: terminal command, fetched
   checksum, pinned snapshot, owner checks (O4).
 - It installs: the helper, the policy, the udev rule, the modules-load mask (Fix
-  `boot.modules_load_mask`), the sleep guard and its two systemd drop-ins (§10.5, since
+  `boot.modules_load_mask`), the sleep guard and its three systemd drop-ins (§10.5, since
   0.1.1; it runs `systemctl daemon-reload` after installing and after removing them),
   and the pacman hook (§9.1).
 - Optionally, each behind its own confirmation printed in the terminal: the
@@ -1120,23 +1139,122 @@ The net for removals the plugin did not do. A safe eject unloads the NVIDIA modu
 before it removes the card (§6.3), so it never leaves them loaded with no card; a cable
 pull, an unplug or a crash does, and the next suspend then oopses in `nvidia_uvm`
 (O2). Installed to `/usr/local/bin/omarchy-egpu-sleep-guard` (root, 0755), with the
-same drop-in under `nvidia-suspend.service.d/` and `nvidia-hibernate.service.d/` in
-`/etc/systemd/system/` (`omarchy-egpu-sleep-guard.conf`):
+same drop-in (`omarchy-egpu-sleep-guard.conf`) under `nvidia-suspend.service.d/`,
+`nvidia-hibernate.service.d/` and `nvidia-suspend-then-hibernate.service.d/` in
+`/etc/systemd/system/`: the three units on this machine that run
+`nvidia-sleep.sh suspend|hibernate` (`systemctl cat`, read-only; the other `nvidia-*`
+units are `nvidia-resume`, `-persistenced` and `-powerd`, which do not):
 
 ```
 [Service]
-ExecStartPre=-/usr/local/bin/omarchy-egpu-sleep-guard
+SuccessExitStatus=203
+ExecCondition=-/usr/bin/timeout -k 2 20 /usr/local/bin/omarchy-egpu-sleep-guard
+ExecCondition=/usr/local/bin/omarchy-egpu-sleep-guard --check
 ```
+
+**The condition, plainly.** The guard can unload the modules only if nothing holds
+them: `modprobe -r` refuses a module with a non-zero refcount. On a desktop session that
+is the usual case, not the exception: quickshell, voxtype-osd-gtk, Electron apps and
+claude-desktop keep `/dev/nvidia*` open all session (`dev/e0-facts.md`: refcnt `nvidia`
+26, `nvidia_drm` 11, `nvidia_uvm` 2). So after a cable pull the unload usually fails,
+and a guard that only unloaded would log "left loaded" and let the suspend go into the
+same oops. That is why there are two steps:
+
+1. **Unload** (no argument): try `modprobe -r`, as below. Ignored by the unit (`-`),
+   hard-bounded.
+2. **Verdict** (`--check`): exit **1** only when the modules are still loaded and the
+   bus positively shows no NVIDIA display GPU, **0** in every other case, including
+   every error of the script. Exit 1 on an `ExecCondition=` line makes systemd **skip
+   the unit** without failing it, so `nvidia-sleep.sh suspend` never writes
+   `/proc/driver/nvidia/suspend` and the oops does not happen. The suspend goes on
+   without the NVIDIA actions: no VT switch, no NVIDIA suspend of a driver that has no
+   GPU left. A journal line says so (`skipping the NVIDIA sleep actions: ...`).
 
 The rule, in full:
 
-- none of `nvidia nvidia_modeset nvidia_drm nvidia_uvm` loaded: nothing;
+- none of `nvidia nvidia_modeset nvidia_drm nvidia_uvm` loaded: nothing (both steps);
 - any PCI device with vendor `0x10de` and a display (`0x03xxxx`, VGA or 3D) class on
-  the bus: nothing at all, not even a log line;
+  the bus: nothing at all, not even a log line (both steps). So a laptop with a working
+  NVIDIA dGPU never has the guard act, and an eGPU eject there answers
+  `shared_driver` (§6.3): the guard is for a machine whose only NVIDIA GPU was the
+  eGPU;
 - the PCI bus unreadable, empty, or a device on it with an unreadable vendor or class:
-  one log line, nothing else (it acts only on a positive "no NVIDIA GPU is here");
-- otherwise `modprobe -r` each loaded module in the fixed reverse order (`nvidia_uvm`
-  first), each under a hard deadline inside a 10 s total, and log what happened.
+  step 1 logs one line and does nothing; step 2 exits 0 (it acts only on a positive "no
+  NVIDIA GPU is here"). Every device whose name is a PCI address is read and
+  classified (domains of four or more hex digits, so Intel VMD's `10000:e0:06.0` counts;
+  the helper uses the same expression); a name that is not a PCI address is never read;
+- otherwise step 1 runs `modprobe -r` on each loaded module in the fixed reverse order
+  (`nvidia_uvm` first), each under a deadline inside `GUARD_BUDGET` (10 s), and logs
+  what happened, naming the module's `refcnt` and the modules in its `holders/` where
+  readable; step 2 then decides.
+
+**What was verified for the skip, and how.** Nothing here was run on the real units or
+with root.
+
+- *systemd semantics*: read from `systemd.service(5)` (systemd 262) and run with
+  `systemd-run --user` transient units (a harmless `touch` as `ExecStart`): an
+  `ExecCondition=` exiting 1 gives result `exec-condition` and no start (a skip, not a
+  failure); exit 124 (what `timeout` returns when it fires) is also a skip, which is
+  why `timeout` is on its own `-` line; exit 255 and death by signal give result
+  `exit-code` and `signal` (a failure); a `-` line ignores all of them; with two
+  `ExecCondition=` lines the first `-` line never stops the second and an exit 1 of the
+  second skips; a missing or non-executable file on a non-`-` line is exit 203 and a
+  **skip** (that would skip a healthy laptop's NVIDIA suspend if the script were
+  deleted), and `SuccessExitStatus=203` turns that into "go on" while exit 1 still skips.
+  Side effect: `SuccessExitStatus=203` also applies to the unit's own commands, where it
+  only means a `nvidia-sleep.sh` that cannot be started counts as done. A failed
+  `nvidia-*` unit does not block the sleep: the units are `WantedBy=` (a wants, not a
+  requirement) of `systemd-suspend.service` and the journal of 2026-11-20 shows
+  "Failed to start NVIDIA system suspend actions" followed by the suspend going on.
+  *Not verified*: the same on the system manager with the real `Before=` ordering.
+- *the resume side after a skipped suspend* (`/usr/bin/nvidia-sleep.sh` and the
+  580.178.04 source in `/usr/src`): `nvidia-resume.service` is unconditional and runs
+  `nvidia-sleep.sh resume`, as does the `post` case of
+  `/usr/lib/systemd/system-sleep/nvidia`. `resume` writes `resume` to
+  `/proc/driver/nvidia/suspend` (the script exits 0 if the file does not exist, i.e. the
+  modules are gone) and calls `RestoreVT`, which only acts if a suspend wrote
+  `/var/run/nvidia-sleep/Xorg.vt_number`. In the driver, `nv_set_system_power_state`
+  returns `NV_OK` immediately when the requested state equals the current one, and the
+  state starts as `NV_POWER_STATE_RUNNING` (set in module init): `resume` with no
+  prior `suspend` touches no device, no UVM and takes no lock. So a resume after a
+  skipped suspend is a no-op, not a hang or an oops, and no matching condition on the
+  resume unit is needed. `uvm_suspend` is reached only through `nv_uvm_suspend` from
+  that procfs write, and the device power-management callbacks (`nv_pmops_*`) only run
+  for a bound PCI device, which this state has none of.
+- *Not covered*: `/usr/lib/systemd/system-sleep/nvidia` itself writes `hibernate` or
+  `suspend` to `/proc/driver/nvidia/suspend` in the suspend-then-hibernate case
+  (`pre:hibernate`, `pre:suspend-after-failed-hibernate`), outside any unit. No unit
+  drop-in can gate a package's sleep hook, so on a machine that really uses
+  suspend-then-hibernate the later hibernate step can still reach the oops. Here
+  `nvidia-suspend-then-hibernate.service` is `disabled` and nothing pulls it in, so this
+  is a known open item, not a case that occurs on this machine today.
+
+**Bounds.**
+
+- The unload step runs under `timeout -k 2 20` (the units are `Type=oneshot` with
+  `TimeoutStartSec=infinity`, so nothing else would end a stuck guard), and keeps its
+  own bound: every child (`modprobe`, `logger`) runs in its own session and is sent
+  SIGKILL as a whole process group at its deadline (a `modprobe` that spawned a child
+  does not leave it), `GUARD_BUDGET` is 10 s for the unload loop and `LOG_BUDGET` 4 s
+  for all the journal lines together (each line at most 3 s, later lines dropped once
+  the budget is spent). The verdict step has no wrapper: it reads sysfs with builtins and
+  starts a child only to log, under the same deadline.
+- *What waits on it.* Systemd does: the unit is `Type=oneshot` and `Before=` the sleep
+  service, so the sleep waits for it, up to those bounds (about 14 s, 20 s at the
+  `timeout`, 22 s with its kill grace). A child stuck in the kernel (uninterruptible)
+  cannot be killed by anything; it is left, and systemd waits for the unit's cgroup to
+  empty until `TimeoutStopSec` (5 s here), so the worst case is about 27 s and needs a
+  kernel that is already stuck. Systemd cleans up the unit's leftovers at the end of the
+  unit; the guard's children are in their own sessions, so `timeout`'s process-group
+  kill does not reach them, the cgroup does.
+- *Every failure of the script is exit 0 for the sleep's purposes.* Step 1 ends in
+  exit 0 on every path and its line has a `-`. Step 2's exit status is decided in one
+  place, an `EXIT` trap, which returns 1 only after the verdict set `SKIP=1` and 0 on
+  every other way out (an unset variable, a failed builtin, a signal bash can catch).
+  An uncatchable kill (SIGKILL, the OOM killer) would be a unit failure, which does not
+  block the sleep (above) but also does not run the NVIDIA actions. A syntax error in the
+  file exits 2, a skip: which is why the file is pinned and health compares it with the
+  plugin's copy (`system.helper`, M8).
 
 **Threat model.**
 
@@ -1145,41 +1263,50 @@ The rule, in full:
   installs from a pinned snapshot, like the helper). An unprivileged user who runs it
   does nothing: not root and no test seam is "not root; doing nothing", and run any way
   but `bash -p` (a plain `bash file`, a modified shebang) it refuses before reading
-  anything. It takes no argument and reads no environment variable as root.
-- *What it reads.* `/sys/module/<name>` (is it a directory) for the four fixed names, and
-  `vendor` and `class` of every `/sys/bus/pci/devices/<bdf>` whose name matches the PCI
-  address regex. Nothing else, and it writes nothing: no file, no temp file, no
-  `/proc` or `/sys` write.
+  anything. Its one argument is the constant `--check`, compared as a string; any other
+  argument does nothing. It reads no environment variable as root.
+- *What it reads.* `/sys/module/<name>` (is it a directory; for a log line its `refcnt`
+  and the names in `holders/`) for the four fixed names, and `vendor` and `class` of every
+  `/sys/bus/pci/devices/<bdf>` whose name matches the PCI address regex. Nothing else,
+  and it writes nothing: no file, no temp file, no `/proc` or `/sys` write.
 - *What it can unload.* Exactly the four modules of the helper's allowlist (the list is
   the same text, and `dev/check-pins.sh` fails if the two differ), by `modprobe -r --`,
   which the kernel refuses for a module that is in use (delete_module without force:
-  nothing is forced, no process is touched or killed).
-- *Every failure ends in exit 0.* A bus it cannot read: logged, nothing unloaded. A
-  module that will not unload (held by a process, or by `nvidia_peermem`): logged, left
-  loaded, the sleep goes on as it would have without the guard. A `modprobe` or
-  `logger` that hangs: sent SIGKILL at its deadline and abandoned (the helper's
-  `run_bounded`), so nothing waits on it; the budget bounds the whole run to about
-  10 s plus the log calls' 3 s each. `ExecStartPre=-` ignores any other status,
-  including a missing script, so the guard can never block or fail a suspend. What it
-  cannot do: if a module stays loaded, the suspend still oopses as before, and a
-  `modprobe` stuck in an uninterruptible state cannot be killed (it is abandoned).
-- *Why an unprivileged user cannot abuse it.* There is no input to abuse: no argument,
-  no verb, no path, no module name, no environment (`PATH=/usr/bin`, `LC_ALL=C`, `bash
-  -p` imports no function and reads no `BASH_ENV`). The only thing it can be made to do
-  is unload the NVIDIA modules when no NVIDIA GPU is on the PCI bus and they are not in
-  use, and what such a user can do to cause that (unplug the eGPU) they could already
-  do by hand and is what the guard exists for. Creating a fake PCI device is
-  root-only; a directory named like a GPU in a place the user can write is never read
-  (only the fixed `/sys` paths are). The test seam (`OMARCHY_EGPU_GUARD_TEST_ROOT`,
-  `OMARCHY_EGPU_GUARD_TEST_DEADLINE`, and a `modprobe` and `logger` from the caller's
-  `PATH`) is honoured only when the process is not root, as the helper's is; as root
-  all of it is ignored and unset.
+  nothing is forced, no process is touched or killed). `modprobe -r` also removes
+  dependencies nothing else uses (`video`, `drm_ttm_helper` and the like): kernel
+  behaviour, not the guard's choice; they reload on demand.
+- *Why an unprivileged user cannot abuse it.* There is no input to abuse: no verb, no
+  path, no module name, no environment (`PATH=/usr/bin`, `LC_ALL=C`, `bash -p` imports no
+  function and reads no `BASH_ENV`). The only things it can be made to do are unload the
+  NVIDIA modules when no NVIDIA GPU is on the PCI bus and they are not in use, and skip
+  the NVIDIA suspend when they are in use; what such a user can do to cause that
+  (unplug the eGPU) they could already do by hand and is what the guard exists for. A
+  directory named like a GPU in a place the user can write is never read (only the fixed
+  `/sys` paths are). Creating a fake PCI device in the kernel is root-only, but the
+  bus also carries what hostile *hardware* says about itself: a Thunderbolt device can
+  present any vendor and class. One that presents `0x10de` with a display class makes
+  the guard do nothing (no unload, no skip: the suspend runs as it would without the
+  guard); one that presents any other ID is not counted as an NVIDIA GPU. Neither
+  gives more than "the guard did not act". The test seam
+  (`OMARCHY_EGPU_GUARD_TEST_ROOT`, `OMARCHY_EGPU_GUARD_TEST_DEADLINE`, and
+  `modprobe`, `logger` and `setsid` from the caller's `PATH`) is honoured only when the
+  process is not root, as the helper's is; as root all of it is ignored and unset.
+- *The journal.* Log lines carry the tag `omarchy-egpu-sleep-guard`. The journal does not
+  authenticate a tag: any user can write a line with it. Read them with
+  `journalctl -t omarchy-egpu-sleep-guard _UID=0`.
+- *The lock.* The guard does not take the helper's lock. It can overlap a helper
+  `load` or `unload` that runs at the instant the system goes to sleep. Both only load
+  or unload the same four modules, so the worst case is one of them reporting a module
+  busy or already gone. Documented, not changed.
 - *Residual risk.* A false "no NVIDIA GPU on the bus" while a GPU is present (a PCI
-  enumeration glitch during suspend) would unload a driver that is not in use, which
-  the kernel refuses if anything holds it, and which `modprobe` reloads on the next
-  use. Unloading the modules of a removed GPU is itself **unverified** on hardware: it
-  is the order EGPU-Buddy uses, and the oops is on the suspend path, not the unload
-  path, but it was not tested here.
+  enumeration glitch during suspend) would, in step 1, unload a driver that is not in
+  use (the kernel refuses if anything holds it; `modprobe` reloads on next use) and, in
+  step 2, skip the NVIDIA suspend of a GPU that needs it: the verdict acts only on a
+  bus it read completely, every device classified, with no NVIDIA display device in
+  it, but a glitch that dropped one device from the listing would look the same. Unloading
+  the modules of a removed GPU, and the skip, are **unverified** on hardware: the unload
+  is the order EGPU-Buddy uses, the oops is on the suspend path and the skip removes that
+  path, but none of it was run here.
 
 
 ---

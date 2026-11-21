@@ -126,10 +126,13 @@ Safe eject now unloads the driver before it removes the card. If something still
 | `can_close` | true if `--close` could ask any of them to quit (normally false: apps were closed or reported in the `holders_present` step) |
 | `session_holds` | true if the compositor or the shell holds it: only a logout lets go |
 | `shared_driver` | true when another NVIDIA GPU in the machine shares the driver, so it can never be unloaded here |
-| `display` | the screens turned off before the check (they STAY off: the engine does not turn them back on) |
+| `display` | what was done to the screens: `touched` false and `off: []` when the check ran first (the usual case: nothing was touched, the screens are as they were); otherwise `off` lists the screens turned off, and `restored` / `restore_failed` (descriptions) say which came back on. Their workspaces stay on the laptop panel |
+| `restore` | `{ok, rc, error}` of putting the driver back after an unload done in part (absent or `null` when nothing needed putting back). `ok: false` means the eGPU may not work until a logout; the `detail` says so |
 | `detail` | an English sentence already worded by the engine (see below), safe to show |
 
 The error's `phase` is the phase the card is left in (`ready`).
+
+Since the review fixes, `driver_in_use` is answered BEFORE any monitor is touched whenever only the session, incidental holders or kernel references hold the driver (`display.touched: false`). The screens are only turned off, and then back on, when apps had to be closed first. `holders_present` and `hdmi_still_active` still leave the screens off (the answer lists them in `display`).
 
 Today `common/Errors.js` has no entry, so the sheet falls back to "Something went wrong." with the code under
 Details, and `EjectFlow.qml` shows its generic `failed` step. Suggested wording:
@@ -141,6 +144,22 @@ Details, and `EjectFlow.qml` shows its generic `failed` step. Suggested wording:
   lets go of it." When `shared_driver` is true use instead: "This computer's own NVIDIA GPU shares the driver, so
   the eGPU cannot be ejected safely. Shut down before unplugging."
 - No "Close them" button: `can_close` is false in practice, and the shell and the compositor are never closed by
-  the plugin. A "Turn the screens back on" action is worth offering when `display.off` is not empty.
+  the plugin. For `driver_in_use` the engine now turns the screens back on itself; a "Turn the screens back on"
+  action is still worth offering for `holders_present` (they stay off) and when `display.restore_failed` is not
+  empty.
 - `held_after_eject` (`Errors.note`) now only describes a card that was pulled without an eject: "Log out before
   plugging the eGPU in again." stays right. A clean eject's answer has `modules.held_after_eject: false`.
+
+## New use of `modules_held` in `device eject` (do not suspend)
+
+`modules_held` was a rescan answer. An eject now also answers it when the card was removed but its driver is loaded
+again and one more unload did not work (exit 1; the card is gone, the marker stays, the phase is `ejected`): the
+exact state a removed GPU oopses the next suspend in. Fields: `bdf`, `removed`, `held_by` (process names), `unload`
+(the second unload's answer), `display`, `do_not_suspend: true`, and a `detail` sentence ("... Do not suspend the
+computer: log out first, then unplug."). `common/Errors.js` already has `modules_held` ("Log out before
+reconnecting the eGPU: the driver is still loaded from before the eject."); a UI that wants the stronger wording can
+show `detail`, or test `do_not_suspend`. The engine also posts `eject_failed {error: "modules_held"}`, not
+`eject_ready`, so no "Safe to unplug" notice is raised for it. `status` for this state is unchanged: phase `ejected`
+with `modules.held_after_eject: true`, whose summary line still reads "Safe to unplug · log out before plugging it in
+again"; that line (lib/status.sh) is shared with the UI's fixtures and was left alone, so it is a follow-up for the
+UI work.
