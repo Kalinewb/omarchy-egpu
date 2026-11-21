@@ -821,7 +821,11 @@ _dev_wait_dark() {
 # Safe eject (§6.3, with the DECISIONS of 2026-10-10 and 2026-11-21):
 #   1. the job lock, named eject-check while it only looks: nothing connected
 #      is not_connected; already ejected (or an enclosure with no GPU behind
-#      it) succeeds with "already": true; a hung driver is smi_hung, a stub
+#      it) succeeds with "already": true, unless the driver is still loaded
+#      with no card (a cable pull; or this verb run again after modules_held):
+#      then one more unload if nothing holds the modules, and if they stay the
+#      answer is modules_held with do_not_suspend again, never "safe to
+#      unplug" (0.1.2); a hung driver is smi_hung, a stub
 #      backend backend_stub; a missing or outdated helper is helper_missing.
 #      Nothing has been changed when any of these answers.
 #   2. it is now `eject` (status: ejecting) and posts eject_started
@@ -924,7 +928,13 @@ device_eject() {
         ;;
       *)
         # Ejected already, or an enclosure with no GPU function: nothing on
-        # the PCI bus to remove, so it is already safe to unplug.
+        # the PCI bus to remove. Safe to unplug only if the driver is not left
+        # loaded: with it loaded the next suspend oopses (a cable pull, or an
+        # eject that ended in modules_held, run again), so that is asked again.
+        if [[ $(jq -r '.modules.held_after_eject // false' <<<"$doc") == true ]] && _dev_held_backend; then
+          _dev_eject_already_held "$doc" "$started"
+          return
+        fi
         say "Nothing to eject: no eGPU on the PCI bus."
         jq -cn --argjson doc "$doc" --argjson ms "$(( $(now_ms) - started ))" '
           {ok: true, phase: $doc.phase, already: true, bdf: null,
@@ -1116,25 +1126,14 @@ device_eject() {
   # tried once more, and if the modules stay, the answer is a refusal, not
   # "Safe to unplug": the card is gone, so the only thing left to say is not to
   # suspend and to log out.
-  local after='{"holders":[]}' held_by='[]' retry=null
+  local retry=null
   if _dev_modules_loaded; then
     say "The driver is loaded again with no card; unloading it once more…"
     _dev_admin unload "$EGPU_BACKEND"
     arc=$?
     retry=$(jq -c --argjson rc "$arc" 'if type == "object" then . + {rc: $rc} else {rc: $rc} end' <<<"$DEV_ADMIN_OUT" 2>/dev/null) || retry=null
     if _dev_modules_loaded; then
-      if _dev_admin holders && jq -e '.holders | type == "array"' <<<"$DEV_ADMIN_OUT" >/dev/null 2>&1; then
-        after=$DEV_ADMIN_OUT
-      fi
-      held_by=$(jq -c '[.holders[].comm] | map(select(length > 0)) | unique' <<<"$after")
-      jq -c --argjson h "$held_by" '.held_by = $h' "$marker" 2>/dev/null | write_atomic "$marker"
-      DEV_PHASE=ejected
-      _dev_notify "Do not suspend the computer" "The eGPU is removed but its driver is loaded again. Log out before you suspend or lock."
-      say "The card is removed, but the driver is loaded again$(jq -r 'if length > 0 then " (held by: \(join(", ")))" else "" end' <<<"$held_by"). Do not suspend the computer: log out first."
-      _dev_fail modules_held "$(jq -cn --arg bdf "$bdf" --argjson removed "$removed" --argjson held_by "$held_by" \
-        --argjson d "$DEV_DISPLAY" --argjson unload "$retry" '
-        {bdf: $bdf, removed: $removed, held_by: $held_by, display: $d, unload: $unload, do_not_suspend: true,
-         detail: "The eGPU was removed, but its driver is loaded again\(if ($held_by | length) > 0 then " (held by \($held_by | join(", ")))" else "" end). Do not suspend the computer: log out first, then unplug."}')"
+      _dev_modules_held_fail "$bdf" "$removed" "$retry"
       return
     fi
     # The second unload worked: as if the first had.
@@ -1154,6 +1153,79 @@ device_eject() {
   say "Safe to unplug."
   _dev_notify "Safe to unplug the eGPU"
   printf '%s\n' "$result"
+}
+
+# _dev_modules_held_fail <bdf|""> <removed json> <retry json>: the card is gone
+# and its driver is loaded (again), and one more unload did not change that: the
+# state a removed GPU oopses the next suspend in. Who holds the modules is read
+# (helper `holders`) and kept in the ejected marker if there is one; the answer
+# is modules_held with do_not_suspend, never "Safe to unplug". Used by the end
+# of a real eject (bdf set) and by an eject that finds the driver still loaded
+# with no card (bdf empty: it was removed or unplugged some other way).
+_dev_modules_held_fail() {
+  local bdf=$1 removed=$2 retry=$3 marker="$EGPU_RUN/ejected" after='{"holders":[]}' held_by='[]' lead
+  if _dev_admin holders && jq -e '.holders | type == "array"' <<<"$DEV_ADMIN_OUT" >/dev/null 2>&1; then
+    after=$DEV_ADMIN_OUT
+  fi
+  held_by=$(jq -c '[.holders[].comm] | map(select(length > 0)) | unique' <<<"$after")
+  [[ -s $marker ]] && { jq -c --argjson h "$held_by" '.held_by = $h' "$marker" 2>/dev/null | write_atomic "$marker"; }
+  DEV_PHASE=ejected
+  _dev_notify "Do not suspend the computer" "The eGPU is removed but its driver is still loaded. Log out before you suspend or lock."
+  say "The card is removed, but the driver is still loaded$(jq -r 'if length > 0 then " (held by: \(join(", ")))" else "" end' <<<"$held_by"). Do not suspend the computer: log out first."
+  [[ -n $bdf ]] && lead="The eGPU was removed, but its driver is loaded again" || lead="The eGPU is not on the PCI bus, but its driver is still loaded"
+  _dev_fail modules_held "$(jq -cn --arg bdf "$bdf" --arg lead "$lead" --argjson removed "$removed" --argjson held_by "$held_by" \
+    --argjson d "${DEV_DISPLAY:-null}" --argjson unload "$retry" '
+    {bdf: (if $bdf == "" then null else $bdf end), removed: $removed, held_by: $held_by, display: $d, unload: $unload, do_not_suspend: true,
+     detail: "\($lead)\(if ($held_by | length) > 0 then " (held by \($held_by | join(", ")))" else "" end). Do not suspend the computer: log out first, then it is safe."}')"
+}
+
+# _dev_held_backend: sets EGPU_BACKEND to the unloadable backend whose modules
+# are loaded with no device of its own on the bus (the status document's
+# held_after_eject, found again without a card to ask). 1 if there is none.
+_dev_held_backend() {
+  local b m d any
+  while IFS= read -r b; do
+    [[ -n $b ]] || continue
+    backend_load "$b" || continue
+    any=0
+    while IFS= read -r d; do
+      [[ -n $d ]] && be_detect "$d" && { any=1; break; }
+    done < <(pci_display_functions)
+    (( any )) && continue
+    while IFS= read -r m; do
+      [[ -n $m ]] && module_loaded "$m" && { EGPU_BACKEND=$b; return 0; }
+    done < <(be_unload_modules 2>/dev/null)
+  done < <(backends_unloadable)
+  return 1
+}
+
+# _dev_eject_already_held <status doc> <started ms>: eject, with no card on the
+# bus and the driver still loaded (the state "Try again" after modules_held
+# lands in, or a cable pull). Never "safe to unplug": one more unload when that
+# is safe (nothing holds the modules and the helper can be asked), then either
+# the ordinary "already" answer, or modules_held with do_not_suspend again.
+_dev_eject_already_held() {
+  local doc=$1 started=$2 busy arc retry=null
+  DEV_DISPLAY=$(jq -cn --arg p "$(_dsp_policy)" '{policy: $p, off: [], workspaces: [], touched: false}')
+  if _dev_admin_ready; then
+    busy=$(_dev_modules_busy)
+    if [[ -z $busy ]]; then
+      say "The driver is still loaded with no card; unloading it…"
+      _dev_admin unload "$EGPU_BACKEND"
+      arc=$?
+      retry=$(jq -c --argjson rc "$arc" 'if type == "object" then . + {rc: $rc} else {rc: $rc} end' <<<"$DEV_ADMIN_OUT" 2>/dev/null) || retry=null
+    fi
+  fi
+  if _dev_modules_loaded; then
+    _dev_modules_held_fail "" '[]' "$retry"
+    return
+  fi
+  say "Nothing to eject: no eGPU on the PCI bus. The driver was unloaded."
+  _dev_unlock
+  jq -cn --argjson doc "$doc" --argjson retry "$retry" --argjson ms "$(( $(now_ms) - started ))" '
+    {ok: true, phase: $doc.phase, already: true, bdf: null,
+     modules: {held_after_eject: false, held_by: [], unloaded: true, unload: $retry},
+     elapsed_ms: $ms}'
 }
 
 # _dev_driver_in_use <busy lines> <closed json> [helper answer]: the eject

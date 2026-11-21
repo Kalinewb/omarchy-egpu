@@ -381,7 +381,7 @@ status_collect() {
             {state: "attention", needs_action: true, line: "eGPU ready · log out to use the HDMI monitor"}
           elif $s.modules.held_after_eject then
             {state: "attention", needs_action: true,
-             line: (if $s.phase == "ejected" then "Safe to unplug · log out before plugging it in again"
+             line: (if $s.phase == "ejected" then "Do not suspend · the driver is still loaded · log out first"
                     else "Log out before plugging the eGPU in again" end)}
           elif $present and $unsupported then
             {state: "attention", needs_action: true,

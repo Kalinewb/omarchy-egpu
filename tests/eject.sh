@@ -521,6 +521,38 @@ ej_test_unload() {
   dv_error "rescan after a pull, modules still loaded" modules_held
   dv_assert "...refused before pkexec" bash -c "! grep -q '^pkexec' '$EGPU_FAKE_LOG'"
   ej_done
+
+  # S-B (0.1.2): eject with no card and the driver loaded is never "safe to
+  # unplug" (it used to answer already: true).
+  echo "${BOLD}eject: after a cable pull, nothing holds the driver: one unload, then safe${RESET}"
+  ej_new pulled-eject
+  ej_ready
+  fx_egpu_unplug
+  ej --quiet
+  dv_check "ok, already, the driver unloaded by this call, no longer held" \
+    '.ok == true and .already == true and .modules.unloaded == true and .modules.held_after_eject == false and .modules.unload.ok == true'
+  dv_assert "the helper was asked to unload, nothing was removed" \
+    bash -c "grep -q 'pkexec .* unload nvidia' '$EGPU_FAKE_LOG' && ! grep -q 'pkexec .* remove' '$EGPU_FAKE_LOG' && [ ! -d '$FX_ROOT/sys/module/nvidia' ]"
+  ej --quiet
+  dv_check "again: plain already, no second unload" '.ok == true and .already == true and .modules.held_after_eject == false and (.modules | has("unloaded") | not)'
+  dv_assert "one unload call in all" bash -c "[ \"\$(grep -c 'pkexec .* unload' '$EGPU_FAKE_LOG')\" = 1 ]"
+  ej_done
+
+  echo "${BOLD}eject: after a cable pull, something holds the driver: do not suspend, never safe${RESET}"
+  ej_new pulled-held
+  ej_ready
+  fx_egpu_unplug
+  echo 4 >"$FX_ROOT/sys/module/nvidia_uvm/refcnt"
+  ej_proc 7001 quickshell "$UID" /dev/nvidiactl
+  ej
+  dv_error "eject with no card and a held driver" modules_held
+  dv_check "do_not_suspend, the sentence says so, no card, no removal" \
+    '.do_not_suspend == true and .bdf == null and .removed == [] and (.detail | test("Do not suspend") and test("log out")) and .phase == "ejected"'
+  dv_assert "no unload was tried (something holds it), no remove; no \"Safe to unplug\"; a \"Do not suspend\" notification" \
+    bash -c "! grep -qE 'pkexec .* (unload|remove)' '$EGPU_FAKE_LOG' && ! grep -q 'Safe to unplug' '$T/err' '$EGPU_FAKE_LOG' '$T/out.json' && grep -q '^notify-send .*Do not suspend the computer' '$EGPU_FAKE_LOG'"
+  dv_assert "the modules are still loaded" test -d "$FX_ROOT/sys/module/nvidia_uvm"
+  dv_assert "lock released" dv_unlocked
+  ej_done
 }
 
 
@@ -655,6 +687,23 @@ ej_test_late_modules() {
   dv_assert "status: ejected, held_after_eject (the guard's state), not safe_to_unplug" \
     bash -c "'$ENGINE' status --json | jq -e '.phase == \"ejected\" and .modules.held_after_eject == true' >/dev/null"
   dv_assert "lock released" dv_unlocked
+
+  # "Try again" on that answer (EjectFlow offers it): the card is gone, so this
+  # lands in the no-card branch of eject. It must say the same thing, not
+  # "Safe to unplug", for as long as the driver stays loaded.
+  : >"$EGPU_FAKE_LOG"
+  ej
+  dv_error "eject again: the modules are still loaded" modules_held
+  dv_check "do not suspend again, an unload was tried once more (nothing counted as holding it)" \
+    '.do_not_suspend == true and .bdf == null and .unload.rc != null and (.detail | test("Do not suspend"))'
+  dv_assert "not safe to unplug: no such word anywhere, and one unload call" \
+    bash -c "! grep -q 'Safe to unplug' '$T/err' '$EGPU_FAKE_LOG' '$T/out.json' && [ \"\$(grep -c 'pkexec .* unload nvidia' '$EGPU_FAKE_LOG')\" = 1 ]"
+  # What was stuck frees up: the next eject unloads and is safe.
+  rm -f "$EGPU_FAKE_DIR/modprobe-fail"
+  ej
+  dv_check "once the unload works: ok, already, unloaded, not held" \
+    '.ok == true and .already == true and .modules.unloaded == true and .modules.held_after_eject == false'
+  dv_assert "the modules are gone" bash -c "[ ! -d '$FX_ROOT/sys/module/nvidia' ] && [ ! -d '$FX_ROOT/sys/module/nvidia_uvm' ]"
   ej_done
 }
 
@@ -675,6 +724,15 @@ ej_test_error_sentences() {
     ok "all $(wc -w <<<"$codes") codes have a sentence (driver_in_use included)"
   else
     bad "no sentence in common/Errors.js for: ${missing[*]:-(none found: the extraction found no codes)}"
+  fi
+  # S-B: modules_held is the "do not suspend" answer (eject) and the rescan
+  # refusal; its sentence must say not to suspend, for both.
+  local held
+  held=$(sed -nE 's/^[[:space:]]*modules_held:[[:space:]]*"(.*)",?$/\1/p' "$REPO/common/Errors.js")
+  if [[ $held == *"Do not suspend"* && $held == *"log out"* ]]; then
+    ok "the modules_held sentence says not to suspend and to log out"
+  else
+    bad "the modules_held sentence in common/Errors.js does not say not to suspend: '$held'"
   fi
 }
 

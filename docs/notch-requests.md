@@ -152,14 +152,48 @@ Details, and `EjectFlow.qml` shows its generic `failed` step. Suggested wording:
 
 ## New use of `modules_held` in `device eject` (do not suspend)
 
-`modules_held` was a rescan answer. An eject now also answers it when the card was removed but its driver is loaded
-again and one more unload did not work (exit 1; the card is gone, the marker stays, the phase is `ejected`): the
-exact state a removed GPU oopses the next suspend in. Fields: `bdf`, `removed`, `held_by` (process names), `unload`
-(the second unload's answer), `display`, `do_not_suspend: true`, and a `detail` sentence ("... Do not suspend the
-computer: log out first, then unplug."). `common/Errors.js` already has `modules_held` ("Log out before
-reconnecting the eGPU: the driver is still loaded from before the eject."); a UI that wants the stronger wording can
-show `detail`, or test `do_not_suspend`. The engine also posts `eject_failed {error: "modules_held"}`, not
-`eject_ready`, so no "Safe to unplug" notice is raised for it. `status` for this state is unchanged: phase `ejected`
-with `modules.held_after_eject: true`, whose summary line still reads "Safe to unplug · log out before plugging it in
-again"; that line (lib/status.sh) is shared with the UI's fixtures and was left alone, so it is a follow-up for the
-UI work.
+`modules_held` was a rescan answer. An eject now also answers it in two cases (exit 1; the card is gone, the marker stays
+if there was one, the phase is `ejected`), the exact state a removed GPU oopses the next suspend in:
+
+1. the card was removed but its driver is loaded again and one more unload did not work (the end of a real eject);
+2. (0.1.2) `device eject` was run again with no card on the bus and the driver still loaded: "Try again" after case 1, or
+   an eject after a cable pull. It used to answer `already: true`, which the UI showed as "Safe to unplug". The engine
+   now asks first whether the modules are loaded; if nothing holds them it unloads once more, and on success answers
+   the ordinary `already: true` with `modules: {held_after_eject: false, unloaded: true}`; otherwise `modules_held`
+   with `do_not_suspend` again.
+
+Fields: `bdf` (the removed card's address; `null` in case 2), `removed` (`[]` in case 2), `held_by` (process names), `unload`
+(the last unload's answer, or `null` when none was tried), `display`, `do_not_suspend: true`, and a `detail` sentence
+("... Do not suspend the computer: log out first, then it is safe."). The engine also posts `eject_failed {error:
+"modules_held"}`, not `eject_ready`, so no "Safe to unplug" notice is raised for it. `status` for this state is
+unchanged: phase `ejected` with `modules.held_after_eject: true`.
+
+`common/Errors.js` now words `modules_held` as "The driver is still loaded without the card. Do not suspend or sleep this
+computer: log out first." (0.1.2), which reads right for the eject and for the rescan refusal. `lib/status.sh`'s summary
+line for phase `ejected` with held modules is now "Do not suspend · the driver is still loaded · log out first" (it
+said "Safe to unplug · log out before plugging it in again"); `tests/fixtures/ejected-held` and
+`dev/fixtures/ejected-held/status.json` carry the new line (only that line was regenerated; the other fixture drift in
+`dev/make-fixtures.sh`'s output was left to the UI work).
+
+# UI work for the merge (the QML and Overview.js the UI branch owns; not done on this branch)
+
+The engine and the shared sentence now say "do not suspend" for `modules_held`. Three places in the UI still do not:
+
+1. `views/EjectFlow.qml`, the `failed` step: when `result.json.do_not_suspend === true`
+   - show `result.json.detail` (not only `Errors.message(code)`), as the headline sentence, tone warn;
+   - hide "Try again" (it re-runs eject; with 0.1.2 that is safe and answers the same thing, but it invites the user to
+     retry instead of logging out), keep Cancel/Done and a "Log out" hint if the shell has one;
+   - offer a "Turn the screens back on" action (`display enable`) when `display.off` is non-empty and
+     `display.restored` does not list them: the answer for this code never restores the screens itself (the card is
+     gone, there is nothing to light up), and with the lid closed they may be the only ones.
+   The `already: true` success of an eject must not be shown as "Safe to unplug" when `modules.held_after_eject` is
+   true (it cannot be since 0.1.2, but a stale status document can still say so).
+2. `common/Overview.js:219`: for `held` with `phase === "ejected"` it shows headline "Ejected" and detail "Safe to unplug".
+   Change the detail to "Do not suspend: log out first" (or show `summary.line`, which now says it), and
+   `Errors.note("held_after_eject")` ("Log out before plugging the eGPU in again.") should lead with the suspend
+   warning for the ejected phase: "Do not suspend the computer: the driver is still loaded. Log out first."
+3. `common/Overview.js:237`, the Setup-issue branch: `phase === "ejected" ? "Safe to unplug."` has the same problem when
+   `held` is true.
+
+Also from 0.1.2, `device eject` can answer `driver_unloaded: true` on a `remove_failed`/`busy`/`helper_missing`
+answer: see "driver_unloaded" below; the UI should show its `detail` there and a Connect button.

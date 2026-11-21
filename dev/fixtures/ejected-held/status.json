@@ -5,7 +5,7 @@
   "summary": {
     "state": "attention",
     "needs_action": true,
-    "line": "Safe to unplug · log out before plugging it in again"
+    "line": "Do not suspend · the driver is still loaded · log out first"
   },
   "phase": "ejected",
   "bolt": {

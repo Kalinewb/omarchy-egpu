@@ -22,7 +22,7 @@ var sentences = {
   remove_timeout: "Do not unplug. The driver has not let go of the card. Save your work and log out; unplug after.",
   helper_missing: "The system helper is not installed. Open Setup to install it.",
   remove_failed: "The eGPU could not be ejected. It is still connected; nothing was removed.",
-  modules_held: "Log out before reconnecting the eGPU: the driver is still loaded from before the eject.",
+  modules_held: "The driver is still loaded without the card. Do not suspend or sleep this computer: log out first.",
   rescan_failed: "The eGPU could not be reconnected. Unplug it and plug it in again.",
   // not an engine error code: the status document's bolt.status, worded here
   // so the Overview's error headline comes from this table too
