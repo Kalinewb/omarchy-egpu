@@ -467,8 +467,8 @@ out=$(PNGTAG=-closed view eject in-use-procs EGPU_HARNESS_CLICK="Close 2 apps|Cl
 check "it runs device eject as it opens, names the apps, and the harmless ones apart; closing them is a destructive verb with its object" "Safe eject|yes|yes|Cancel,Close 2 apps" \
   "$(field title "$out")|$(has 'vkcube and worker are using the eGPU.' "$(field texts "$out")")|$(has 'Also open (harmless) ¦ chromium' "$(field texts "$out")")|$(field buttons "$out")"
 check "Close 2 apps asks first (the confirm), then re-runs it with --close; never anything else" '["device","eject"] ["device","eject","--close"]' "$(calls)"
-check "…then Safe to unplug, with the held-driver note, and Done" "yes|yes|*Done" \
-  "$(has 'Safe to unplug' "$(field after.texts "$out")")|$(has 'The driver stays loaded until you log out.' "$(field after.texts "$out")")|$(field after.buttons "$out")"
+check "…then, the answer (a stale one: the engine no longer says ok with the driver loaded) saying the driver is still loaded: Do not suspend, never Safe to unplug, and Done" "yes|no|*Done" \
+  "$(has 'Do not suspend' "$(field after.texts "$out")")|$(has 'Safe to unplug' "$(field after.texts "$out")")|$(field after.buttons "$out")"
 out=$(view eject in-use-procs EGPU_HARNESS_CLICK="Close 2 apps")
 check "the first Close only asks: the question names the consequence, nothing is closed yet, and the sheet stays" '["device","eject"]|yes|none' \
   "$(calls)|$(has 'Save your work first.' "$(field after.texts "$out")")|$(field after.routes "$out")"

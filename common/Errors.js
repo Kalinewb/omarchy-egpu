@@ -77,7 +77,19 @@ function code(result) {
 var notes = {
   needs_relogin: "The HDMI monitor needs a new session to appear. Offloading apps works now.",
   held_after_eject: "Do not suspend the computer: the driver is still loaded. Log out first, then plug the eGPU in again.",
-  health_errors: "Setup has found a problem."
+  health_errors: "Setup has found a problem.",
+  // The eject sheet's failed step (lib/device.sh answers)
+  do_not_suspend: "Do not suspend. Log out first.",
+  session_holds: "Your session itself holds the driver; logging out lets go of it.",
+  driver_unloaded: "The driver is unloaded. Open the lid or press Connect to bring the eGPU back.",
+  screens_off: "The screens on the eGPU are off. Open the lid or turn the display back on."
+}
+
+// An answer's own wording of a code: driver_in_use when the helper says the
+// driver is shared with this computer's own NVIDIA GPU (nothing to close, no
+// retry). forResult picks it.
+var variants = {
+  driver_shared: "This computer's own NVIDIA GPU shares the driver, so the eGPU cannot be ejected safely. Shut down before unplugging."
 }
 
 function note(id) {
@@ -89,6 +101,7 @@ function note(id) {
 function forResult(result) {
   if (!result || result.ok) return ""
   if (exits.hasOwnProperty(result.code)) return exits[result.code]
+  if (result.error === "driver_in_use" && result.json && result.json.shared_driver === true) return variants.driver_shared
   return message(result.error || ("exit " + result.code))
 }
 
