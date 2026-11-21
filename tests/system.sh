@@ -13,7 +13,10 @@
 # unprivileged user namespaces are off.
 #
 # Nothing here runs sudo, pkexec or a real modprobe, or writes outside $WORK.
-# The installer runs with --root into the fixture tree.
+# The installer runs with --root into the fixture tree. The sleep guard
+# (system/omarchy-egpu-sleep-guard) runs unprivileged through its test seam
+# against the same fixture, with the fake modprobe and logger, and once as
+# uid 0 in the namespace group.
 
 SY_EGPU=0000:03:00.0
 SY_AUDIO=0000:03:00.1
@@ -33,6 +36,7 @@ sy_new() {
   export PATH="$PATH:$T/xbin"
   SY_ADMIN="$REPO/system/omarchy-egpu-admin"
   SY_INSTALL="$REPO/system/install.sh"
+  SY_GUARD="$REPO/system/omarchy-egpu-sleep-guard"
 }
 
 # sy_admin <args…>: the helper in test mode. Output in $T/out.json, prose in
@@ -553,14 +557,14 @@ sy_test_namespace() {
   sy_ns() {
     local unshare_bin
     unshare_bin=$(PATH=/usr/bin:/bin type -P unshare)
-    OMARCHY_EGPU_ADMIN_TEST_ROOT="$T/decoy" EGPU_SYS="$T/decoy/sys" PATH="$T/evilbin:$PATH" \
+    OMARCHY_EGPU_ADMIN_TEST_ROOT="$T/decoy" OMARCHY_EGPU_GUARD_TEST_ROOT="$T/decoy" EGPU_SYS="$T/decoy/sys" PATH="$T/evilbin:$PATH" \
       timeout 60 "$unshare_bin" -rm /usr/bin/bash -c '
         /usr/bin/mount --bind "$1" /sys && /usr/bin/mount -t tmpfs tmpfs /run &&
           /usr/bin/mount --bind "$2" /usr/bin/modprobe && /usr/bin/mount --bind "$3" /usr/bin/logger || exit 99
         shift 3
         [[ -n ${SY_BASH_ENV:-} ]] && export BASH_ENV=$SY_BASH_ENV
         exec "$@"' _ "$FX_ROOT/sys" "$TESTS/fakes/bin/modprobe" "$TESTS/fakes/bin/logger" \
-      "$SY_ADMIN" "$@" >"$T/out.json" 2>"$T/err" </dev/null
+      "${SY_NS_PROG:-$SY_ADMIN}" "$@" >"$T/out.json" 2>"$T/err" </dev/null
     SY_RC=$?
   }
   sy_ns version
@@ -590,6 +594,18 @@ sy_test_namespace() {
   sy_check "namespace (uid 0): unload answers although logger hangs" '.ok == true and (.unloaded | length) == 4'
   sy_assert "  …within the audit deadline ($((SECONDS - t0)) s)" test $((SECONDS - t0)) -le 9
   rm -f "$EGPU_FAKE_DIR/logger-hang"
+
+  # The sleep guard as uid 0: the eGPU is gone (removed above) and the modules
+  # are loaded again. Its test seam (a decoy root with no modules) is ignored
+  # as root, the caller's PATH is not used, and the real-path /sys is read.
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
+  SY_NS_PROG=$SY_GUARD sy_ns
+  sy_assert "namespace (uid 0): the sleep guard exits 0 and unloads the stack through /usr/bin/modprobe" \
+    bash -c '[[ $1 == 0 && ! -e $3/evil-path-ran ]] &&
+      [[ $(grep "^modprobe" "$2" | paste -sd"|") == "modprobe -r -- nvidia_uvm|modprobe -r -- nvidia_drm|modprobe -r -- nvidia_modeset|modprobe -r -- nvidia" ]] &&
+      [[ ! -d $4/sys/module/nvidia ]]' _ "$SY_RC" "$EGPU_FAKE_LOG" "$T" "$FX_ROOT"
+  sy_assert "  …ignoring the decoy test root, and logged to the journal (fake logger)" sy_log_has '^logger -t omarchy-egpu-sleep-guard .*unloaded: nvidia_uvm nvidia_drm nvidia_modeset nvidia'
 
   # The installer as uid 0 without --root refuses at its gate, before it
   # opens a lock or reads the plugin folder: run from the plugin folder; from a
@@ -833,6 +849,162 @@ PY
   fi
 }
 
+# ---------------------------------------------------------------- the sleep guard
+
+# sy_guard [env…]: the guard unprivileged, with its test seam pointing at the
+# fixture. Prose on stderr is in $T/err, the exit status in SY_RC.
+# shellcheck disable=SC2120  # its arguments are extra environment, passed by some tests
+sy_guard() {
+  env OMARCHY_EGPU_GUARD_TEST_ROOT="$FX_ROOT" OMARCHY_EGPU_GUARD_TEST_DEADLINE="${SY_DEADLINE:-3}" "$@" \
+    timeout 60 "$SY_GUARD" >"$T/out.json" 2>"$T/err" </dev/null
+  SY_RC=$?
+}
+
+sy_guard_modprobes() { grep '^modprobe' "$EGPU_FAKE_LOG" | sed 's/^modprobe //' | paste -sd'|'; }
+sy_guard_unchanged() { [[ $SY_RC == 0 ]] && sy_no_modprobe && ! grep -q '^logger' "$EGPU_FAKE_LOG" 2>/dev/null; }
+SY_GUARD_ORDER='-r -- nvidia_uvm|-r -- nvidia_drm|-r -- nvidia_modeset|-r -- nvidia'
+
+sy_test_guard() {
+  sy_new guard
+  # The laptop only: the iGPU, no NVIDIA device. Run unprivileged, so every
+  # path below is the test seam's.
+  : >"$EGPU_FAKE_LOG"
+  sy_guard
+  sy_assert "guard: nothing loaded, no NVIDIA device: exit 0, no modprobe, no log line" sy_guard_unchanged
+
+  fx_egpu_nvidia nvidia
+  sy_guard
+  sy_assert "guard: nothing loaded, eGPU present: nothing" sy_guard_unchanged
+
+  # Loaded, with a GPU on the bus: nothing at all (the normal state of an
+  # attached eGPU, and of a laptop with its own NVIDIA GPU).
+  fx_nvidia_modules
+  sy_guard
+  sy_assert "guard: modules loaded, eGPU present: exit 0, no modprobe, not even a log line" sy_guard_unchanged
+  sy_assert "  …the modules are still loaded" test -d "$FX_ROOT/sys/module/nvidia_uvm" -a -d "$FX_ROOT/sys/module/nvidia"
+  fx_egpu_unplug
+  fx_pci 0000:01:00.0 0x030200 0x10de 0x28e0 boot_vga=0
+  sy_guard
+  sy_assert "guard: modules loaded, the laptop's own NVIDIA 3D controller (class 0302) present: nothing" sy_guard_unchanged
+  fx_pci_remove 0000:01:00.0
+
+  # Loaded, with no NVIDIA GPU: the stale-driver case.
+  sy_guard
+  sy_assert "guard: modules loaded, no NVIDIA GPU on the bus: exit 0" test "$SY_RC" = 0
+  sy_assert "  …unloaded in the fixed reverse order, nvidia_uvm first" test "$(sy_guard_modprobes)" = "$SY_GUARD_ORDER"
+  sy_assert "  …all four gone" bash -c '! ls "$1"/sys/module/nvidia* >/dev/null 2>&1' _ "$FX_ROOT"
+  sy_assert "  …and said so in the journal, once before and once after" \
+    bash -c '[[ $(grep -c "^logger -t omarchy-egpu-sleep-guard" "$1") == 2 ]] &&
+      grep -q "no NVIDIA GPU on the PCI bus; unloading" "$1" && grep -q "unloaded: nvidia_uvm nvidia_drm nvidia_modeset nvidia; left loaded: nothing" "$1"' _ "$EGPU_FAKE_LOG"
+  : >"$EGPU_FAKE_LOG"
+  sy_guard
+  sy_assert "guard: and again with everything unloaded: nothing" sy_guard_unchanged
+
+  # Only some loaded, and the GPU's audio function (not a display class) alone
+  # does not count as a GPU.
+  fx_modules nvidia nvidia_uvm
+  fx_pci 0000:03:00.1 0x040300 0x10de 0x22bc removable=removable driver=snd_hda_intel
+  sy_guard
+  sy_assert "guard: only nvidia and nvidia_uvm loaded, an NVIDIA audio function alone on the bus: those two, in order" \
+    test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = "-r -- nvidia_uvm|-r -- nvidia"
+  fx_pci_remove 0000:03:00.1
+
+  # A module something still holds: the others go, the sleep goes on.
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
+  echo nvidia_uvm >"$EGPU_FAKE_DIR/modprobe-fail"
+  sy_guard
+  sy_assert "guard: nvidia_uvm will not unload: exit 0 anyway" test "$SY_RC" = 0
+  sy_assert "  …the rest were still tried, in order" test "$(sy_guard_modprobes)" = "$SY_GUARD_ORDER"
+  sy_assert "  …it is logged as left loaded, the others as unloaded" \
+    bash -c 'grep -q "modprobe -r nvidia_uvm failed" "$1" && grep -q "unloaded: nvidia_drm nvidia_modeset nvidia; left loaded: nvidia_uvm" "$1"' _ "$EGPU_FAKE_LOG"
+  sy_assert "  …and nvidia_uvm is still loaded" test -d "$FX_ROOT/sys/module/nvidia_uvm"
+  rm -f "$EGPU_FAKE_DIR/modprobe-fail"
+  fx_modules_remove nvidia_uvm nvidia_drm nvidia_modeset nvidia
+
+  # A modprobe that never returns: bounded by the budget, abandoned, exit 0.
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
+  touch "$EGPU_FAKE_DIR/modprobe-hang"
+  local t0=$SECONDS
+  SY_DEADLINE=2 sy_guard
+  local took=$((SECONDS - t0))
+  sy_assert "guard: modprobe hangs: exit 0 within the budget (${took} s of 2)" test "$SY_RC" = 0 -a "$took" -le 5
+  sy_assert "  …logged as timed out, the other modules as skipped" \
+    bash -c 'grep -q "modprobe -r nvidia_uvm timed out; abandoned" "$1" && grep -q "skipped: the 2 s budget is spent" "$1" && grep -q "left loaded: nvidia_uvm nvidia_drm nvidia_modeset nvidia" "$1"' _ "$EGPU_FAKE_LOG"
+  sy_assert "  …only the first was tried" test "$(sy_guard_modprobes)" = "-r -- nvidia_uvm"
+  # The hung fake modprobe (sleep 600) was sent SIGKILL by the guard at its deadline.
+  rm -f "$EGPU_FAKE_DIR/modprobe-hang"
+
+  # A logger stuck on a wedged journal does not hold the sleep either.
+  : >"$EGPU_FAKE_LOG"
+  touch "$EGPU_FAKE_DIR/logger-hang"
+  t0=$SECONDS
+  SY_DEADLINE=2 sy_guard
+  took=$((SECONDS - t0))
+  sy_assert "guard: logger hangs: still exit 0 within the budget (${took} s)" test "$SY_RC" = 0 -a "$took" -le 12
+  rm -f "$EGPU_FAKE_DIR/logger-hang"
+
+  # The PCI bus cannot be told: the guard acts only on a positive "none here".
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
+  mv "$FX_ROOT/sys/bus/pci/devices" "$FX_ROOT/sys/bus/pci/devices.off"
+  sy_guard
+  sy_assert "guard: no PCI sysfs at all: exit 0, nothing unloaded" test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = ""
+  sy_assert "  …one log line says why" bash -c '[[ $(grep -c "^logger" "$1") == 1 ]] && grep -q "cannot be read or classified; leaving them alone" "$1"' _ "$EGPU_FAKE_LOG"
+  mv "$FX_ROOT/sys/bus/pci/devices.off" "$FX_ROOT/sys/bus/pci/devices"
+  : >"$EGPU_FAKE_LOG"
+  chmod 000 "$FX_PCI/$SY_IGPU/vendor"
+  sy_guard
+  sy_assert "guard: a device whose vendor cannot be read: nothing unloaded" test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = ""
+  chmod 644 "$FX_PCI/$SY_IGPU/vendor"
+  : >"$EGPU_FAKE_LOG"
+  chmod 000 "$FX_PCI/$SY_IGPU/class"
+  sy_guard
+  sy_assert "guard: a device whose class cannot be read: nothing unloaded" test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = ""
+  chmod 644 "$FX_PCI/$SY_IGPU/class"
+  : >"$EGPU_FAKE_LOG"
+  mv "$FX_ROOT/sys/bus/pci/devices" "$FX_ROOT/sys/bus/pci/devices.off"
+  mkdir "$FX_ROOT/sys/bus/pci/devices"
+  sy_guard
+  sy_assert "guard: a PCI directory with no device in it (cannot be a real bus): nothing unloaded" test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = ""
+  rmdir "$FX_ROOT/sys/bus/pci/devices"
+  mv "$FX_ROOT/sys/bus/pci/devices.off" "$FX_ROOT/sys/bus/pci/devices"
+
+  # Names that are not PCI addresses are never read.
+  : >"$EGPU_FAKE_LOG"
+  mkdir -p "$FX_PCI/evil" "$FX_PCI/0000:zz:00.0"
+  printf '0x10de\n' >"$FX_PCI/evil/vendor"
+  printf '0x030000\n' >"$FX_PCI/evil/class"
+  sy_guard
+  sy_assert "guard: a directory named 'evil' with an NVIDIA vendor and class is not a PCI device: still unloads" \
+    test "$SY_RC" = 0 -a "$(sy_guard_modprobes)" = "$SY_GUARD_ORDER"
+  rm -rf "$FX_PCI/evil" "$FX_PCI/0000:zz:00.0"
+
+  # The seam is a seam: refused without it, and a relative or traversing root
+  # is not accepted. Run any way but bash -p it does nothing.
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
+  timeout 20 "$SY_GUARD" >"$T/out.json" 2>"$T/err" </dev/null
+  SY_RC=$?
+  sy_assert "guard: unprivileged, no test seam: exit 0, does nothing" bash -c '[[ $1 == 0 ]] && grep -q "not root" "$2"' _ "$SY_RC" "$T/err"
+  sy_assert "  …unloaded nothing" sy_no_modprobe
+  OMARCHY_EGPU_GUARD_TEST_ROOT="relative/$FX_ROOT" timeout 20 "$SY_GUARD" >"$T/out.json" 2>"$T/err" </dev/null
+  SY_RC=$?
+  sy_assert "guard: a relative test root is refused" bash -c '[[ $1 == 0 ]] && grep -q "not root" "$2"' _ "$SY_RC" "$T/err"
+  OMARCHY_EGPU_GUARD_TEST_ROOT="$FX_ROOT/../x" timeout 20 "$SY_GUARD" >"$T/out.json" 2>"$T/err" </dev/null
+  SY_RC=$?
+  sy_assert "guard: a test root with .. is refused" bash -c '[[ $1 == 0 ]] && grep -q "not root" "$2"' _ "$SY_RC" "$T/err"
+  OMARCHY_EGPU_GUARD_TEST_ROOT="$FX_ROOT" timeout 20 bash "$SY_GUARD" >"$T/out.json" 2>"$T/err" </dev/null
+  SY_RC=$?
+  sy_assert "guard: run as 'bash file' (not privileged mode), seam set: exit 0, does nothing" \
+    bash -c '[[ $1 == 0 ]] && grep -q "not in privileged mode" "$2"' _ "$SY_RC" "$T/err"
+  sy_assert "  …unloaded nothing" sy_no_modprobe
+  sy_assert "guard: it writes nothing: no new file in the fixture or its run directory" \
+    test -z "$(find "$FX_ROOT/run" "$FX_ROOT/etc" -newer "$T/err" -type f 2>/dev/null)"
+  sy_done
+}
+
 # ---------------------------------------------------------------- installer
 
 # sy_tree: a listing of everything install may touch, with content hashes.
@@ -924,8 +1096,16 @@ sy_test_install() {
   sy_assert "  …the auto-connect flag, mode 644, in a 755 directory" \
     test -f "$FX_ROOT/etc/omarchy-egpu/autoconnect" -a "$(stat -c %a "$FX_ROOT/etc/omarchy-egpu/autoconnect")" = 644 \
     -a "$(stat -c %a "$FX_ROOT/etc/omarchy-egpu")" = 755
+  sy_assert "  …the sleep guard is the repo's bytes, mode 755, in /usr/local/bin" \
+    bash -c 'cmp -s "$1" "$2" && [[ $(stat -c %a "$2") == 755 ]]' _ "$REPO/system/omarchy-egpu-sleep-guard" "$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard"
+  sy_assert "  …its drop-in under nvidia-suspend and nvidia-hibernate, mode 644, the repo's bytes" \
+    bash -c 'for u in nvidia-suspend nvidia-hibernate; do
+      f=$2/etc/systemd/system/$u.service.d/omarchy-egpu-sleep-guard.conf
+      cmp -s "$1" "$f" && [[ $(stat -c %a "$f") == 644 ]] || exit 1; done' _ "$REPO/system/omarchy-egpu-sleep-guard.conf" "$FX_ROOT"
+  sy_assert "  …and the drop-in runs the guard with a leading '-' so it can never block sleep" \
+    bash -c '[[ $(grep -c "^ExecStartPre=" "$1") == 1 ]] && grep -qx "ExecStartPre=-/usr/local/bin/omarchy-egpu-sleep-guard" "$1"' _ "$FX_ROOT/etc/systemd/system/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf"
   sy_assert "  …a record of every file and backup" \
-    bash -c '[[ $(grep -c "^file" "$1") == 5 && $(grep -c "^backup" "$1") == 1 ]]' _ "$FX_ROOT/var/lib/omarchy-egpu/installed"
+    bash -c '[[ $(grep -c "^file" "$1") == 8 && $(grep -c "^backup" "$1") == 1 ]]' _ "$FX_ROOT/var/lib/omarchy-egpu/installed"
 
   "$ENGINE" health >"$T/health.after" 2>/dev/null
   jq -e '(.[] | select(.id == "boot.modules_load_mask") | .level) == "ok"
@@ -1007,8 +1187,11 @@ sy_test_install() {
   printf 'edited by hand\n' >"$FX_ROOT/etc/omarchy-egpu/autoconnect"
   sy_install uninstall
   sy_check "install: uninstall removes everything and restores the stale file" \
-    '.ok == true and .kept == [] and .restored == ["/etc/modules-load.d/nvidia-utils.conf"] and (.removed | length) == 5
-     and any(.removed[]; . == "/etc/omarchy-egpu/autoconnect")'
+    '.ok == true and .kept == [] and .restored == ["/etc/modules-load.d/nvidia-utils.conf"] and (.removed | length) == 8
+     and any(.removed[]; . == "/etc/omarchy-egpu/autoconnect")
+     and any(.removed[]; . == "/usr/local/bin/omarchy-egpu-sleep-guard")
+     and any(.removed[]; . == "/etc/systemd/system/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf")
+     and any(.removed[]; . == "/etc/systemd/system/nvidia-hibernate.service.d/omarchy-egpu-sleep-guard.conf")'
   # M9: the freeze condition comes back with the mask gone, and says so.
   sy_check "  …warns that nvidia_uvm loads at boot again" \
     '.warnings | any(test("/usr/lib/modules-load.d/nvidia-580xx-utils.conf loads nvidia_uvm at boot again"))'
@@ -1158,6 +1341,9 @@ sy_test_pins() {
   sy_pins_fails "an edited installer (stale install.sh.sha256)" "install.sh.sha256 is not system/install.sh's checksum"
   sy_pins_fails "  …and a mask list that is not the allowlist" "is not the helper's allowlist"
   sy_pins_copy
+  sed -i 's/^MODULES=(nvidia nvidia_modeset nvidia_drm nvidia_uvm)$/MODULES=(nvidia nvidia_drm)/' "$T/repo/system/omarchy-egpu-sleep-guard"
+  sy_pins_fails "a sleep guard whose module list is not the allowlist" "the sleep guard's MODULES"
+  sy_pins_copy
   jq '.version = "0.2.0"' "$REPO/manifest.json" >"$T/repo/manifest.json"
   sy_pins_fails "a plugin version the system half does not carry" "manifest.json says '0.2.0'"
   sy_pins_copy
@@ -1191,6 +1377,7 @@ test_system() {
   (sy_test_latch)
   (sy_test_autoconnect)
   (sy_test_namespace)
+  (sy_test_guard)
   (sy_test_files)
   (sy_test_install)
   (sy_test_install_masks)

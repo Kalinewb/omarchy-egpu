@@ -7,6 +7,9 @@
 # §10.4), the only way root ever receives files from the plugin folder:
 #
 #   /usr/local/bin/omarchy-egpu-admin                    the root helper
+#   /usr/local/bin/omarchy-egpu-sleep-guard              unloads a stale driver before sleep
+#   /etc/systemd/system/nvidia-{suspend,hibernate}.service.d/omarchy-egpu-sleep-guard.conf
+#                                                        runs the guard before those units
 #   /usr/share/polkit-1/actions/no.kalinewb.egpu.policy  its polkit actions
 #   /etc/udev/rules.d/61-omarchy-egpu.rules              links + auto-connect
 #   /etc/modules-load.d/<shipped name>                   boot-load mask (§9.2)
@@ -86,7 +89,7 @@ BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
 
 # The files root installs, by their name in system/. Each must hash to its pin
 # below; there is no other list, so a name missing here is never copied.
-SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules omarchy-egpu-modules.conf)
+SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules omarchy-egpu-modules.conf omarchy-egpu-sleep-guard omarchy-egpu-sleep-guard.conf)
 
 # pins:begin
 declare -A PINS=(
@@ -94,6 +97,8 @@ declare -A PINS=(
   [no.kalinewb.egpu.policy]=b8bbe2b6c2b633ed407f486be9cdf071ad9b15aa578af85051b4fffbbe60af74
   [61-omarchy-egpu.rules]=e9c95c46641ade3f860ca47e35010b50699745a66133028ba9df40a273e20b4b
   [omarchy-egpu-modules.conf]=0c286ef1856803955ce50ab600f5372258b995cd9c5d58d8966bced39442e6ed
+  [omarchy-egpu-sleep-guard]=0b684ee95783baffec86a201efe167a09564d47e455b21971898632a350b5182
+  [omarchy-egpu-sleep-guard.conf]=c3fa920bf85bd966a0aa5e430a1808e1918abb727d8e51065dabb5da41538e2a
 )
 # pins:end
 
@@ -234,6 +239,13 @@ fi
 
 BIN_DIR=$R/usr/local/bin
 HELPER=$BIN_DIR/omarchy-egpu-admin
+GUARD=$BIN_DIR/omarchy-egpu-sleep-guard
+# The sleep guard's drop-ins: the same bytes under each NVIDIA sleep unit.
+SYSD_DIR=$R/etc/systemd/system
+DROPIN_UNITS=(nvidia-suspend.service nvidia-hibernate.service)
+DROPINS=()
+for _u in "${DROPIN_UNITS[@]}"; do DROPINS+=("$SYSD_DIR/$_u.d/omarchy-egpu-sleep-guard.conf"); done
+unset _u
 POLICY_DIR=$R/usr/share/polkit-1/actions
 POLICY=$POLICY_DIR/no.kalinewb.egpu.policy
 RULES_DIR=$R/etc/udev/rules.d
@@ -423,6 +435,15 @@ udev_reload() {
   fi
   fixed_cards >/dev/null
   ((EXTERNAL_CARD)) && WARNINGS+=("$1")
+  return 0
+}
+
+# systemd_reload: the drop-ins are read at the next daemon-reload; without it
+# systemd keeps running the units as it loaded them and says so.
+systemd_reload() {
+  ((ROOT_GIVEN)) && return 0
+  timeout 30 systemctl daemon-reload </dev/null >/dev/null 2>&1 8>&- ||
+    WARNINGS+=("systemctl daemon-reload failed; the sleep guard applies after the next one, or a reboot")
   return 0
 }
 
@@ -696,24 +717,28 @@ preflight() {
   render_rules
   say "  primary GPU: $PRIMARY (boot VGA)"
   # Checked, not created: a directory that is missing is made by apply.
-  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR"; do assert_dir_safe "$d" check; done
+  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR" "$SYSD_DIR" "${DROPINS[@]%/*}"; do assert_dir_safe "$d" check; done
   decide_autoconnect
 }
 
 # apply: installs from the checked snapshot.
 apply() {
   local d auto=off
-  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR"; do assert_dir_safe "$d"; done
+  for d in "$BIN_DIR" "$POLICY_DIR" "$RULES_DIR" "$MLD_ETC" "$CONF_DIR" "$SYSD_DIR" "${DROPINS[@]%/*}"; do assert_dir_safe "$d"; done
   record_load
 
-  # The helper before the two files that name it, the rule last.
+  # The helper before the two files that name it, the rule last. The sleep
+  # guard before the drop-ins that name it.
   put "$SNAP/omarchy-egpu-admin" "$HELPER" 0755
   put "$SNAP/no.kalinewb.egpu.policy" "$POLICY" 0644
   put "$RULES_SRC" "$RULES" 0644
+  put "$SNAP/omarchy-egpu-sleep-guard" "$GUARD" 0755
+  for d in "${DROPINS[@]}"; do put "$SNAP/omarchy-egpu-sleep-guard.conf" "$d" 0644; done
   install_masks
   remove_stale_masks
   set_autoconnect
   udev_reload "the eGPU is attached now: its /dev/dri/omarchy-egpu-external link appears when it is next plugged in, or at the next boot"
+  systemd_reload
 
   [[ -e $FLAG ]] && auto=on
   audit "installed $VERSION: ${INSTALLED[*]}"
@@ -763,11 +788,23 @@ do_uninstall() {
     say "  removed ${FLAG#"$R"}"
   fi
   unset 'sha_of_path[$FLAG]'
-  for path in "$POLICY" "$HELPER"; do
+  # The sleep guard's drop-ins, then the guard they name; the `.d` directories
+  # go only if nothing else is in them (they are systemd's, and may be the
+  # user's).
+  for path in "${DROPINS[@]}"; do
+    unput "$path" "${sha_of_path[$path]:-}"
+    unset 'sha_of_path[$path]'
+    rmdir -- "${path%/*}" 2>/dev/null
+  done
+  # Made by install when systemd's directory was missing (a bare root); a real
+  # /etc/systemd/system is never empty, and rmdir leaves anything that is.
+  rmdir -- "$SYSD_DIR" "${SYSD_DIR%/*}" 2>/dev/null
+  for path in "$POLICY" "$HELPER" "$GUARD"; do
     unput "$path" "${sha_of_path[$path]:-}"
     unset 'sha_of_path[$path]'
   done
   udev_reload "the eGPU is attached now: its /dev/dri/omarchy-egpu-external link goes when it is unplugged, or at the next boot"
+  systemd_reload
   for path in "${!sha_of_path[@]}"; do
     unput "$path" "${sha_of_path[$path]}"
   done

@@ -10,7 +10,8 @@
 #   - one version everywhere: manifest.json, install.sh's VERSION, the
 #     helper's VERSION, and the version header of every installed file (the
 #     engine refuses a helper whose version differs from the plugin's, §1.1)
-#   - install.sh's boot-load mask list is the helper's module allowlist
+#   - install.sh's boot-load mask list and the sleep guard's module list are
+#     the helper's module allowlist
 #   - README.md's install command is the one install.sh prints
 #   - if the version is tagged, the tag serves a pin that matches its own
 #     installer and this tree's
@@ -62,6 +63,8 @@ done
 mask=$(sed -n 's/^MASK_MODULES=(\(.*\))$/\1/p' system/install.sh)
 allow=$(sed -n '/^backend_select()/,/^}/p' system/omarchy-egpu-admin | sed -n 's/^[[:space:]]*MODULES=(\(.*\))$/\1/p' | head -n1)
 [[ -n $mask && $mask == "$allow" ]] || fail "install.sh MASK_MODULES ($mask) is not the helper's allowlist ($allow)"
+guard=$(sed -n 's/^MODULES=(\(.*\))$/\1/p' system/omarchy-egpu-sleep-guard | head -n1)
+[[ -n $guard && $guard == "$allow" ]] || fail "the sleep guard's MODULES ($guard) is not the helper's allowlist ($allow)"
 
 command=$(bash system/install.sh --print-command install 2>/dev/null)
 readme=$(sed -n '/^### Installing or updating the system half$/,/^```$/p' README.md |
