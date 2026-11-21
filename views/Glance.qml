@@ -1,4 +1,5 @@
 import QtQuick
+import "../ui"
 import "../common/Palette.js" as Palette
 
 // Glance: the eGPU in one glyph and a word or two (plan-gui.md §7.4).
@@ -9,10 +10,10 @@ import "../common/Palette.js" as Palette
 // function of summary.state (and, while one is live, the notice's title):
 //
 //   absent          dim glyph, no word
-//   connecting      glyph, slow pulse, "connecting"
+//   connecting      glyph, a ring turning beside it, "connecting"
 //   ready           accent glyph, "ready"
 //   in_use          accent glyph + dot, "in use" / "in use 37%", monitor mark if HDMI is on
-//   ejecting        pulse, "ejecting"
+//   ejecting        the ring, "ejecting"
 //   safe_to_unplug  good glyph, "unplug"
 //   attention       warn ring, "log out" / "check setup"
 //   error           bad dot, "error"
@@ -21,15 +22,17 @@ import "../common/Palette.js" as Palette
 // role but secondary is the notch's one foreground (it takes the hue out of
 // everything), so shape and word are what tell the states apart.
 //
-// The pulse runs only while `active` and visible: a looping animation at zero
-// opacity still repaints the host every frame (notch:SURFACE-HOSTING.md:490-492).
+// "Under way" is the kit's ring (URing), not a fading glyph: it holds still
+// under reduced motion (a steady half arc) and, like every loop, runs only
+// while `active` and drawn: a looping animation at zero opacity still repaints
+// the host every frame (notch:SURFACE-HOSTING.md:490-492).
 Item {
   id: view
 
   // ----------------------------------------------------- shared interface
+  required property var theme
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
   property string density: "compact"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -40,6 +43,7 @@ Item {
   signal requestClose()
 
   function popView() { return false }
+  readonly property bool canPop: false
 
   // Additive to §5.0: the live notice's title (common/Notices.qml), shown in
   // place of the state word for as long as the notice lives (§7.5).
@@ -49,32 +53,21 @@ Item {
 
   readonly property var look: Palette.look(view.status, view.statusNote)
   readonly property string word: view.noticeTitle !== "" ? view.noticeTitle : view.look.word
-  readonly property real u: view.theme.unit
-  readonly property real glyphSize: view.theme.font.icon
+  readonly property real glyphSize: view.theme.titleSize + view.theme.sp.xs
 
-  function roleColor(role) {
-    var c = view.theme[role]
-    return c !== undefined && c !== null ? c : view.theme.foreground
-  }
+  function roleColor(role) { return Palette.tone(view.theme, role) }
 
-  property real pulse: 1
-  readonly property alias pulsing: pulseAnimation.running
-  SequentialAnimation on pulse {
-    id: pulseAnimation
-    running: view.look.pulse && view.active && view.visible
-    loops: Animation.Infinite
-    alwaysRunToEnd: false
-    NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutSine }
-    NumberAnimation { to: 1; duration: 800; easing.type: Easing.InOutSine }
-    onRunningChanged: if (!running) view.pulse = 1
-  }
+  // Something is under way (connecting, ejecting) and the glance is on screen.
+  readonly property bool working: view.look.pulse && view.active && view.visible
+  // The ring is turning (it holds still under reduced motion).
+  readonly property bool pulsing: view.working && !view.theme.reduced
 
   implicitWidth: row.implicitWidth
-  implicitHeight: row.implicitHeight
+  implicitHeight: Math.max(row.implicitHeight, view.glyphSize)
 
   Row {
     id: row
-    spacing: view.theme.space.row
+    spacing: view.theme.sp.sm
 
     Item {
       id: mark
@@ -86,8 +79,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: Palette.glyph
-        readonly property color tint: view.roleColor(view.look.role)
-        color: Qt.rgba(tint.r, tint.g, tint.b, tint.a * view.pulse)
+        color: view.roleColor(view.look.role)
         font.family: view.theme.fontFamily
         font.pixelSize: view.glyphSize
       }
@@ -98,12 +90,13 @@ Item {
         id: badge
         readonly property color tint: view.roleColor(view.look.badge)
         visible: view.look.badge !== ""
-        width: Math.max(5, Math.round(6 * view.u))
+        width: Math.round(view.theme.sp.sm * 0.75)
         height: width
-        radius: Math.min(view.theme.radius, width / 2)
-        color: view.look.badge === "warn" ? "transparent" : tint
-        border.width: view.look.badge === "warn" ? Math.max(1, Math.round(width / 4)) : 0
+        radius: view.theme.radius(height)
+        color: view.look.badge === "warn" ? view.theme.none : tint
+        border.width: view.look.badge === "warn" ? Math.max(view.theme.hairlineWidth, Math.round(width / 4)) : 0
         border.color: tint
+        property bool uiMark: true
         anchors.right: parent.right
         anchors.top: parent.top
       }
@@ -114,12 +107,19 @@ Item {
         visible: view.look.monitor
         textFormat: Text.PlainText
         text: Palette.monitorGlyph
-        color: view.theme.accent
+        color: view.theme.accentText
         font.family: view.theme.fontFamily
-        font.pixelSize: Math.max(7, Math.round(view.theme.font.caption * 0.7))
+        font.pixelSize: view.theme.footnoteSize
         anchors.right: parent.right
         anchors.bottom: parent.bottom
       }
+    }
+
+    URing {
+      id: ring
+      anchors.verticalCenter: parent.verticalCenter
+      theme: view.theme
+      visible: view.working
     }
 
     Text {
@@ -128,11 +128,11 @@ Item {
       visible: view.showWord && view.word !== ""
       textFormat: Text.PlainText
       text: view.word
-      color: view.noticeTitle !== "" ? view.theme.foreground : view.roleColor(view.look.role === "secondary" ? "secondary" : "foreground")
+      color: view.noticeTitle !== "" ? view.theme.label : view.roleColor(view.look.role === "secondary" ? "secondary" : "foreground")
       elide: Text.ElideRight
-      width: view.maxWidth > 0 ? Math.min(implicitWidth, Math.max(0, view.maxWidth - mark.width - row.spacing)) : implicitWidth
+      width: view.maxWidth > 0 ? Math.min(implicitWidth, Math.max(0, view.maxWidth - mark.width - (ring.visible ? ring.width + row.spacing : 0) - row.spacing)) : implicitWidth
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
 }

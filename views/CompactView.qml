@@ -1,7 +1,5 @@
 import QtQuick
-import "ui"
-import "../common/Palette.js" as Palette
-import "../common/Errors.js" as Errors
+import "../ui"
 import "../common/Facts.js" as Facts
 import "../common/Overview.js" as Overview
 
@@ -14,7 +12,11 @@ import "../common/Overview.js" as Overview
 //   [ Safe eject ]                      the same ONE primary button
 //   the sentence: a Setup problem opens Setup on its row, never a dead end
 //   the HDMI quick toggle and "Turn off now", when an eGPU monitor is in
-//   Open full panel
+//   Open full panel                     a row that opens the Overview
+//
+// Under the notch's back strip the first row is the headline in the left
+// gutter and the glyph and the one close in the right gutter; the strip's
+// zone at the top centre is clear of text and controls.
 //
 // Every button is gated on its verb existing in this engine (Engine.qml
 // `can`); a button that can only answer "usage" is worse than none.
@@ -26,9 +28,9 @@ Column {
   id: view
 
   // ----------------------------------------------------- shared interface
+  required property var theme
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
   property string density: "compact"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -40,11 +42,15 @@ Column {
   // (0 when there is none): the first row keeps out of it.
   property real zoneWidth: 0
   readonly property real gutter: Math.max(0, (view.width - view.zoneWidth) / 2)
+  // The shell draws no header over this page, so the one close is drawn here,
+  // in the first row's right end.
+  property bool showClose: false
 
   signal requestRoute(string name)
   signal requestClose()
 
   function popView() { return false }
+  readonly property bool canPop: false
 
   // Additive: the live notice's title (§7.5), shown in place of the headline
   // for as long as it lives.
@@ -52,8 +58,7 @@ Column {
 
   // ------------------------------------------------------------ derived
   readonly property var s: view.status
-  readonly property real u: view.theme.unit
-  readonly property var sp: view.theme.space
+  readonly property var sp: view.theme.sp
 
   function can(verb) { return !!view.engine && typeof view.engine.can === "function" && view.engine.can(verb) }
 
@@ -71,11 +76,6 @@ Column {
   readonly property string monitorId: view.monitor ? String(view.monitor.description || view.monitor.connector || "") : ""
   readonly property bool hdmiShown: view.monitor !== null && view.monitorId !== ""
                                     && (view.can("display enable") || view.can("display off"))
-
-  function tone(name) {
-    var c = view.theme[name]
-    return c !== undefined && c !== null ? c : view.theme.foreground
-  }
 
   function run(name, args) {
     if (view.busy !== "" || !view.engine) return
@@ -100,38 +100,54 @@ Column {
     else if (b.action === "show") view.hintsShown = !view.hintsShown
   }
 
+  // Enter, with nothing under the focus to take it: the page's one primary button.
+  function activatePrimary() {
+    if (!view.d.button || !view.d.button.enabled) return false
+    view.act(view.d.button)
+    return true
+  }
+
+  function tipFor(action) {
+    return action === "eject" ? "Checks nothing is using it, then lets you unplug."
+         : action === "connect" ? "Loads the driver so apps can use the eGPU."
+         : action === "setup" ? "Opens Setup, which installs what the eGPU needs."
+         : ""
+  }
+
   function toggleMonitor() {
     if (!view.monitor) return
     view.run("monitor", ["display", view.monitor.enabled ? "disable" : "enable", view.monitorId])
   }
 
   // Sized by the shell's maxWidth (§5.0), capped so the notch stays a notch.
-  readonly property real wantWidth: (view.zoneWidth > 0 ? 400 : 320) * view.u
+  readonly property real wantWidth: view.theme.space(view.zoneWidth > 0 ? 400 : 320)
   width: view.maxWidth > 0 ? Math.min(view.maxWidth, view.wantWidth) : view.wantWidth
-  spacing: view.sp.section
+  spacing: view.sp.md
 
   // --------------------------------------------------------------- header
   Column {
     width: parent.width
-    spacing: view.sp.row / 2
+    spacing: view.sp.xs
 
     // The first row. Under the notch's back strip the zone at its top centre
     // is kept clear of text and controls (notch:SURFACE-HOSTING.md §15), so
     // the headline sits in the gutter at the left, short enough for it, and
-    // the glyph in the gutter at the right; with no zone they sit side by side.
+    // the glyph (and the close) in the gutter at the right; with no zone they
+    // sit side by side.
     Item {
       id: firstRow
       width: parent.width
-      height: Math.max(headline.implicitHeight, glance.height)
+      height: Math.max(headline.implicitHeight, glance.height, closeButton.visible ? closeButton.height : 0)
       readonly property bool beside: view.zoneWidth > 0
+      readonly property real closeRoom: closeButton.visible ? closeButton.width + view.sp.sm : 0
 
       Glance {
         id: glance
         anchors.verticalCenter: parent.verticalCenter
-        x: firstRow.beside ? parent.width - width : 0
+        x: firstRow.beside ? parent.width - width - firstRow.closeRoom : 0
+        theme: view.theme
         status: view.status
         engine: view.engine
-        theme: view.theme
         active: view.active
         statusNote: view.statusNote
         showWord: false
@@ -139,16 +155,16 @@ Column {
       Text {
         id: headline
         anchors.verticalCenter: parent.verticalCenter
-        x: firstRow.beside ? 0 : glance.width + view.sp.row * 1.5
-        width: firstRow.beside ? view.gutter : parent.width - glance.width - view.sp.row * 1.5
+        x: firstRow.beside ? 0 : glance.width + view.sp.md
+        width: firstRow.beside ? view.gutter - view.sp.xs : parent.width - glance.width - view.sp.md - firstRow.closeRoom
         textFormat: Text.PlainText
         elide: Text.ElideRight
         maximumLineCount: 1
         text: view.d.headline
-        color: view.theme.foreground
+        color: view.theme.label
         font.family: view.theme.fontFamily
-        font.pixelSize: view.theme.font.body
-        font.bold: true
+        font.pixelSize: view.theme.bodySize
+        font.weight: view.theme.headlineWeight
         // A Setup problem's headline opens Setup on its row, like Fix.
         readonly property string route: view.d.headlineRoute
         MouseArea {
@@ -157,6 +173,14 @@ Column {
           cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
           onClicked: view.requestRoute(headline.route)
         }
+      }
+      UClose {
+        id: closeButton
+        theme: view.theme
+        visible: view.showClose
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        onActivated: view.requestClose()
       }
     }
 
@@ -168,9 +192,9 @@ Column {
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: view.noticeTitle !== "" ? view.noticeTitle : view.d.detail
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
       // A Setup problem's sentence opens Setup on its row, like its headline.
       readonly property string route: view.noticeTitle === "" ? view.d.headlineRoute : ""
       MouseArea {
@@ -189,110 +213,86 @@ Column {
       text: view.d.facts
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.caption
+      font.pixelSize: view.theme.footnoteSize
     }
+  }
 
-    Text {
-      width: parent.width
-      visible: !!view.s && view.statusNote !== ""
-      textFormat: Text.PlainText
-      wrapMode: Text.WordWrap
-      text: "Not live: " + view.statusNote + "."
-      color: view.theme.warn
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.caption
-    }
+  UNotice {
+    theme: view.theme
+    width: parent.width
+    visible: !!view.s && view.statusNote !== ""
+    tone: "warning"
+    text: "Not live: " + view.statusNote + "."
   }
 
   // ------------------------------------------------------- the one button
-  Action {
+  UButton {
+    id: primaryButton
     width: parent.width
-    visible: !!view.d.button
+    visible: !!view.d.button && !view.d.button.busy
     theme: view.theme
-    primary: true
-    label: view.d.button ? view.d.button.label : ""
-    tone: view.d.button ? view.tone(view.d.button.tone) : view.theme.foreground
+    kind: "primary"
+    text: view.d.button ? view.d.button.label : ""
     enabled: !!view.d.button && view.d.button.enabled
-    busy: !!view.d.button && view.d.button.busy
-    animate: view.active
     onClicked: view.act(view.d.button)
+    UTip { theme: view.theme; placement: "foot"; text: view.d.button ? view.tipFor(view.d.button.action) : "" }
+  }
+  URing {
+    anchors.horizontalCenter: parent.horizontalCenter
+    visible: !!view.d.button && view.d.button.busy
+    height: view.theme.rowHeight
+    theme: view.theme
+    text: view.d.button ? view.d.button.label : ""
   }
 
   // ------------------------------------------------------------ sentences
-  Sentence {
-    width: parent.width
+  // When all is well the compact view is headline, facts, button and
+  // "Open full panel" (ui-scope.md §7): the quiet Setup lines are the full
+  // Overview's. A problem, a note, or the eGPU's own way out under a Setup
+  // problem (`secondary`) are shown.
+  StatusNotes {
     theme: view.theme
-    // When all is well the compact view is headline, facts, button and
-    // "Open full panel" (ui-scope.md §7): the quiet Setup lines are the full
-    // Overview's. A problem, a note, or the eGPU's own way out under a Setup
-    // problem (`secondary`) are shown.
-    text: view.d.sentence && (view.d.sentence.tone !== "secondary" || view.d.sentence.secondary)
-          ? view.d.sentence.text : ""
-    tone: view.d.sentence ? view.tone(view.d.sentence.tone) : view.theme.foreground
-    rule: !!view.d.sentence && view.d.sentence.tone !== "secondary"
-    linkLabel: view.d.sentence ? view.d.sentence.linkLabel : ""
-    linkRoute: view.d.sentence ? view.d.sentence.linkRoute : ""
-    onLinkClicked: view.requestRoute(linkRoute)
-  }
-
-  Sentence {
-    width: parent.width
-    theme: view.theme
-    text: view.lastResult ? Errors.forResult(view.lastResult) : ""
-    tone: view.theme.bad
-    linkLabel: Errors.routeFor(view.lastResult) === "setup" ? "Open Setup" : ""
-    linkRoute: Errors.routeFor(view.lastResult)
-    detail: Errors.code(view.lastResult)
-    onLinkClicked: view.requestRoute(linkRoute)
+    d: view.d
+    lastResult: view.lastResult
+    quietSetup: false
+    onRequestRoute: function (name) { view.requestRoute(name) }
   }
 
   // HDMI quick toggle (§7.6): the first eGPU monitor, and the escape hatch.
-  Item {
-    width: parent.width
+  URow {
     visible: view.hdmiShown
-    implicitHeight: Math.max(hdmiLabel.implicitHeight, hdmiSwitch.implicitHeight, offButton.implicitHeight)
+    theme: view.theme
+    label: "HDMI · " + (view.monitor ? String(view.monitor.connector || view.monitorId) : "")
 
-    Text {
-      id: hdmiLabel
-      anchors.left: parent.left
-      anchors.verticalCenter: parent.verticalCenter
-      width: parent.width - hdmiSwitch.width - (offButton.visible ? offButton.width : 0) - 2 * view.sp.section
-      textFormat: Text.PlainText
-      elide: Text.ElideRight
-      text: "HDMI · " + (view.monitor ? String(view.monitor.connector || view.monitorId) : "")
-      color: view.theme.foreground
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
-    }
-    Action {
-      id: offButton
-      anchors.right: hdmiSwitch.left
-      anchors.rightMargin: view.sp.section
-      anchors.verticalCenter: parent.verticalCenter
-      theme: view.theme
-      visible: view.can("display off") && !!view.monitor && !!view.monitor.enabled
-      label: "Turn off now"
-      // No confirmation: it is the glitch escape hatch (§5.3).
-      enabled: view.busy === ""
-      onClicked: view.run("off", ["display", "off"])
-    }
-    Switch {
-      id: hdmiSwitch
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      theme: view.theme
-      visible: view.can("display enable") && view.can("display disable")
-      checked: !!view.monitor && !!view.monitor.enabled
-      enabled: view.busy === ""
-      onToggled: view.toggleMonitor()
+    trailing: Row {
+      spacing: view.sp.sm
+      UButton {
+        theme: view.theme
+        visible: view.can("display off") && !!view.monitor && !!view.monitor.enabled
+        height: view.theme.controlHeight
+        text: "Turn off now"
+        // No confirmation: it is the glitch escape hatch (§5.3).
+        enabled: view.busy === ""
+        onClicked: view.run("off", ["display", "off"])
+        UTip { theme: view.theme; placement: "foot"; text: "Switches the eGPU's screen off right away." }
+      }
+      USwitch {
+        theme: view.theme
+        visible: view.can("display enable") && view.can("display disable")
+        label: "Show the screen on the eGPU"
+        checked: !!view.monitor && !!view.monitor.enabled
+        enabled: view.busy === ""
+        onToggled: view.toggleMonitor()
+        UTip { theme: view.theme; placement: "foot"; text: "Shows or hides the screen on the eGPU's HDMI port." }
+      }
     }
   }
 
-  Link {
+  URow {
     theme: view.theme
+    clickable: true
     label: "Open full panel"
-    route: "full"
-    tone: view.theme.secondary
-    onClicked: view.requestRoute("full")
+    value: "›"
+    onActivated: view.requestRoute("full")
   }
 }

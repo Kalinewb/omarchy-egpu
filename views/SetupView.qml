@@ -1,6 +1,5 @@
 import QtQuick
-import "ui"
-import "../common/Palette.js" as Palette
+import "../ui"
 import "../common/Errors.js" as Errors
 import "../common/SetupRows.js" as SetupRows
 import "../common/Install.js" as Install
@@ -34,10 +33,16 @@ import "../common/Install.js" as Install
 // First run (the system helper was never installed): ONE button, "Set up
 // eGPU support", above the rows; the rows' own Install buttons are not drawn.
 //
-// The auto-connect switch is drawn but disabled: the system helper can turn
-// it on or off (its `autoconnect` verb), but the engine has no verb for the
-// panel to call yet (scope.md DECISION 2026-10-10), so it says why instead of
-// offering a password prompt it cannot make. The install sets it (on).
+// Auto-connect is a value, not a switch: the system helper can turn it on or
+// off (its `autoconnect` verb), but the engine has no verb for the panel to
+// call yet (scope.md DECISION 2026-10-10), so the row says what it is and who
+// set it instead of offering a control (or a password prompt) it cannot back.
+// The install sets it (on).
+//
+// The row that is asked for (a Fix from the Overview opens Setup on it) is the
+// selected one: an accent bar in the margin beside it, apart from the keyboard
+// focus ring, which is on a control. It comes first, its Details open, and the
+// keyboard rests on its Fix.
 //
 // A shared view (plan-gui.md §5.0), as views/StatusView.qml.
 Column {
@@ -46,7 +51,7 @@ Column {
   // ----------------------------------------------------- shared interface
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
+  required property var theme
   property string density: "full"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -66,13 +71,21 @@ Column {
     if (view.advancedOpen) { view.advancedOpen = false; return true }
     return false
   }
+  readonly property bool canPop: view.advancedOpen
+
+  // Enter, with nothing under the focus to take it: the page's one primary
+  // button, Set up eGPU support on a first run, else Fix all.
+  function activatePrimary() {
+    if (view.installState === "preparing") return false
+    if (view.sum.neverSetUp || view.fixAll) { view.install("install"); return true }
+    return false
+  }
 
   readonly property string title: "Setup"
   readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
-  readonly property real u: view.theme.unit
-  readonly property var sp: view.theme.space
+  readonly property var sp: view.theme.sp
   readonly property var rows: view.health ? view.health.rows : null
   readonly property var sum: SetupRows.summarize(view.rows)
   readonly property bool loading: !!view.health && !!view.health.loading
@@ -163,14 +176,17 @@ Column {
     })
   }
 
-  function tone(name) {
-    var c = view.theme[name]
-    return c !== undefined && c !== null ? c : view.theme.foreground
-  }
-
   // Sized by the shell's maxWidth (§5.0).
-  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : 300 * view.u)
-  spacing: view.sp.section
+  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : view.theme.space(300))
+  spacing: view.sp.md
+
+  // The level's own colour, for the mark: shape tells it apart too (filled, ring).
+  function levelTone(lv) {
+    return lv === "error" ? view.theme.destructive : (lv === "warn" ? view.theme.warning
+         : (lv === "ok" ? view.theme.accent : view.theme.metadata))
+  }
+  // A note's colour: only a failure is not secondary.
+  function noteTone(t) { return t === "bad" ? view.theme.destructive : view.theme.secondary }
 
   // --------------------------------------------------------------- header
   Item {
@@ -182,36 +198,36 @@ Column {
       id: summaryText
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      width: parent.width - (fixAllButton.visible ? fixAllButton.width + view.sp.section : 0)
+      width: parent.width - (fixAllButton.visible ? fixAllButton.width + view.sp.md : 0)
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: {
         var n = view.sum.problems.length
         return n === 0 ? "Everything is set up" : (n === 1 ? "One thing to look at" : n + " things to look at")
       }
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.title
-      font.bold: true
+      font.pixelSize: view.theme.titleSize
+      font.weight: view.theme.titleWeight
     }
-    Action {
+    UButton {
       id: fixAllButton
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       visible: view.fixAll
       theme: view.theme
-      primary: true
-      label: "Fix all"
-      tone: view.theme.accent
+      kind: "primary"
+      text: "Fix all"
       enabled: view.installState !== "preparing"
       onClicked: view.install("install")
+      UTip { theme: view.theme; placement: "foot"; text: "Installs everything Setup lists, in one terminal." }
     }
   }
 
   // First run: one button (ux.md rule 4).
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.sm
     visible: view.sum.neverSetUp
 
     Text {
@@ -219,10 +235,10 @@ Column {
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: "Set up eGPU support"
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.title
-      font.bold: true
+      font.pixelSize: view.theme.titleSize
+      font.weight: view.theme.titleWeight
     }
     Text {
       width: parent.width
@@ -231,37 +247,42 @@ Column {
       text: Install.EXPLAIN.slice(0, 2).join(" ")
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
-    Item { width: 1; height: view.sp.row }
-    Action {
+    UButton {
+      id: firstRunButton
       width: parent.width
+      visible: view.installState !== "preparing"
       theme: view.theme
-      primary: true
-      label: view.installState === "preparing" ? "Opening a terminal…" : "Set up eGPU support"
-      tone: view.theme.accent
-      enabled: view.installState !== "preparing"
-      busy: view.installState === "preparing"
-      animate: view.active
+      kind: "primary"
+      text: "Set up eGPU support"
       onClicked: view.install("install")
+      UTip { theme: view.theme; placement: "foot"; text: "Opens a terminal that installs it; sudo asks there." }
+    }
+    URing {
+      anchors.horizontalCenter: parent.horizontalCenter
+      visible: view.installState === "preparing"
+      height: view.theme.rowHeight
+      theme: view.theme
+      text: "Opening a terminal…"
     }
   }
 
   // What the install did: a terminal is open, or here is the command.
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.sm
     visible: view.installState === "opened" || view.installState === "failed"
 
-    Sentence {
-      width: parent.width
+    UNotice {
       theme: view.theme
-      tone: view.installState === "failed" ? view.theme.warn : view.theme.accent
+      width: parent.width
+      tone: view.installState === "failed" ? "warning" : "info"
       text: view.installState === "opened"
         ? "A terminal opened. Type your password there, wait for \"Done\", then come back here."
         : view.installWhy
-      linkLabel: view.installState === "opened" ? "Check again" : ""
-      onLinkClicked: if (view.health) view.health.refresh()
+      actionText: view.installState === "opened" ? "Check again" : ""
+      onActed: if (view.health) view.health.refresh()
     }
     Text {
       width: parent.width
@@ -269,57 +290,56 @@ Column {
       textFormat: Text.PlainText
       wrapMode: Text.WrapAnywhere
       text: view.installCommand
-      color: view.theme.secondary
+      color: view.theme.metadata
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.caption
+      font.pixelSize: view.theme.footnoteSize
+      font.weight: view.theme.metadataWeight
     }
     Row {
       visible: view.installState === "failed" && view.installCommand !== ""
-      spacing: view.sp.section
-      Action {
+      spacing: view.sp.sm
+      UButton {
         theme: view.theme
-        label: "Copy command"
+        text: "Copy command"
         onClicked: view.copy("install", view.installCommand)
       }
-      Link {
+      UButton {
         theme: view.theme
-        label: "Check again"
-        anchors.verticalCenter: parent.verticalCenter
+        text: "Check again"
         onClicked: if (view.health) view.health.refresh()
       }
     }
-    Sentence {
+    Text {
       width: parent.width
-      theme: view.theme
-      rule: false
+      visible: text !== ""
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
       text: view.notes["install"] ? view.notes["install"].text : ""
-      tone: view.theme.secondary
+      color: view.theme.secondary
+      font.family: view.theme.fontFamily
+      font.pixelSize: view.theme.bodySize
     }
   }
 
   // ----------------------------------------------------------------- rows
-  Row {
-    visible: !view.sum.loaded
-    spacing: view.sp.row
-    Spinner {
-      anchors.verticalCenter: parent.verticalCenter
-      visible: view.loading
-      size: view.theme.font.body
-      tone: view.theme.secondary
-      running: view.loading && view.active && visible
-    }
-    Text {
-      textFormat: Text.PlainText
-      text: view.readError !== "" ? "Setup could not be checked." : "Checking your setup…"
-      color: view.theme.secondary
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
-    }
+  URing {
+    visible: !view.sum.loaded && view.readError === ""
+    theme: view.theme
+    text: "Checking your setup…"
+  }
+  UNotice {
+    theme: view.theme
+    width: parent.width
+    visible: !view.sum.loaded && view.readError !== ""
+    tone: "error"
+    text: "Setup could not be checked."
+    details: view.readError
+    actionText: "Try again"
+    onActed: if (view.health) view.health.refresh()
   }
 
   Column {
     width: parent.width
-    spacing: view.sp.row
     visible: view.sum.loaded
 
     Repeater {
@@ -331,96 +351,69 @@ Column {
       delegate: SetupRow { required property var modelData; row: modelData }
     }
 
-    // Auto-connect (scope.md DECISION 2026-10-10): shown, not yet a control.
-    Item {
-      id: autoRow
-      width: parent.width
+    // Auto-connect (scope.md DECISION 2026-10-10): shown, not yet a control, so a value (never a
+    // disabled switch) that says who set it.
+    URow {
       visible: !!view.sum.autoconnect
-      implicitHeight: Math.max(view.sp.rowHeight, autoText.implicitHeight + view.sp.row)
-      readonly property bool on: !!view.sum.autoconnect && view.sum.autoconnect.level === "ok"
-
-      Column {
-        id: autoText
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - autoSwitch.width - view.sp.section
-        spacing: view.sp.row / 2
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          wrapMode: Text.WordWrap
-          text: "Auto-connect when plugged in"
-          color: view.theme.foreground
-          font.family: view.theme.fontFamily
-          font.pixelSize: view.theme.font.body
-        }
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          wrapMode: Text.WordWrap
-          // No engine verb changes it yet; say why, and what set it.
-          text: view.sum.helper === "ok" ? "Set when the system helper was installed. It can't be changed here yet."
-                                         : "Needs the system helper."
-          color: view.theme.secondary
-          font.family: view.theme.fontFamily
-          font.pixelSize: view.theme.font.caption
-        }
-      }
-      Switch {
-        id: autoSwitch
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        theme: view.theme
-        checked: autoRow.on
-        enabled: false
-      }
+      theme: view.theme
+      label: "Auto-connect"
+      value: view.sum.helper !== "ok" ? "Needs the system helper"
+           : (!!view.sum.autoconnect && view.sum.autoconnect.level === "ok" ? "On · set by the installer" : "Off")
+      valueQuiet: true
     }
   }
 
   // ------------------------------------------------------------- advanced
-  Link {
+  URow {
     visible: view.sum.loaded
     theme: view.theme
-    label: view.advancedOpen ? "Advanced ‹" : "Advanced ›"
-    tone: view.theme.secondary
-    onClicked: view.advancedOpen = !view.advancedOpen
+    clickable: true
+    label: "Advanced"
+    value: view.advancedOpen ? "▾" : "▸"
+    onActivated: view.advancedOpen = !view.advancedOpen
   }
 
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.sm
     visible: view.advancedOpen && view.sum.loaded
 
-    Repeater {
-      model: view.sum.advanced
-      delegate: SetupRow { required property var modelData; row: modelData }
+    Column {
+      width: parent.width
+      Repeater {
+        model: view.sum.advanced
+        delegate: SetupRow { required property var modelData; row: modelData }
+      }
     }
     Row {
-      spacing: view.sp.section
-      Link { theme: view.theme; label: "Copy the install command"; onClicked: view.copyAdvanced("install") }
-      Link { theme: view.theme; label: "Copy the remove command"; onClicked: view.copyAdvanced("uninstall") }
+      spacing: view.sp.sm
+      UButton { theme: view.theme; text: "Copy the install command"; onClicked: view.copyAdvanced("install") }
+      UButton { theme: view.theme; text: "Copy the remove command"; onClicked: view.copyAdvanced("uninstall") }
     }
-    Sentence {
+    Text {
       width: parent.width
-      theme: view.theme
-      rule: false
+      visible: text !== ""
       readonly property var n: view.notes["advanced.install"] || view.notes["advanced.uninstall"] || null
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
       text: n ? n.text : ""
-      tone: view.theme.secondary
+      color: view.noteTone(n ? n.tone : "")
+      font.family: view.theme.fontFamily
+      font.pixelSize: view.theme.bodySize
     }
-    Link {
+    UButton {
       theme: view.theme
-      label: "Check again"
-      tone: view.theme.secondary
+      text: "Check again"
       onClicked: if (view.health) view.health.refresh()
     }
   }
 
   // ------------------------------------------------------------ components
 
-  // One row: a mark for its level, the sentence and why, its one Fix, and
-  // the engine's words under Details.
-  component SetupRow: Item {
+  // One row: a mark for its level, the sentence and why, its one Fix, and the engine's words under
+  // Details. The kit's row is its frame (height, and the one row class); its content is laid out here
+  // because a sentence wraps and a row's label does not.
+  component SetupRow: URow {   // ui-allow: its root is a URow; the gate's pattern backtracks over the space after the colon
     id: setupRow
     property var row: ({})
     readonly property bool focused: view.focusId !== "" && setupRow.row.id === view.focusId
@@ -430,126 +423,154 @@ Column {
                                      || (setupRow.fix.kind === "install" && !view.sum.neverSetUp)
     readonly property bool fixEnabled: view.busyRow === "" && view.installState !== "preparing"
                                        && !(setupRow.fix.needsPlugged && !(view.status && view.status.bolt && view.status.bolt.present))
+    readonly property bool working: view.busyRow === setupRow.row.id
     readonly property var rowNote: view.notes[setupRow.row.id] || null
     property bool detailsOpen: setupRow.focused
+    // The first Fix is where the keyboard rests on the row that was asked for.
+    readonly property alias fixButton: fixButton
 
-    width: view.width
-    implicitHeight: Math.max(view.sp.rowHeight, rowColumn.implicitHeight + view.sp.row)
+    theme: view.theme
+    implicitHeight: body.height + view.sp.sm
 
-    // The focused row's rule, in the accent, in a gutter every row keeps so
-    // the marks line up whichever row is focused.
-    readonly property real gutter: 8 * view.u
-    Rectangle {
-      visible: setupRow.focused
-      x: 0
-      width: 3 * view.u
-      height: parent.height
-      radius: Math.min(view.theme.radius, width / 2)
-      color: view.theme.accent
-    }
+    Component.onCompleted: Qt.callLater(function () {
+      if (setupRow.focused && setupRow.fixShown && setupRow.fixEnabled) fixButton.forceActiveFocus()
+    })
 
-    // The level as a shape as well as a colour: a filled dot (fine), a ring
-    // (a suggestion), a filled dot in `bad` (a problem), a dim dot (info).
-    Rectangle {
-      id: mark
-      readonly property string lv: String(setupRow.row.level || "")
-      readonly property color tint: lv === "error" ? view.theme.bad : (lv === "warn" ? view.theme.warn
-                                   : (lv === "ok" ? view.theme.good : view.theme.secondary))
-      x: setupRow.gutter
-      y: firstLine.y + (firstLine.implicitHeight - height) / 2 + view.sp.row / 2
-      width: Math.max(6, Math.round(8 * view.u))
-      height: width
-      radius: Math.min(view.theme.radius, width / 2)
-      color: lv === "warn" ? "transparent" : tint
-      border.width: lv === "warn" ? Math.max(1, Math.round(1.5 * view.u)) : 0
-      border.color: tint
-      opacity: lv === "skipped" || lv === "info" ? 0.6 : 1
-    }
+    Item {
+      id: body
+      // Laid out in the row itself, not in its control slot (which sizes to its children and sits at the
+      // right): the row is this content's frame and gives it its height.
+      parent: setupRow
+      width: setupRow.width
+      height: Math.max(view.theme.rowHeight, content.implicitHeight + view.sp.xs)
 
-    Column {
-      id: rowColumn
-      x: mark.x + mark.width + view.sp.section
-      // Centred in a row's height when shorter, so one-line rows and
-      // two-line rows keep the same rhythm.
-      y: Math.max(view.sp.row / 2, (setupRow.height - rowColumn.implicitHeight) / 2)
-      width: setupRow.width - x
-      spacing: view.sp.row / 2
+      // The selected row, an accent bar at its left edge, in a gutter every row keeps so the marks line up
+      // whichever row is selected: not under any text, and apart from the keyboard's ring, which is on a
+      // control. (The panel scrolls and clips at its content's edge, so the bar cannot sit outside it.)
+      Rectangle {
+        visible: setupRow.focused
+        x: 0
+        anchors.verticalCenter: parent.verticalCenter
+        width: view.sp.xs
+        height: Math.round(parent.height * 0.6)
+        radius: view.theme.radius(width)
+        color: view.theme.accent
+        property bool uiMark: true
+      }
 
-      Item {
-        id: firstLine
-        width: parent.width
-        implicitHeight: Math.max(sentenceText.implicitHeight, fixButton.visible ? fixButton.implicitHeight : 0)
+      // The level as a shape as well as a colour: a filled dot (fine), a ring (a suggestion), a filled
+      // dot in the problem colour (a problem), a quiet dot (info).
+      Rectangle {
+        id: mark
+        readonly property string lv: String(setupRow.row.level || "")
+        readonly property color tint: view.levelTone(lv)
+        x: view.sp.sm
+        y: Math.round((view.theme.rowHeight - height) / 2) + view.sp.xs / 2
+        width: view.sp.sm
+        height: width
+        radius: view.theme.radius(height)
+        color: lv === "warn" ? view.theme.none : tint
+        border.width: lv === "warn" ? Math.max(view.theme.hairlineWidth, Math.round(width / 4)) : 0
+        border.color: tint
+        property bool uiMark: true
+      }
+
+      Column {
+        id: content
+        x: mark.x + mark.width + view.sp.md
+        y: view.sp.xs / 2
+        width: setupRow.width - x
+        spacing: view.sp.xs
+
+        Item {
+          id: firstLine
+          width: parent.width
+          implicitHeight: Math.max(sentenceText.implicitHeight, view.theme.controlHeight)
+
+          Text {
+            id: sentenceText
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width - (fixSlot.visible ? fixSlot.width + view.sp.sm : 0)
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: setupRow.row.sentence || ""
+            color: setupRow.row.level === "skipped" ? view.theme.secondary : view.theme.label
+            font.family: view.theme.fontFamily
+            font.pixelSize: view.theme.bodySize
+          }
+          Item {
+            id: fixSlot
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(fixButton.visible ? fixButton.width : 0, workRing.visible ? workRing.width : 0)
+            height: view.theme.controlHeight
+            visible: setupRow.fixShown
+            UButton {
+              id: fixButton
+              visible: !setupRow.working
+              height: view.theme.controlHeight
+              theme: view.theme
+              text: setupRow.fix.label
+              enabled: setupRow.fixEnabled
+              onClicked: view.runFix(setupRow.row)
+            }
+            URing {
+              id: workRing
+              visible: setupRow.working
+              anchors.verticalCenter: parent.verticalCenter
+              theme: view.theme
+            }
+          }
+        }
 
         Text {
-          id: sentenceText
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - (fixButton.visible ? fixButton.width + view.sp.section : 0)
+          width: parent.width
+          visible: text !== ""
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: setupRow.row.sentence || ""
-          color: setupRow.row.level === "skipped" ? view.theme.secondary : view.theme.foreground
+          text: (setupRow.row.why || "") +
+                (setupRow.fix.needsPlugged && !(view.status && view.status.bolt && view.status.bolt.present) ? " Plug the enclosure in first." : "")
+          color: view.theme.secondary
           font.family: view.theme.fontFamily
-          font.pixelSize: view.theme.font.body
+          font.pixelSize: view.theme.footnoteSize
         }
-        Action {
-          id: fixButton
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          visible: setupRow.fixShown
+
+        Text {
+          width: parent.width
+          visible: !!setupRow.rowNote && text !== ""
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: setupRow.rowNote ? setupRow.rowNote.text : ""
+          color: setupRow.rowNote ? view.noteTone(setupRow.rowNote.tone) : view.theme.secondary
+          font.family: view.theme.fontFamily
+          font.pixelSize: view.theme.footnoteSize
+        }
+
+        UButton {
           theme: view.theme
-          label: view.busyRow === setupRow.row.id ? "Working…" : setupRow.fix.label
-          tone: setupRow.row.level === "error" ? view.theme.accent : view.theme.foreground
-          enabled: setupRow.fixEnabled
-          busy: view.busyRow === setupRow.row.id
-          animate: view.active
-          onClicked: view.runFix(setupRow.row)
+          kind: "link"
+          // The link's own padding sits left of the column's text: pull it back so the words line up.
+          x: -view.sp.sm
+          text: setupRow.detailsOpen ? "Hide details" : "Details"
+          visible: setupRow.row.details !== "" && setupRow.row.level !== "ok"
+          onClicked: setupRow.detailsOpen = !setupRow.detailsOpen
         }
-      }
-
-      Text {
-        width: parent.width
-        visible: text !== ""
-        textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        text: (setupRow.row.why || "") +
-              (setupRow.fix.needsPlugged && !(view.status && view.status.bolt && view.status.bolt.present) ? " Plug the enclosure in first." : "")
-        color: view.theme.secondary
-        font.family: view.theme.fontFamily
-        font.pixelSize: view.theme.font.caption
-      }
-
-      Text {
-        width: parent.width
-        visible: !!setupRow.rowNote && text !== ""
-        textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        text: setupRow.rowNote ? setupRow.rowNote.text : ""
-        color: setupRow.rowNote ? view.tone(setupRow.rowNote.tone) : view.theme.secondary
-        font.family: view.theme.fontFamily
-        font.pixelSize: view.theme.font.caption
-      }
-
-      Link {
-        theme: view.theme
-        label: setupRow.detailsOpen ? "Hide details" : "Details"
-        tone: view.theme.secondary
-        visible: setupRow.row.details !== "" && setupRow.row.level !== "ok"
-        onClicked: setupRow.detailsOpen = !setupRow.detailsOpen
-      }
-      Text {
-        width: parent.width
-        visible: setupRow.detailsOpen && text !== ""
-        textFormat: Text.PlainText
-        wrapMode: Text.WrapAnywhere
-        // The engine's own words: id, title, detail; the command for a copy
-        // fix; the code of a failed Fix.
-        text: [setupRow.row.details,
-               setupRow.fix.kind === "copy" ? "Command: " + setupRow.fix.command : "",
-               setupRow.rowNote && setupRow.rowNote.detail ? "Code: " + setupRow.rowNote.detail : ""].filter(function (x) { return x !== "" }).join("\n")
-        color: view.theme.secondary
-        font.family: view.theme.fontFamily
-        font.pixelSize: view.theme.font.caption
+        Text {
+          width: parent.width
+          visible: setupRow.detailsOpen && text !== ""
+          textFormat: Text.PlainText
+          wrapMode: Text.WrapAnywhere
+          // The engine's own words: id, title, detail; the command for a copy
+          // fix; the code of a failed Fix.
+          text: [setupRow.row.details,
+                 setupRow.fix.kind === "copy" ? "Command: " + setupRow.fix.command : "",
+                 setupRow.rowNote && setupRow.rowNote.detail ? "Code: " + setupRow.rowNote.detail : ""].filter(function (x) { return x !== "" }).join("\n")
+          color: view.theme.metadata
+          font.family: view.theme.fontFamily
+          font.pixelSize: view.theme.footnoteSize
+          font.weight: view.theme.metadataWeight
+        }
       }
     }
   }

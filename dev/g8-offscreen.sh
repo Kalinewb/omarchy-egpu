@@ -186,6 +186,7 @@ bolt-down|attention|check setup|accent|warn|false|false|Setup issue|Fix,Safe eje
 smi-hung|error|error|foreground|bad|false|false|Error|Open full panel|Open full panel
 auth-error|error|error|foreground|bad|false|false|Error|Try again,Open Setup,Open full panel|Try again,Open Setup,Open full panel
 TABLE
+echo "  ${YELLOW}kit${RESET}   $(field kitNoticeMarks "$out") UNotice marks are exempt from the radius audit above: the kit draws them as full circles (radius: width / 2) where radiusFor() is smaller. Reported to the kit."
 # What the short headline leaves out is said in full right under it (Overview.js `detail`), so nothing is lost.
 d_of() { field "c.$1.detail" "$out"; }
 check "the full sentences stay, one line under the headline" \
@@ -290,15 +291,16 @@ put ready 1
 o=$(harness stack ${PNG:+EGPU_HARNESS_PNG_DIR="$PNG"})
 noerrors "stack"
 check "open(main) shows the compact view, active, background is the host's colour (not painted)" "main|true|#000000" "$(field open.main "$o")"
-check "the panel insets its content by the one padding token, 16 px on every side (the notch adds none)" "16,16|16" "$(field inset "$o")"
-check "…the compact view's content: headline, facts, the one button, Open full panel" \
-  "glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject ¦ Open full panel" "$(field main.texts "$o")"
+LG=$(field inset "$o" | cut -d'|' -f3)
+check "the panel insets its content by the kit's one step (sp.lg, ${LG:-?}) on every side (the notch adds none)" "$LG,$LG|$LG|$LG" "$(field inset "$o")"
+check "…the compact view's content: headline and the one close, facts, the one button, Open full panel" \
+  "glyph ¦ eGPU ready ¦ ✕ ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject ¦ Open full panel ¦ ›" "$(field main.texts "$o")"
 check "no Back at the root" "false" "$(field main.back "$o")"
 check "Open full panel pushes the Overview" "main>overview" "$(field toFull "$o")"
-check "full: the tabs and ‹ Back, then the shared Overview, the state said once" "yes|yes|no" \
-  "$(grep -qF 'Overview ¦ Setup ¦ ‹ Back ¦ glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Details ›' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'TBGAA' <<<"$(field full.texts "$o")" && echo yes || echo no)"
-check "‹ Back keeps the inset from the right edge, and sits below the top inset" "16|yes" \
-  "$(field backGap "$o" | cut -d, -f1)|$( (( $(field backGap "$o" | cut -d, -f2) >= 16 )) && echo yes || echo no)"
+check "full: the back chevron, the tabs and the one close, then the shared Overview, the state said once" "yes|yes|no" \
+  "$(grep -qF '‹ ¦ Overview ¦ Setup ¦ ✕ ¦ glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Details ¦ ›' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'TBGAA' <<<"$(field full.texts "$o")" && echo yes || echo no)"
+check "the one close keeps the inset from the right edge, and sits below the top inset" "$LG|yes" \
+  "$(field closeGap "$o" | cut -d, -f1)|$( (( $(field closeGap "$o" | cut -d, -f2) >= LG )) && echo yes || echo no)"
 check "full: only the host's colours, only radiusFor() radii" "host-only|radiusFor" "$(field full.colours "$o")|$(field full.radii "$o")"
 check "a Fix opens Setup on its row, pushed (Back returns)" "main>overview>setup|system.helper" "$(field toSetup "$o")"
 check "Details ›: the Details page, pushed, titled" "main>overview>details|Details" "$(field toDetails "$o")"
@@ -315,10 +317,12 @@ check "sized within maxWidth/maxHeight, takes focus" "true|true|true" "$(field s
 
 step "one way back: under the notch's strip the panel draws no Back and keeps clear of the zone"
 o=$(harness stack EGPU_HARNESS_STRIP=1)
-check "the content starts at the 16 px inset, not pushed down: the first row sits beside the zone" "16" "$(field strip.top "$o")"
+check "the compact page starts at the inset, not pushed down: its first row sits beside the zone" "yes" \
+  "$(IFS='|' read -r t lg z <<<"$(field strip.top "$o")"; [[ $t == "$lg" ]] && echo yes || echo "$t vs $lg")"
 check "at the root the strip's press is answered no, and nothing moved" "false:main" "$(field strip.mainAnswer "$o")"
-check "the full panel draws no ‹ Back of its own" "none" "$(field strip.full.back "$o")"
-check "…and so does the header with the tabs, on the full panel" "16" "$(field strip.fullTop "$o")"
+check "the full panel draws no back chevron of its own" "none" "$(field strip.full.back "$o")"
+check "…and the pages with a header (tabs, a title, the close) start below the strip's zone, as the kit says" "yes" \
+  "$(IFS='|' read -r t lg z <<<"$(field strip.fullTop "$o")"; (( t >= z )) && echo yes || echo "$t vs zone $z")"
 check "the strip's press goes through a view's dialog, the sheet, the tab, then says no at main, and never closes" \
   "true:main>overview>eject true:main>overview true:main false:main false:main false:main|0" "$(field strip.chain "$o")|$(field strip.closes "$o")"
 check "Escape (the alias) still closes at the root" "1" "$(field strip.escapeAtRoot "$o")"
@@ -333,11 +337,10 @@ for fx in "$FIX"/*/; do fx=${fx%/}; fx=${fx##*/}
     "5 routes|none" "$(grep -c ': cut=' <<<"$z") routes|$(grep -v ': cut=none hits=none texts=none' <<<"$z" | head -2 | tr '\n' ' ' | grep . || echo none)"
 done
 put ready 1
-check "without the strip (an older notch) the panel keeps its ‹ Back: asserted by the unchanged checks above" "yes" \
-  "$(grep -qF '‹ Back' <<<"$(field full.texts "$(harness stack)")" && echo yes || echo no)"
+check "without the strip (an older notch) the header draws the kit's back chevron" "drawn" "$(field full.back "$(harness stack)")"
 
-check "NotchPanel imports no view file from outside views/" "" \
-  "$(grep -E '^import "' "$REPO/NotchPanel.qml" | grep -vE '^import "(views|common/Palette\.js)"' )"
+check "NotchPanel imports only views/ and the kit (ui/)" "" \
+  "$(grep -E '^import "' "$REPO/NotchPanel.qml" | grep -vE '^import "(views|ui)"' )"
 
 # =============================================================================
 step "GATE: the bar widget under a notch, and with none (§7.2, §7.3, §7.8)"

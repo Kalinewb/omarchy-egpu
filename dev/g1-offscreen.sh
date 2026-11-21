@@ -188,18 +188,18 @@ check "the built tabs are offered: Overview and Setup" "overview,setup" "$(field
 out=$(harness popup EGPU_HARNESS_WAIT_MS=1500 ${PNG:+EGPU_HARNESS_PNG="$PNG/popup-ready.png"})
 texts=$(sed -n 's/^text=//p' <<<"$out" | paste -sd'|')
 check "the popup opens with the Overview inside it" "true|true" "$(field opened "$out")|$(field popupVisible "$out")"
-check "…its header is the tab row, then the headline, said once (no enclosure name, no engine line)" \
-  "Overview|Setup|glyph|eGPU ready|RTX 4070 SUPER · 29 °C · idle|Safe eject|no|no" \
-  "$(cut -d'|' -f1-6 <<<"$texts")|$(grep -qF 'TBGAA' <<<"$texts" && echo yes || echo no)|$(grep -qiF 'eject before unplugging' <<<"$texts" && echo yes || echo no)"
+check "…its header is the tab row and the one close, then the headline, said once (no enclosure name, no engine line)" \
+  "Overview|Setup|✕|glyph|eGPU ready|RTX 4070 SUPER · 29 °C · idle|Safe eject|no|no" \
+  "$(cut -d'|' -f1-7 <<<"$texts")|$(grep -qF 'TBGAA' <<<"$texts" && echo yes || echo no)|$(grep -qiF 'eject before unplugging' <<<"$texts" && echo yes || echo no)"
 check "…with no Back at the root" "false" "$(field backVisible "$out")"
 check "Escape (back) at the root closes it" "closed" "$(field afterBack "$out")"
 check "…and the popup, its header and the Overview throw no JavaScript errors" "" "$(jserrors)"
 
 rm -f "$RUN/status.json"; put ready
 out=$(harness routes EGPU_HARNESS_WAIT_MS=1500)
-unit=$(field unit "$out")
-check "the popup pads its content by the one inset token (16 × the theme's spacing unit, ${unit:-?})" \
-  "$( [[ $unit =~ ^[0-9.]+$ ]] && awk -v u="$unit" 'BEGIN { printf "%d", int(16 * u + 0.5) }' || echo 'a spacing unit')" "$(field padding "$out")"
+inset=$(field inset "$out")
+check "the popup pads its content by the kit's one inset token (sp.lg, ${inset:-?} at this spacing scale)" \
+  "$( [[ $inset =~ ^[0-9]+$ ]] && echo "$inset" || echo 'a token')" "$(field padding "$out")"
 check "routes: Fix pushes Setup on its row, Back pops it, Details and the eject sheet push, tabs replace, Escape at the root closes" \
   "open:overview:open fix:overview>setup:system.helper back:overview details:overview>details eject:overview>details>eject back2:overview tab:setup tab2:overview unbuilt:overview viewBack:overview root:closed" \
   "$(field routes "$out")"
@@ -211,22 +211,27 @@ out=$(harness routes EGPU_HARNESS_WAIT_MS=1500 OMARCHY_EGPU_DEV_FIXTURE=this-mac
 check "…but not while an eGPU is there to show (this machine: ready)" "open:overview:open" "$(field routes "$out" | cut -d' ' -f1)"
 
 # =============================================================================
-step "padding: one set of tokens, used by every view (ui-scope.md §0.2, §5)"
-check "common/Palette.js: inset 16, section gap 12, row gap 6, rows 36" "16|12|6|36" \
+step "the kit's tokens, used by every view (ui-scope.md §0.2, §5; omarchy-ui)"
+# common/Palette.js is the look half only now (glyphs, look(), tone()); the private palette and padding tokens
+# it used to build are the kit's (ui/UTheme.qml, sp.xs to sp.xxl).
+check "common/Palette.js: look(), the glyphs and tone(); no private palette or spacing left" "yes|no|no|no" \
+  "$(grep -qE '^function (look|tone)\(' "$REPO/common/Palette.js" && echo yes || echo no)|$(grep -qE '^function (make|fromHost|spacing)\(' "$REPO/common/Palette.js" && echo yes || echo no)|$(grep -q 'SPACE' "$REPO/common/Palette.js" && echo yes || echo no)|$(ls "$REPO/views/ui" 2>/dev/null | grep -q . && echo yes || echo no)"
+check "Palette.tone() maps a look's role to the kit's theme: secondary, accent, good, warn, bad, anything else" "S|A|A|W|B|L" \
   "$(node -e '
 const fs = require("fs"), vm = require("vm"); const c = {}; vm.createContext(c)
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8").replace(/^\.pragma library/m, ""), c)
-const t = c.make({}).space; console.log([t.inset, t.section, t.row, t.rowHeight].join("|"))' "$REPO/common/Palette.js" 2>&1)"
+const t = { secondary: "S", accentText: "A", warning: "W", destructive: "B", label: "L" }
+console.log(["secondary", "accent", "good", "warn", "bad", "foreground"].map(r => c.tone(t, r)).join("|"))' "$REPO/common/Palette.js" 2>&1)"
 for v in "$REPO"/views/*.qml; do
   n=${v##*/}
-  # Directly, or through the `sp` shorthand a view binds to its theme's tokens.
-  uses=$(grep -cE 'space\.(inset|section|row|rowHeight)' "$v")
-  grep -qE 'property var sp: [a-z]+\.theme\.space$' "$v" && uses=$((uses + $(grep -cE '\bsp\.(inset|section|row|rowHeight)' "$v")))
+  # The kit's named steps (`theme.sp.md`, or the `sp` shorthand a view binds to them).
+  uses=$(grep -cE '\bsp\.(xs|sm|md|lg|xl|xxl)\b' "$v")
   raw=$(sed -E 's#//.*$##' "$v" | grep -cE '^\s*spacing:\s*[0-9]')
-  check "$n lays out with the tokens, never a raw spacing number" "yes|0" "$( (( uses > 0 )) && echo yes || echo no)|$raw"
+  case $n in Glance.qml | StatusNotes.qml | Header.qml | DetailsView.qml) need=0 ;; *) need=1 ;; esac
+  check "$n lays out with the kit's named steps, never a raw spacing number" "yes|0" "$( (( uses >= need )) && echo yes || echo no)|$raw"
 done
-check "both shells pad by the token: KeyboardPanel padding and NotchPanel's inset" "yes|yes" \
-  "$(grep -qF 'padding: Math.round(root.popupPalette.space.inset)' "$REPO/Panel.qml" && echo yes || echo no)|$(grep -qF 'anchors.leftMargin: root.inset' "$REPO/NotchPanel.qml" && echo yes || echo no)"
+check "both shells pad by the kit's step: KeyboardPanel padding and NotchPanel's inset" "yes|yes" \
+  "$(grep -qF 'padding: Math.round(popupTheme.sp.lg)' "$REPO/Panel.qml" && echo yes || echo no)|$(grep -qF 'readonly property real inset: root.theme.sp.lg' "$REPO/NotchPanel.qml" && echo yes || echo no)"
 
 # =============================================================================
 step "Setup's words: every health row id has copy, in plain words (common/SetupRows.js)"
@@ -375,8 +380,8 @@ check "first run: ONE button, Set up eGPU support, and no per-row Install or Fix
   "$(field s.this-machine.buttons "$out" | cut -d, -f1)|$(field s.this-machine.buttons "$out" | tr ',' '\n' | grep -cxE 'Install|\*Fix all')|$(field s.stranger-no-tb.buttons "$out" | tr ',' '\n' | grep -cxE 'Install|\*Fix all')"
 check "helper installed: no first-run button; the toggle file row has its own Fix" "0|yes" \
   "$(field s.ready.buttons "$out" | tr ',' '\n' | grep -c 'Set up eGPU support')|$(field s.ready.buttons "$out" | tr ',' '\n' | grep -qx 'Fix' && echo yes || echo no)"
-check "the auto-connect switch is there, disabled, and says why (no helper; helper installed)" "yes|yes" \
-  "$(grep -qF 'Auto-connect when plugged in ¦ Needs the system helper.' <<<"$st" && echo yes || echo no)|$(grep -qF "Auto-connect when plugged in ¦ Set when the system helper was installed. It can't be changed here yet." <<<"$(field s.ready.texts "$out")" && echo yes || echo no)"
+check "auto-connect is a value, never a disabled switch, and says who set it (no helper; helper installed)" "yes|yes" \
+  "$(grep -qF 'Auto-connect ¦ Needs the system helper' <<<"$st" && echo yes || echo no)|$(grep -qF "Auto-connect ¦ Off" <<<"$(field s.ready.texts "$out")" && echo yes || echo no)"
 check "a stranger's machine says it has no Thunderbolt port, in words" "yes" \
   "$(grep -qF 'This computer has no Thunderbolt or USB4 port' <<<"$(field s.stranger-no-tb.texts "$out")" && echo yes || echo no)"
 check "no engine title or id on the surface (only under Details)" "no|no" \
@@ -442,7 +447,7 @@ check "an unsupported backend says so (backend_stub), with a way to Setup" "yes|
 out=$(view overview ready EGPU_HARNESS_NOTE="watcher not running")
 check "a status that will not update says so" "yes" "$(has 'Not live: watcher not running.' "$(field texts "$out")")"
 out=$(view overview ready)
-check "Details › pushes the Details page" "yes|no" "$(has 'Details ›' "$(field buttons "$out")")|$(has 'Modules' "$(field texts "$out")")"
+check "Details is a row that opens the Details page" "yes|no" "$(has 'Details' "$(field buttons "$out")")|$(has 'Modules' "$(field texts "$out")")"
 
 out=$(view details in-use-procs)
 dt=$(field texts "$out")
@@ -456,16 +461,22 @@ check "Details: a machine with no Thunderbolt says so" "yes" "$(has 'No Thunderb
 
 # =============================================================================
 step "GATE G3 offline: the eject sheet (plan-gui.md §5.2, ui-scope.md §2.5)"
-out=$(PNGTAG=-closed view eject in-use-procs EGPU_HARNESS_CLICK="Close them")
-check "it runs device eject as it opens, names the apps, and the harmless ones apart" "Safe eject|yes|yes|*Close them,Cancel" \
+out=$(PNGTAG=-closed view eject in-use-procs EGPU_HARNESS_CLICK="Close 2 apps|Close 2 apps")
+check "it runs device eject as it opens, names the apps, and the harmless ones apart; closing them is a destructive verb with its object" "Safe eject|yes|yes|Cancel,Close 2 apps" \
   "$(field title "$out")|$(has 'vkcube and worker are using the eGPU.' "$(field texts "$out")")|$(has 'Also open (harmless) ¦ chromium' "$(field texts "$out")")|$(field buttons "$out")"
-check "Close them re-runs it with --close; never anything else" '["device","eject"] ["device","eject","--close"]' "$(calls)"
+check "Close 2 apps asks first (the confirm), then re-runs it with --close; never anything else" '["device","eject"] ["device","eject","--close"]' "$(calls)"
 check "…then Safe to unplug, with the held-driver note, and Done" "yes|yes|*Done" \
   "$(has 'Safe to unplug' "$(field after.texts "$out")")|$(has 'The driver stays loaded until you log out.' "$(field after.texts "$out")")|$(field after.buttons "$out")"
+out=$(view eject in-use-procs EGPU_HARNESS_CLICK="Close 2 apps")
+check "the first Close only asks: the question names the consequence, nothing is closed yet, and the sheet stays" '["device","eject"]|yes|none' \
+  "$(calls)|$(has 'Save your work first.' "$(field after.texts "$out")")|$(field after.routes "$out")"
+out=$(view eject in-use-procs EGPU_HARNESS_CLICK="Close 2 apps|Cancel")
+check "Cancel in the confirm puts the two buttons back, still on the sheet and nothing closed" 'Cancel,Close 2 apps|["device","eject"]|none' \
+  "$(field after.buttons "$out")|$(calls)|$(field after.routes "$out")"
 out=$(view eject ready)
 check "nothing holding it: straight to Safe to unplug" "yes|*Done" "$(has 'Safe to unplug' "$(field texts "$out")")|$(field buttons "$out")"
 out=$(view eject ready-hdmi)
-check "a monitor still on: the sentence, Try again or Cancel, the code under Details" "yes|Details,*Try again,Cancel" \
+check "a monitor still on: the sentence, Try again or Cancel, the code under Details" "yes|Details,Cancel,*Try again" \
   "$(has 'The monitor on the eGPU is still on.' "$(field texts "$out")")|$(field buttons "$out")"
 out=$(view eject ready-hdmi EGPU_HARNESS_CLICK="Cancel")
 check "Cancel asks the shell for Back" "back" "$(field after.routes "$out")"

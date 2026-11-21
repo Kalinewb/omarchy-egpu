@@ -1,7 +1,7 @@
 import QtQuick
 import "common"
 import "views"
-import "common/Palette.js" as Palette
+import "ui"
 import "common/Notices.js" as NoticeRules
 
 // eGPU's declared notch integration (plan-gui.md §7.2; notch:SURFACE-HOSTING.md
@@ -91,9 +91,9 @@ Item {
   readonly property var status: source.status
   readonly property string statusNote: source.outcomeText
   readonly property string noticeTitle: notices.live ? notices.notice.title : ""
-  // Sizes are the notch's own default unit (1) here: the row has no Style
-  // scale to follow that the notch itself would not apply.
-  readonly property var theme: Palette.fromHost(root.surfaceHost, {})
+  // The kit's theme (ui/) from the host, for the notice row: the notch hands over its colours and radius,
+  // and the row has no scale of its own to follow.
+  readonly property var theme: UTheme { host: root.surfaceHost }
 
   // The answer to the last claim: "shown", "queued", "declined:<reason>", or
   // "no-host" with no notch. Never a reason to drop a warning.

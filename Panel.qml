@@ -5,6 +5,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "common"
 import "views"
+import "ui"
 import "common/Palette.js" as Palette
 import "common/SetupRows.js" as SetupRows
 
@@ -37,39 +38,39 @@ Panel {
     return decodeURIComponent(url).replace(/\/+$/, "")
   }
 
-  // ------------------------------------------------------------- palette
+  // -------------------------------------------------------------- colours
   //
-  // The only place Omarchy's Color and Style reach the views (§5.0). Two
-  // palettes because the glyph sits on the bar and the views on the popup, and
-  // each has its own foreground. The theme has no green or amber: `good` is
-  // the accent (the ejected state also changes the word and the tooltip, so
-  // colour is never the only signal), `bad` is the theme's urgent, and `warn`
-  // is urgent softened toward the foreground so the two dots differ.
+  // The popup's views read the kit's theme (ui/UTheme.qml, vendored from
+  // omarchy-ui): standalone, so Omarchy's own palette and spacing, with no
+  // host. A second one, over `surfaceHost`, is for the views the notch would
+  // draw from the descriptor below (the notch's colours and radius, as solids).
+  //
+  // The bar button is not a panel: it sits on the bar and takes the bar's own
+  // foreground, with the theme's accent and urgent. The theme has no green or
+  // amber: `good` is the accent (the ejected state also changes the word and
+  // the tooltip, so colour is never the only signal), `bad` is the theme's
+  // urgent, and `warn` is urgent softened toward the foreground so the two
+  // dots differ.
   //
   // Color is always `Commons.Color`: since Omarchy 4.0.5 a bare `Color` in a
   // plugin no longer resolves to the theme (its own Ui files qualify it too).
   readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  function themed(fg, background) {
-    return Palette.make({
-      foreground: fg,
-      secondary: Qt.darker(fg, 1.55),
-      accent: Commons.Color.accent,
-      good: Commons.Color.accent,
-      warn: Qt.tint(Commons.Color.urgent, Qt.rgba(fg.r, fg.g, fg.b, 0.35)),
-      bad: Commons.Color.urgent,
-      background: background,
-      radius: Style.cornerRadius,
-      fontFamily: root.fontFamily,
-      unit: Style.spaceReal(1),
-      font: { caption: Style.font.caption, body: Style.font.body, title: Style.font.title,
-              display: Style.font.display, icon: Style.font.icon }
-    })
-  }
+  UTheme { id: popupTheme }
+  UTheme { id: surfaceTheme; host: root.surfaceHost }
+  // For dev/qml-harness, which checks the popup's padding against the theme's token.
+  readonly property alias uiTheme: popupTheme
 
-  readonly property var popupPalette: themed(root.foreground, Commons.Color.popups.background)
-  readonly property var barPalette: themed(root.barForeground, null)
+  // A look's colour role (common/Palette.js look()) on the bar.
+  function barTone(role) {
+    var fg = root.barForeground
+    if (role === "secondary") return Qt.darker(fg, 1.55)
+    if (role === "accent" || role === "good") return Commons.Color.accent
+    if (role === "warn") return Qt.tint(Commons.Color.urgent, Qt.rgba(fg.r, fg.g, fg.b, 0.35))
+    if (role === "bad") return Commons.Color.urgent
+    return fg
+  }
 
   // -------------------------------------------------------------- status
 
@@ -155,20 +156,12 @@ Panel {
     hideable: true
   })
 
-  // Colours for a view the notch would draw from the descriptor: the host's,
-  // as in NotchPanel.qml.
-  readonly property var surfacePalette: Palette.fromHost(root.surfaceHost, {
-    unit: Style.spaceReal(1),
-    font: { caption: Style.font.caption, body: Style.font.body, title: Style.font.title,
-            display: Style.font.display, icon: Style.font.icon }
-  })
-
   Component {
     id: glanceComponent
     Glance {
       status: root.status
       engine: engineRunner
-      theme: root.surfacePalette
+      theme: surfaceTheme
       active: true
       statusNote: root.statusNote
       noticeTitle: root.noticeLive ? notices.notice.title : ""
@@ -180,7 +173,7 @@ Panel {
     CompactView {
       status: root.status
       engine: engineRunner
-      theme: root.surfacePalette
+      theme: surfaceTheme
       density: "compact"
       active: true
       statusNote: root.statusNote
@@ -252,6 +245,10 @@ Panel {
     if (n !== root.route) root.routeStack = root.routeStack.concat([n])
   }
 
+  // Whether there is a step back inside the popup: a view's own sub-level, or a route to pop. UKeys
+  // reads it: with none, Esc closes.
+  readonly property bool canStepBack: root.routeStack.length > 1 || (!!viewLoader.item && viewLoader.item.canPop === true)
+
   // Escape and the Back button (§7.7): the view's own sub-sheet first, then
   // one route, and only at the root does it close.
   function back() {
@@ -296,20 +293,17 @@ Panel {
 
   // A slow fade while connecting or ejecting (§4 "pulsing"). Runs only while
   // the glyph is on screen: a looping animation repaints every frame even when
-  // nobody can see it (notch:SURFACE-HOSTING.md:490-492).
+  // nobody can see it (notch:SURFACE-HOSTING.md:490-492). Reduced motion stops
+  // it and shows the final frame: the glyph at full strength (the state's word
+  // and tooltip say what is under way). The period is the kit's loop token.
   property real pulse: 1
   SequentialAnimation on pulse {
-    running: root.look.pulse && button.visible
+    running: root.look.pulse && button.visible && !popupTheme.reduced
     loops: Animation.Infinite
     alwaysRunToEnd: false
-    NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutSine }
-    NumberAnimation { to: 1; duration: 800; easing.type: Easing.InOutSine }
+    NumberAnimation { to: 0.35; duration: popupTheme.ringMs; easing.type: Easing.InOutSine }
+    NumberAnimation { to: 1; duration: popupTheme.ringMs; easing.type: Easing.InOutSine }
     onRunningChanged: if (!running) root.pulse = 1
-  }
-
-  function roleColor(palette, role) {
-    var c = palette[role] !== undefined ? palette[role] : palette.foreground
-    return c
   }
 
   BarIndicator {
@@ -324,7 +318,7 @@ Panel {
     activeOverride: true
     activeText: Palette.glyph
     activeTooltipText: root.look.tooltip
-    readonly property color roleTint: root.roleColor(root.barPalette, root.look.role)
+    readonly property color roleTint: root.barTone(root.look.role)
     foreground: Qt.rgba(roleTint.r, roleTint.g, roleTint.b, roleTint.a * root.pulse)
 
     // Left opens the notch's panel or the popup (press()). Right will run `display off` while an eGPU monitor
@@ -340,7 +334,7 @@ Panel {
     // from bad (a filled dot): the two must not depend on telling two reds
     // apart.
     Rectangle {
-      readonly property color tint: root.roleColor(root.barPalette, root.look.badge)
+      readonly property color tint: root.barTone(root.look.badge)
       visible: root.look.badge !== ""
       width: Math.max(5, Style.space(6))
       height: width
@@ -359,9 +353,9 @@ Panel {
       visible: root.look.monitor
       textFormat: Text.PlainText
       text: Palette.monitorGlyph
-      color: root.barPalette.accent
+      color: root.barTone("accent")
       font.family: root.fontFamily
-      font.pixelSize: Math.max(7, Math.round(Style.font.caption * 0.7))
+      font.pixelSize: Math.max(7, Math.round(Style.font.bodySmall * 0.7))
       anchors.right: parent.right
       anchors.bottom: parent.bottom
       anchors.rightMargin: Style.space(1)
@@ -371,10 +365,15 @@ Panel {
 
   // --------------------------------------------------------------- popup
   //
-  // The panel's inset is the one padding token (common/Palette.js `space`,
-  // ui-scope.md §0.2): KeyboardPanel pads its card by it, and the scrollbar
-  // sits in that gutter rather than over the content, so nothing crowds the
-  // edge and Back keeps clear of the corner.
+  // The panel's inset is the kit's `sp.lg` (ui-scope.md §0.2): KeyboardPanel
+  // pads its card by it, and the scrollbar sits in that gutter rather than
+  // over the content, so nothing crowds the edge and the close keeps clear of
+  // the corner. There is no back strip here: the header draws the kit's back
+  // chevron whenever there is somewhere to go back to, and the one close.
+  //
+  // Esc and Enter go through the kit's UKeys (the one Esc handler), not Omarchy's
+  // PanelKeyCatcher, which takes every key before a control could: the kit's
+  // buttons, switch and tabs need Tab, Enter and Space. Up, Down, j and k still scroll.
 
   KeyboardPanel {
     id: panel
@@ -382,25 +381,34 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: keyCatcher
-    padding: Math.round(root.popupPalette.space.inset)
-    contentWidth: panel.fittedContentWidth(Style.space(360))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(600))
+    focusTarget: keys
+    padding: Math.round(popupTheme.sp.lg)
+    contentWidth: panel.fittedContentWidth(popupTheme.space(360))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight + foot.implicitHeight, popupTheme.space(600))
 
-    PanelKeyCatcher {
-      id: keyCatcher
+    UKeys {
+      id: keys
       anchors.fill: parent
-
-      onCloseRequested: root.back()
-      onTabRequested: function (direction) { root.switchPanel(direction) }
-      onMoveRequested: function (dx, dy) {
-        if (dy !== 0) flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height,
-                                                              flick.contentY + dy * Style.space(40)))
+      focus: true
+      level: "back"
+      open: root.canStepBack
+      onEscaped: root.back()
+      onCloseRequested: root.close()
+      onPrimary: if (viewLoader.item && typeof viewLoader.item.activatePrimary === "function") viewLoader.item.activatePrimary()
+      Keys.onUpPressed: root.scrollBy(-1)
+      Keys.onDownPressed: root.scrollBy(1)
+      Keys.onPressed: function (event) {
+        // j and k scroll too, as they do in Omarchy's other panels.
+        if (event.text === "j") { root.scrollBy(1); event.accepted = true }
+        else if (event.text === "k") { root.scrollBy(-1); event.accepted = true }
       }
 
       Flickable {
         id: flick
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: foot.top
         contentWidth: width
         contentHeight: column.implicitHeight
         clip: true
@@ -412,12 +420,12 @@ Panel {
         Column {
           id: column
           width: flick.width
-          spacing: root.popupPalette.space.section
+          spacing: popupTheme.sp.md
 
           Header {
             id: header
             width: parent.width
-            theme: root.popupPalette
+            theme: popupTheme
             tabs: root.tabs
             labels: root.tabLabels
             tab: root.onTab ? root.route : ""
@@ -426,6 +434,7 @@ Panel {
             canBack: root.routeStack.length > 1
             onTabPicked: function (name) { root.pickTab(name) }
             onBack: root.back()
+            onCloseRequested: root.close()
           }
 
           // One view at a time, so a view that is not on screen holds no
@@ -446,7 +455,38 @@ Panel {
         height: flick.height
         policy: ScrollBar.AsNeeded
       }
+
+      // The foot line: where a tip (placement foot) says what a control does, one reserved line under
+      // the content.
+      UTip {
+        id: foot
+        theme: popupTheme
+        line: true
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+      }
     }
+  }
+
+  // Up and Down scroll the popup by a step (what the arrows did before).
+  function scrollBy(dy) {
+    flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, flick.contentY + dy * popupTheme.space(40)))
+  }
+
+  // A control Tab reached below the fold is scrolled into view (the popup is its own window).
+  Connections {
+    target: flick.Window.window
+    function onActiveFocusItemChanged() { root.reveal(flick.Window.window ? flick.Window.window.activeFocusItem : null) }
+  }
+  function reveal(item) {
+    // Only what is inside the scrolled content (not the header's close, not the foot line).
+    var inside = false
+    for (var a = item; a && !inside; a = a.parent) inside = a === flick.contentItem
+    if (!inside) return
+    var p = item.mapToItem(flick.contentItem, 0, 0)
+    if (p.y < flick.contentY) flick.contentY = Math.max(0, p.y)
+    else if (p.y + item.height > flick.contentY + flick.height) flick.contentY = p.y + item.height - flick.height
   }
 
   // Every view gets the same §5.0 interface; the shell only fills it in.
@@ -456,7 +496,7 @@ Panel {
       status: root.status
       engine: engineRunner
       health: healthSource
-      theme: root.popupPalette
+      theme: popupTheme
       density: "full"
       maxWidth: column.width
       active: root.opened
@@ -472,7 +512,7 @@ Panel {
       status: root.status
       engine: engineRunner
       health: healthSource
-      theme: root.popupPalette
+      theme: popupTheme
       density: "full"
       maxWidth: column.width
       active: root.opened
@@ -489,7 +529,7 @@ Panel {
       status: root.status
       engine: engineRunner
       health: healthSource
-      theme: root.popupPalette
+      theme: popupTheme
       density: "full"
       maxWidth: column.width
       active: root.opened
@@ -505,7 +545,7 @@ Panel {
       status: root.status
       engine: engineRunner
       health: healthSource
-      theme: root.popupPalette
+      theme: popupTheme
       density: "full"
       maxWidth: column.width
       active: root.opened

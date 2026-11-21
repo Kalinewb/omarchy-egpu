@@ -6,6 +6,7 @@
 #
 #   ./dev/keys.sh                       every check, both shells
 #   ./dev/keys.sh --sets esc            only the Escape checks (all the unchanged panel answers)
+#                                       (sets: esc, keys; the switch, confirm and setup runs have their own)
 #   ./dev/keys.sh --panel <dir>         the plugin in another checkout
 #
 # dev/qml-harness/keys.qml sends the key events with QtTest's keyClick into the real NotchPanel.qml on a
@@ -29,6 +30,7 @@ while (($#)); do
   esac
 done
 
+# What each shell runs of the chosen sets: the notch panel everything, the popup Escape and its keys.
 root=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-egpu-keys.XXXXXX")
 trap 'pkill -f -- "$root/" 2>/dev/null; [[ -n ${KEYS_KEEP:-} ]] || rm -rf "$root"' EXIT
 mkdir -p "$root/qs/Ui" "$root/run"
@@ -42,15 +44,21 @@ ln -s "$panel" "$root/qs/egpu"
 cp "$REPO/dev/qml-harness/keys.qml" "$root/qs/shell.qml"
 FIX="$panel/dev/fixtures"; [[ -d $FIX ]] || FIX="$REPO/dev/fixtures"
 
+sets_notch=$sets; sets_popup=$sets
 failures=0; checks=0
-for c in hosted standalone; do
-  echo "${DIM}== $c${RESET}"
-  jq --argjson at "$(date +%s%3N)" '.written_at = $at' "$FIX/ready/status.json" >"$root/run/status.json"
-  log="$root/$c.log"
+# case | fixture | sets: the notch panel on the ready fixture for Escape and the keys; on ready-hdmi for the
+# HDMI switch (with the display verbs); on in-use-procs for the eject confirm; on this-machine for a Fix.
+VERBS="device connect,device eject,device rescan,display enable,display disable,display off"
+run() { # run <case> <fixture> <sets> [verbs]
+  local c=$1 fx=$2 sets=$3 verbs=${4:-}
+  echo "${DIM}== $c, $fx: $sets${RESET}"
+  rm -f "$root/run/calls.jsonl"
+  jq --argjson at "$(date +%s%3N)" '.written_at = $at' "$FIX/$fx/status.json" >"$root/run/status.json"
+  log="$root/$c-$fx.log"
   env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
-    EGPU_RUN="$root/run" OMARCHY_EGPU_DEV_BIN="$panel/dev/bin" OMARCHY_EGPU_DEV_FIXTURE=ready OMARCHY_EGPU_DEV_FIXTURES="$FIX" \
-    KEYS_CASE=$c KEYS_SETS=$sets \
+    EGPU_RUN="$root/run" OMARCHY_EGPU_DEV_BIN="$panel/dev/bin" OMARCHY_EGPU_DEV_FIXTURE=$fx OMARCHY_EGPU_DEV_FIXTURES="$FIX" \
+    ${verbs:+OMARCHY_EGPU_DEV_VERBS="$verbs"} KEYS_CASE=$c KEYS_SETS=$sets \
     timeout 90 quickshell -p "$root/qs" -n >"$log" 2>&1
   sed 's/\x1b\[[0-9;]*m//g' "$log" | sed -n 's/^.*KEYS //p' | while IFS= read -r line; do
     case $line in
@@ -62,12 +70,20 @@ for c in hosted standalone; do
   if [[ -z $done_line ]]; then
     echo "  ${RED}FAIL${RESET}  the $c run did not finish"
     sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E 'ERROR|TypeError|ReferenceError|Unable|FAIL' | head -5 | sed 's/^/        /'
-    failures=$((failures + 1)); continue
+    failures=$((failures + 1)); return
   fi
-  n=${done_line% *}; f=${done_line#* }
+  local n=${done_line% *} f=${done_line#* }
   checks=$((checks + n)); failures=$((failures + f))
   sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E 'TypeError|ReferenceError|is not a function|Unable to assign' | grep -F egpu | head -3 | sed 's/^/      js: /'
-done
+}
+run hosted ready "$sets_notch"
+if [[ $sets == *keys* ]]; then
+  run hosted ready-hdmi switch "$VERBS"
+  run hosted in-use-procs confirm
+  run hosted this-machine setup
+fi
+run standalone ready "$sets_popup"
+[[ $sets == *keys* ]] && run standalone this-machine scroll
 echo
 if ((failures)); then echo "${RED}$failures of $checks key checks failed${RESET}"; exit 1; fi
 echo "${GREEN}all $checks key checks pass${RESET}"

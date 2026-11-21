@@ -1,6 +1,5 @@
 import QtQuick
-import "ui"
-import "../common/Palette.js" as Palette
+import "../ui"
 import "../common/Errors.js" as Errors
 
 // The eject sheet, pushed over the Overview by Safe eject (ui-scope.md §2.5,
@@ -8,15 +7,19 @@ import "../common/Errors.js" as Errors
 // it is on screen, and shows each answer:
 //
 //   checking   "Turning off the screen on the eGPU… Checking what's using it…"
-//   holders    "vkcube is using the eGPU."  [ Close it ]  Cancel
+//   holders    "vkcube is using the eGPU."  Cancel  [ Close vkcube ]
+//              Closing asks each app to quit, so it is the kit's confirm row
+//              (a destructive verb with an object, never the default): "Ask
+//              vkcube to quit? Save your work first." Cancel  [ Close vkcube ]
 //              background helpers that only hold the device, under "Also open
 //              (harmless)": they keep the driver loaded, not the card
 //   closing    `device eject --close`: SIGTERM to this user's apps, never
 //              SIGKILL; what survives is listed again
 //   done       "Safe to unplug", and the note when the driver stayed loaded
-//   failed     the sentence from Errors.js and what to do: Try again, Cancel,
-//              Open Setup (helper missing); remove_timeout is red and says
-//              do not unplug, with no way to make it look finished
+//   failed     the sentence from Errors.js and what to do: Cancel, Try again,
+//              Open Setup (helper missing); remove_timeout and a hung driver
+//              are an error notice and say do not unplug, with no way to make
+//              it look finished
 //
 // The engine does the work and keeps going if this sheet is closed (Back,
 // Escape, the notch closing): the Overview then shows Ejecting… from the
@@ -35,7 +38,7 @@ Column {
   // ----------------------------------------------------- shared interface
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
+  required property var theme
   property string density: "full"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -46,14 +49,24 @@ Column {
   signal requestRoute(string name)
   signal requestClose()
 
+  // A confirm that is asking is the view's one sub-level, and Esc (the kit's
+  // "modal" level) cancels it first: UConfirmSheet handles that itself, so
+  // there is nothing for the shell's back step to pop.
   function popView() { return false }
+  readonly property bool canPop: false
+  // Enter, with nothing under the focus to take it: Done, or Try again.
+  function activatePrimary() {
+    if (view.step === "done") { view.requestClose(); return true }
+    if (view.step === "failed" && view.canRetry) { view.start(false); return true }
+    if (view.step === "holders" && !view.canClose) { view.start(false); return true }
+    return false
+  }
 
   readonly property string title: "Safe eject"
   readonly property string meta: ""
 
   // ------------------------------------------------------------ state
-  readonly property real u: view.theme.unit
-  readonly property var sp: view.theme.space
+  readonly property var sp: view.theme.sp
 
   // "" (not started) | checking | holders | closing | done | failed
   property string step: ""
@@ -66,6 +79,16 @@ Column {
   readonly property bool canClose: !!(view.answer && view.answer.can_close)
   readonly property bool held: !!(view.answer && view.answer.modules && view.answer.modules.held_after_eject)
   readonly property string code: view.result ? Errors.code(view.result) : ""
+
+  // remove_timeout and a hung driver: nothing here can make it safe, so
+  // there is no button that would look like it did.
+  readonly property bool canRetry: view.code !== "remove_timeout" && view.code !== "smi_hung"
+  // The verb names what it closes: "Close vkcube", "Close 3 apps".
+  readonly property var holderNames: view.names(view.holders)
+  readonly property string closeVerb: view.holderNames.length === 1 ? "Close " + view.holderNames[0]
+                                      : view.holderNames.length === 0 ? "Close them" : "Close " + view.holderNames.length + " apps"
+  // One short sentence: the verb names what it closes, and the row holds Cancel and the verb beside it.
+  readonly property string closeAsk: "Save your work first."
 
   function list(v) { return v && typeof v === "object" && typeof v.length === "number" ? v : [] }
 
@@ -100,28 +123,27 @@ Column {
   onActiveChanged: if (active && view.step === "") view.start(false)
   Component.onCompleted: if (view.active) view.start(false)
 
-  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : 300 * view.u)
-  spacing: view.sp.section
+  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : view.theme.space(300))
+  spacing: view.sp.md
 
   // ------------------------------------------------------------ checking
   Row {
     visible: view.step === "checking" || view.step === "closing" || view.step === ""
-    spacing: view.sp.row * 1.5
-    Spinner {
+    spacing: view.sp.sm
+    URing {
       anchors.verticalCenter: parent.verticalCenter
-      size: view.theme.font.title
-      tone: view.theme.foreground
-      running: view.active && parent.visible
+      theme: view.theme
+      visible: view.active && parent.visible
     }
     Text {
-      width: view.width - view.theme.font.title - parent.spacing
+      width: view.width - view.theme.titleSize - parent.spacing
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: view.step === "closing" ? "Closing " + view.joined(view.names(view.holders.filter(function (h) { return h.closeable }))) + "…"
                                     : "Turning off the screens on the eGPU… Checking what's using it…"
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
   Text {
@@ -130,28 +152,29 @@ Column {
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
     text: "You can close this; the eject carries on."
-    color: view.theme.secondary
+    color: view.theme.metadata
     font.family: view.theme.fontFamily
-    font.pixelSize: view.theme.font.caption
+    font.pixelSize: view.theme.footnoteSize
+    font.weight: view.theme.metadataWeight
   }
 
   // ------------------------------------------------------------- holders
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.sm
     visible: view.step === "holders"
 
     Text {
       width: parent.width
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
-      readonly property var n: view.names(view.holders)
+      readonly property var n: view.holderNames
       text: n.length === 0 ? "Something is still using the eGPU."
           : view.joined(n) + (n.length === 1 ? " is" : " are") + " using the eGPU."
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.title
-      font.bold: true
+      font.pixelSize: view.theme.titleSize
+      font.weight: view.theme.titleWeight
     }
     Text {
       width: parent.width
@@ -159,55 +182,71 @@ Column {
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: view.answer && view.answer.timed_out ? "It did not quit in time. Close it yourself, then try again."
-          : (!view.canClose ? "Close it yourself, then try again."
-          : "Closing asks each app to quit, as closing its window would. Save your work first.")
+          : (!view.canClose ? "Close it yourself, then try again." : "")
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
 
-  Row {
-    visible: view.step === "holders"
-    spacing: view.sp.section
-    Action {
-      theme: view.theme
-      primary: true
-      visible: view.canClose
-      label: view.names(view.holders).length > 1 ? "Close them" : "Close it"
-      tone: view.theme.accent
-      onClicked: view.start(true)
-    }
-    Action {
-      theme: view.theme
-      primary: !view.canClose
-      visible: !view.canClose
-      label: "Try again"
-      onClicked: view.start(false)
-    }
-    Link {
+  // Closing apps asks them to quit: the kit's confirm row replaces the buttons in place, and Esc
+  // cancels it. A destructive verb is never the default: Cancel has the focus.
+  UConfirmSheet {
+    id: confirm
+    width: parent.width
+    visible: view.step === "holders" && view.canClose
+    theme: view.theme
+    sentence: view.closeAsk
+    verb: view.closeVerb
+    destructive: true
+    onConfirmed: view.start(true)
+
+    Row {
+      anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      theme: view.theme
-      label: "Cancel"
-      tone: view.theme.secondary
-      onClicked: view.requestRoute("back")
+      spacing: view.sp.sm
+      UButton {
+        theme: view.theme
+        text: "Cancel"
+        onClicked: view.requestRoute("back")
+      }
+      UButton {
+        theme: view.theme
+        text: view.closeVerb
+        kind: "destructive"
+        onClicked: confirm.ask()
+        UTip { theme: view.theme; placement: "foot"; text: "Asks each app to quit, as closing its window would." }
+      }
+    }
+  }
+
+  Item {
+    width: parent.width
+    height: view.theme.rowHeight
+    visible: view.step === "holders" && !view.canClose
+    Row {
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: view.sp.sm
+      UButton { theme: view.theme; text: "Cancel"; onClicked: view.requestRoute("back") }
+      UButton { theme: view.theme; text: "Try again"; kind: "primary"; onClicked: view.start(false) }
     }
   }
 
   // ---------------------------------------------------------------- done
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.xs
     visible: view.step === "done"
 
     Text {
       width: parent.width
       textFormat: Text.PlainText
       text: "Safe to unplug"
-      color: view.theme.good
+      color: view.theme.accentText
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.display
-      font.bold: true
+      font.pixelSize: view.theme.titleSize
+      font.weight: view.theme.titleWeight
     }
     Text {
       width: parent.width
@@ -217,69 +256,53 @@ Column {
       text: "The driver stays loaded until you log out. " + Errors.note("held_after_eject")
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
-  Action {
+  UButton {
     width: parent.width
     visible: view.step === "done"
     theme: view.theme
-    primary: true
-    label: "Done"
-    tone: view.theme.good
+    kind: "primary"
+    text: "Done"
     onClicked: view.requestClose()
   }
 
   // -------------------------------------------------------------- failed
-  Sentence {
+  UNotice {
+    theme: view.theme
     width: parent.width
     visible: view.step === "failed"
-    theme: view.theme
+    tone: !view.canRetry ? "error" : "warning"
     text: view.step !== "failed" ? ""
         : (view.code === "126" || (view.result && view.result.code === 126) ? "Not ejected: permission was declined."
         : Errors.forResult(view.result))
-    tone: view.code === "remove_timeout" || view.code === "smi_hung" ? view.theme.bad : view.theme.warn
-    linkLabel: Errors.routeFor(view.result) === "setup" ? "Open Setup" : ""
-    linkRoute: Errors.routeFor(view.result)
-    detail: view.code
-    onLinkClicked: view.requestRoute(linkRoute)
+    details: view.code
+    actionText: Errors.routeFor(view.result) === "setup" ? "Open Setup" : ""
+    property string linkRoute: Errors.routeFor(view.result)
+    onActed: view.requestRoute(linkRoute)
   }
-  Row {
-    // remove_timeout and a hung driver: nothing here can make it safe, so
-    // there is no button that would look like it did.
-    visible: view.step === "failed" && view.code !== "remove_timeout" && view.code !== "smi_hung"
-    spacing: view.sp.section
-    Action {
-      theme: view.theme
-      primary: true
-      label: "Try again"
-      tone: view.theme.accent
-      onClicked: view.start(false)
-    }
-    Link {
+  Item {
+    width: parent.width
+    height: view.theme.rowHeight
+    visible: view.step === "failed" && view.canRetry
+    Row {
+      anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      theme: view.theme
-      label: "Cancel"
-      tone: view.theme.secondary
-      onClicked: view.requestRoute("back")
+      spacing: view.sp.sm
+      UButton { theme: view.theme; text: "Cancel"; onClicked: view.requestRoute("back") }
+      UButton { theme: view.theme; text: "Try again"; kind: "primary"; onClicked: view.start(false) }
     }
   }
 
   // ------------------------------------------------------------ harmless
   // Background helpers that only hold the device file: they keep the driver
   // loaded, not the card, and never block (lib/device.sh "incidental").
-  Column {
-    width: parent.width
-    spacing: view.sp.row / 2
+  USection {
+    theme: view.theme
     visible: (view.step === "holders" || view.step === "done") && view.incidental.length > 0
-
-    Text {
-      textFormat: Text.PlainText
-      text: "Also open (harmless)"
-      color: view.theme.secondary
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.caption
-    }
+    title: "Also open (harmless)"
+    first: true
     Text {
       width: parent.width
       textFormat: Text.PlainText
@@ -287,8 +310,7 @@ Column {
       text: view.joined(view.names(view.incidental))
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
-
 }

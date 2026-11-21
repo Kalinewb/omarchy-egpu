@@ -7,6 +7,7 @@ import "egpu" as Egpu
 import "egpu/views" as EgpuViews
 import "egpu/common" as EgpuCommon
 import "egpu/common/Palette.js" as EgpuPalette
+import "egpu/ui" as EgpuUi
 
 // Gate G8 offscreen (plan-gui.md §10): the REAL NotchIntegration.qml,
 // NotchPanel.qml, Panel.qml and views/{Glance,CompactView}.qml in a throwaway
@@ -92,10 +93,20 @@ ShellRoot {
     return out
   }
 
-  // Visible buttons (CompactView's Action), by label; disabled ones marked.
+  // What a person can press, by its words: the kit's UButton (`text`, `clicked`) and a row that opens a
+  // page (URow with `clickable`, `label`, `activated`), as dev/qml-harness/shell.qml reads them.
+  function pressLabel(item) {
+    if (item.clicked !== undefined && typeof item.text === "string" && item.text !== "" && item.kind !== undefined) return item.text
+    if (item.activated !== undefined && item.clickable === true && typeof item.label === "string") return item.label
+    return ""
+  }
+  // Visible buttons and rows that open a page, by label; disabled ones marked.
   function buttons(item, out) {
     if (!item || !item.visible) return out
-    if (item.clicked !== undefined && typeof item.label === "string") out.push(item.label + (item.enabled ? "" : "(off)"))
+    var l = rootObj.pressLabel(item)
+    if (l !== "") out.push(l + (item.enabled ? "" : "(off)"))
+    // A call in flight is a ring and its words in place of the button.
+    else if (item.indeterminate === true && typeof item.text === "string" && item.text !== "" && item.size !== undefined) out.push(item.text + "(off)")
     for (var i = 0; i < item.children.length; i++) rootObj.buttons(item.children[i], out)
     return out
   }
@@ -108,8 +119,8 @@ ShellRoot {
       var ok = false
       for (var p = item; p && p !== view.parent; p = p.parent) {
         if (typeof p.route === "string" && p.route.indexOf("setup") === 0) { ok = true; break }
-        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.linkLabel !== "") { ok = true; break }
-        if (p.primary === true && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
+        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.actionText !== "") { ok = true; break }
+        if (p.kind === "primary" && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
       }
       if (!ok) out.push(item.text)
     }
@@ -130,16 +141,26 @@ ShellRoot {
       if (c.a === 0) return
       // Alpha blends of white over nothing keep the foreground's hue.
       if (allowed.indexOf(rootObj.hueOf(c)) !== -1) return
-      // A neutral grey is a lightness step of a neutral host colour.
-      if (Math.abs(c.r - c.g) < 0.02 && Math.abs(c.g - c.b) < 0.02 && hueOf(host.foreground) === "255,255,255") return
+      // A neutral grey is a lightness step of a neutral host colour. The kit mixes the host's secondary
+      // (a blue-grey, #EBEBF5) toward the surface for its quieter roles, so a few steps of blue are the
+      // same grey: the notch's mono shader takes the hue out of all of it.
+      if (Math.abs(c.r - c.g) < 0.05 && Math.abs(c.g - c.b) < 0.05 && hueOf(host.foreground) === "255,255,255") return
       out.push(what + "=" + c)
     }
-    var name = String(item).replace(/\(0x.*$/, "").replace(/_QMLTYPE_\d+/, "")
+    function typeOf(o) { return String(o).replace(/\(0x.*$/, "").replace(/_QML_\d+|_QMLTYPE_\d+/g, "") }
+    // What it is, and where: the item and the two above it (a kit part's rectangle is named by its owner).
+    var name = typeOf(item) + (item.parent ? "<" + typeOf(item.parent) + (item.parent.parent ? "<" + typeOf(item.parent.parent) : "") : "")
     if (item.font !== undefined && item.color !== undefined) check(item.color, name + ".color")
     else if (item.color !== undefined && item.radius !== undefined) check(item.color, name + ".color")
     if (item.border !== undefined && item.border && item.border.width > 0) check(item.border.color, name + ".border")
     for (var i = 0; i < item.children.length; i++) rootObj.foreignColours(item.children[i], out)
     return out
+  }
+
+  property int kitMarks: 0
+  function noticeGlyph(item) {
+    for (var i = 0; i < item.children.length; i++) { var c = item.children[i]; if (c.font !== undefined && ["i", "!", "▲"].indexOf(c.text) !== -1) return true }
+    return false
   }
 
   // Every drawn rounded item whose radius is not surfaceHost.radiusFor() of
@@ -149,6 +170,9 @@ ShellRoot {
     if (item.radius !== undefined && typeof item.radius === "number" && item.radius > 0) {
       var drawn = (item.color !== undefined && item.color.a > 0) || (item.border !== undefined && item.border && item.border.width > 0)
       var want = host.radiusFor(Math.min(item.width, item.height))
+      // KIT: UNotice's mark is a full circle (radius: width / 2) where host.radiusFor(20) is smaller; it is
+      // named in the report as `kitNoticeMark` and left out of the audit until the kit takes it from the theme.
+      if (item.width === item.height && item.uiMark === true && Math.abs(item.radius - item.width / 2) < 0.01 && rootObj.noticeGlyph(item)) { rootObj.kitMarks++; return out }
       if (drawn && Math.abs(item.radius - want) > 0.01)
         out.push(String(item).replace(/\(0x.*$/, "") + " r=" + item.radius + " want " + want + " (" + item.width + "x" + item.height + ")")
     }
@@ -168,7 +192,9 @@ ShellRoot {
     if (rootObj.caseName !== "states") return ({})
     try { return JSON.parse(docsFile.text()) } catch (e) { return ({}) }
   }
-  readonly property var notchTheme: EgpuPalette.fromHost(host, { unit: 1, font: { caption: 10, body: 12, title: 14, display: 24, icon: 14 } })
+  // The kit's theme over the stand-in host, as the integration and the notch panel make it.
+  EgpuUi.UTheme { id: notchThemeObject; host: host }
+  readonly property var notchTheme: notchThemeObject
 
   EgpuCommon.Engine { id: harnessEngine; pluginDir: "" }
 
@@ -201,7 +227,7 @@ ShellRoot {
     var png = Quickshell.env("EGPU_HARNESS_PNG_DIR") || ""
     var i = 0
     function next() {
-      if (i >= names.length) { Qt.exit(0); return }
+      if (i >= names.length) { rootObj.log("kitNoticeMarks", rootObj.kitMarks); Qt.exit(0); return }
       var name = names[i++]
       var doc = rootObj.docs[name]
       // Assigned, not passed in createObject's map: as the shells bind it.
@@ -228,7 +254,7 @@ ShellRoot {
         rootObj.log("g." + name + ".pulsing", g.pulsing)
         g.active = false
         Qt.callLater(function () {
-          rootObj.log("g." + name + ".pulseIdle", !g.pulsing && g.pulse === 1)
+          rootObj.log("g." + name + ".pulseIdle", !g.pulsing && !g.working)
           statesWindow.height = Math.max(200, c.implicitHeight + g.implicitHeight + 60)
           var after = function () { g.destroy(); c.destroy(); next() }
           if (png === "") { after(); return }
@@ -298,6 +324,7 @@ ShellRoot {
     Column {
       property bool dialog: true
       readonly property string title: "Safe eject"
+      readonly property bool canPop: dialog
       function popView() { if (dialog) { dialog = false; return true } return false }
       Text { text: "eject sheet"; color: "#ffffff" }
     }
@@ -305,19 +332,45 @@ ShellRoot {
 
   property int closes: 0
   // The panel's current view (the Loader inside its Flickable's column).
+  function flickOf(item) {
+    if (!item) return null
+    if (item.contentY !== undefined && item.contentWidth !== undefined && item.flickableDirection !== undefined) return item
+    for (var i = 0; i < item.children.length; i++) { var f = rootObj.flickOf(item.children[i]); if (f) return f }
+    return null
+  }
   function content(p) {
-    var col = p.children[0].contentItem.children[0]
+    var col = rootObj.flickOf(p).contentItem.children[0]
     for (var i = 0; i < col.children.length; i++) if (col.children[i].item !== undefined) return col.children[i].item
     return {}
   }
-  function findLabel(item, label) {
+  // The kit's back chevron (UBack draws a "‹"): the one thing a header draws when there is no strip.
+  function findBack(item) {
     if (!item || !item.visible) return null
-    if (item.label === label && item.clicked !== undefined) return item
+    if (item.activated !== undefined && item.font === undefined && typeof item.theme === "object" && item.children.length > 1 && rootObj.hasChevron(item)) return item
     for (var i = 0; i < item.children.length; i++) {
-      var f = rootObj.findLabel(item.children[i], label)
+      var f = rootObj.findBack(item.children[i])
       if (f) return f
     }
     return null
+  }
+  // The kit's close (UClose draws a "✕").
+  function findClose(item) {
+    if (!item || !item.visible) return null
+    if (item.activated !== undefined && item.font === undefined) {
+      for (var j = 0; j < item.children.length; j++) { var c = item.children[j]; if (c.visible && c.font !== undefined && c.text === "✕") return item }
+    }
+    for (var i = 0; i < item.children.length; i++) {
+      var f = rootObj.findClose(item.children[i])
+      if (f) return f
+    }
+    return null
+  }
+  function hasChevron(item) {
+    for (var i = 0; i < item.children.length; i++) {
+      var c = item.children[i]
+      if (c.visible && c.font !== undefined && c.text === "‹") return true
+    }
+    return false
   }
   // What the notch's `omarchy-shell notch backZone` reports (notch:Bar.qml backZoneReport), for a panel of
   // this size: every visible control that takes a press, and every text whose PAINTED glyphs overlap the
@@ -369,7 +422,7 @@ ShellRoot {
   // Under a host with the notch's back strip: one visible way back, the content below the zone, and the
   // strip's press (goBackInside) walking the same steps Escape does, short of the close.
   function runStrip(p, fl, st) {
-    rootObj.log("strip.top", Math.round(fl.y))
+    rootObj.log("strip.top", Math.round(fl.y) + "|" + p.theme.sp.lg + "|" + host.backZoneHeight)
     rootObj.log("strip.mainAnswer", String(p.goBackInside()) + ":" + st())
     rootObj.log("zone.main", rootObj.zoneReport(p) + " w=" + Math.round(p.width))
     p.requestRoute("full")
@@ -383,8 +436,8 @@ ShellRoot {
     p.resetTo("main")
     p.requestRoute("full")
     rootObj.log("strip.full.texts", rootObj.texts(p, []).join(" ¦ "))
-    rootObj.log("strip.full.back", rootObj.findLabel(p, "‹ Back") ? "drawn" : "none")
-    rootObj.log("strip.fullTop", Math.round(fl.y))
+    rootObj.log("strip.full.back", rootObj.findBack(p) ? "drawn" : "none")
+    rootObj.log("strip.fullTop", Math.round(fl.y) + "|" + p.theme.sp.lg + "|" + host.backZoneHeight)
     p.requestRoute("eject")
     var routes = {}
     for (var k in p.builtRoutes) routes[k] = p.builtRoutes[k]
@@ -411,22 +464,23 @@ ShellRoot {
     p.open("main")
     rootObj.log("open.main", st() + "|" + p.active + "|" + (p.background === undefined ? "?" : p.background))
     // The panel's own inset (the notch adds none around an integration).
-    var fl = p.children[0]
-    rootObj.log("inset", Math.round(fl.x) + "," + Math.round(fl.y) + "|" + Math.round(p.inset))
+    var fl = rootObj.flickOf(p)
+    rootObj.log("inset", Math.round(fl.x) + "," + Math.round(fl.y) + "|" + Math.round(p.inset) + "|" + p.theme.sp.lg)
     rootObj.log("main.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("main.back", p.routeStack.length > 1)
     if (rootObj.strip) { rootObj.runStrip(p, fl, st); return }
     p.requestRoute("full")
     rootObj.log("toFull", st())
     rootObj.log("full.texts", rootObj.texts(p, []).join(" ¦ "))
-    rootObj.log("full.colours", (function () { var f = rootObj.foreignColours(p, []); return f.length ? f.join(" ; ") : "host-only" })())
-    rootObj.log("full.radii", (function () { var f = rootObj.badRadii(p, []); return f.length ? f.join(" ; ") : "radiusFor" })())
-    // ‹ Back keeps the inset from the panel's right edge and top.
-    var back = rootObj.findLabel(p, "‹ Back")
-    if (back) {
-      var pt = back.mapToItem(p, back.width, 0)
-      rootObj.log("backGap", Math.round(p.width - pt.x) + "," + Math.round(pt.y))
-    } else rootObj.log("backGap", "no back")
+    rootObj.log("full.back", rootObj.findBack(p) ? "drawn" : "none")
+    // full.colours and full.radii are logged once the panel has settled (stackSizeTimer2): the kit's
+    // controls fade their colours over 90 ms, from the standalone palette to the host's on first display.
+    // The header's one close keeps the inset from the panel's right edge, and sits below the top inset.
+    var closeBtn = rootObj.findClose(p)
+    if (closeBtn) {
+      var pt = closeBtn.mapToItem(p, closeBtn.width, 0)
+      rootObj.log("closeGap", Math.round(p.width - pt.x) + "," + Math.round(pt.y))
+    } else rootObj.log("closeGap", "no close")
     p.requestRoute("setup:system.helper")
     rootObj.log("toSetup", st() + "|" + p.setupFocus)
     p.back()
@@ -495,6 +549,8 @@ ShellRoot {
     onTriggered: {
       var p = stackSizeTimer.panel
       rootObj.log("sizeFull", Math.round(p.implicitWidth) + "x" + Math.round(p.implicitHeight))
+      rootObj.log("full.colours", (function () { var f = rootObj.foreignColours(p, []); return f.length ? f.join(" ; ") : "host-only" })())
+      rootObj.log("full.radii", (function () { var f = rootObj.badRadii(p, []); return f.length ? f.join(" ; ") : "radiusFor" })())
       var png = Quickshell.env("EGPU_HARNESS_PNG_DIR") || ""
       if (png === "") { Qt.exit(0); return }
       stackWindow.contentItem.grabToImage(function (r) { r.saveToFile(png + "/notch-full.png"); Qt.exit(0) })

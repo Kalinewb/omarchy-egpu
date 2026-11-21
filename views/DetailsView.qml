@@ -1,7 +1,5 @@
 import QtQuick
-import qs.Ui
-import "ui"
-import "../common/Palette.js" as Palette
+import "../ui"
 import "../common/Errors.js" as Errors
 import "../common/Facts.js" as Facts
 import "../common/Overview.js" as Overview
@@ -26,7 +24,7 @@ Column {
   // ----------------------------------------------------- shared interface
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
+  required property var theme
   property string density: "full"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -38,15 +36,15 @@ Column {
   signal requestClose()
 
   function popView() { return false }
+  readonly property bool canPop: false
+  function activatePrimary() { return false }
 
   readonly property string title: "Details"
   readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
   readonly property var s: view.status
-  readonly property real u: view.theme.unit
-  readonly property var sp: view.theme.space
-  readonly property color dim: view.theme.secondary
+  readonly property var sp: view.theme.sp
 
   readonly property var bolt: view.s && view.s.bolt ? view.s.bolt : ({})
   readonly property var pci: view.s && view.s.pci ? view.s.pci : ({})
@@ -103,128 +101,97 @@ Column {
     return Math.round(g.mem_used_mb) + " MB in use"
   }
 
-  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : 300 * view.u)
-  spacing: view.sp.section
+  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : view.theme.space(300))
 
-  Text {
+  // Nothing to show yet: the kit's empty state, in words.
+  UEmpty {
+    theme: view.theme
     width: parent.width
     visible: !view.s
-    textFormat: Text.PlainText
-    wrapMode: Text.WordWrap
     text: view.statusNote !== "" ? "No eGPU status: " + view.statusNote + "." : "Waiting for the first status…"
-    color: view.dim
-    font.family: view.theme.fontFamily
-    font.pixelSize: view.theme.font.body
   }
 
-  Section {
+  USection {
+    theme: view.theme
     visible: view.errorCode !== ""
-    label: "Problem"
-    Fact { label: "Message"; value: Errors.message(view.errorCode) }
-    Fact { label: "Code"; value: view.errorCode }
+    title: "Problem"
+    first: true
+    Fact { label: "Message"; shown: Errors.message(view.errorCode) }
+    Fact { label: "Code"; shown: view.errorCode }
   }
 
-  Section {
+  USection {
+    theme: view.theme
     visible: !!view.s
-    label: "Enclosure"
-    Fact { label: "Name"; value: view.bolt.name ? view.bolt.name + (view.bolt.vendor ? " (" + view.bolt.vendor + ")" : "") : "—" }
-    Fact { label: "Thunderbolt"; value: view.boltLine() }
+    title: "Enclosure"
+    first: view.errorCode === ""
+    Fact { label: "Name"; shown: view.bolt.name ? view.bolt.name + (view.bolt.vendor ? " (" + view.bolt.vendor + ")" : "") : "—" }
+    Fact { label: "Thunderbolt"; shown: view.boltLine() }
   }
 
-  Section {
+  USection {
+    theme: view.theme
     visible: view.cardPresent
-    label: "Graphics card"
-    Fact { label: "Card"; value: view.orDash(view.cardName) }
+    title: "Graphics card"
+    Fact { label: "Card"; shown: view.orDash(view.cardName) }
     Fact {
       label: "Driver"
-      value: view.driver.bound ? String(view.driver.bound) + (view.gpu.version ? " " + view.gpu.version : "") + " · " + view.modulesLine() : "not loaded"
+      shown: view.driver.bound ? String(view.driver.bound) + (view.gpu.version ? " " + view.gpu.version : "") + " · " + view.modulesLine() : "not loaded"
     }
-    Fact { label: "Link"; value: view.linkLine() }
-    Fact { visible: !!view.gpu.ok; label: "Now"; value: Overview.telemetry(view.gpu) }
-    Fact { visible: !!view.gpu.ok; label: "Memory"; value: view.memLine() }
+    Fact { label: "Link"; shown: view.linkLine() }
+    Fact { visible: !!view.gpu.ok; label: "Now"; shown: Overview.telemetry(view.gpu) }
+    Fact { visible: !!view.gpu.ok; label: "Memory"; shown: view.memLine() }
   }
 
-  Section {
+  USection {
+    theme: view.theme
     visible: !!view.gpu.ok
-    label: view.procs.length === 0 ? "Apps on the eGPU" : "Apps on the eGPU (" + view.procs.length + ")"
-    Fact { visible: view.procs.length === 0; label: ""; value: "None" }
+    title: view.procs.length === 0 ? "Apps on the eGPU" : "Apps on the eGPU (" + view.procs.length + ")"
+    Fact { visible: view.procs.length === 0; label: "None" }
     Repeater {
       model: view.procs
       delegate: Fact {
         required property var modelData
         label: Overview.base(modelData.name)
-        value: (modelData.mem_mb ? Math.round(modelData.mem_mb) + " MB" : "") +
+        shown: (modelData.mem_mb ? Math.round(modelData.mem_mb) + " MB" : "") +
                (modelData.pid !== null && modelData.pid !== undefined ? (modelData.mem_mb ? " · " : "") + "pid " + modelData.pid : "")
       }
     }
   }
 
-  Section {
+  USection {
+    theme: view.theme
     visible: view.cardPresent
-    label: "Screens on the eGPU"
-    Fact { visible: view.screens.length === 0; label: ""; value: "None" }
+    title: "Screens on the eGPU"
+    Fact { visible: view.screens.length === 0; label: "None" }
     Repeater {
       model: view.screens
       delegate: Fact {
         required property var modelData
         label: String(modelData.connector || "")
-        value: (modelData.description ? String(modelData.description) + " · " : "") + (modelData.enabled ? "on" : "off")
+        shown: (modelData.description ? String(modelData.description) + " · " : "") + (modelData.enabled ? "on" : "off")
       }
     }
   }
 
   // ------------------------------------------------------------ components
 
-  // A titled group of facts. Children go into the inner column.
-  component Section: Column {
-    id: section
-    property string label: ""
-    default property alias rows: body.data
-    width: view.width
-    spacing: view.sp.row
-
-    PanelSectionHeader {
-      text: section.label
-      foreground: view.theme.foreground
-      fontFamily: view.theme.fontFamily
-      fontSize: view.theme.font.caption
-    }
-    Column {
-      id: body
-      width: parent.width
-      spacing: view.sp.row / 2
-    }
-  }
-
-  // One "label  value" line. The value wraps; the label column is fixed so the
-  // values line up down the view.
-  component Fact: Item {
+  // One "label  value" line: the kit's row, with the value in its slot so a
+  // long one wraps (a row's own `value` is one line) and the row grows to hold it.
+  component Fact: URow {
     id: fact
-    property string label: ""
-    property string value: ""
-    width: view.width
-    implicitHeight: Math.max(labelText.implicitHeight, valueText.implicitHeight)
-
+    property string shown: ""
+    theme: view.theme
     Text {
-      id: labelText
-      width: 92 * view.u
-      textFormat: Text.PlainText
-      text: fact.label
-      color: view.dim
-      elide: Text.ElideRight
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
-    }
-    Text {
-      id: valueText
-      x: labelText.width + view.sp.row
-      width: fact.width - x
+      visible: fact.shown !== ""
+      width: Math.min(implicitWidth, Math.max(view.theme.space(120), fact.width * 0.62))
       textFormat: Text.PlainText
       wrapMode: Text.Wrap
-      text: fact.value
-      color: view.theme.foreground
+      horizontalAlignment: Text.AlignRight
+      text: fact.shown
+      color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
   }
 }

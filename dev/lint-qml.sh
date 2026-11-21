@@ -25,7 +25,7 @@
 #     Color (colours come only from surfaceHost), the integration file names a
 #     window type or an IpcHandler (the notch declines it: own-window), or
 #     either imports outside the notch's allowed set or a view from anywhere
-#     but views/ (plan-gui.md §7, gate G8), or
+#     but views/ (the kit, ui/, is allowed; plan-gui.md §7, gate G8), or
 #   - any QML reads the machine itself — /sys, hyprctl, boltctl, nvidia-smi —
 #     instead of asking the engine (plan-engine.md §12 E9).
 #
@@ -188,11 +188,12 @@ else
   fi
 
   # Imports: the set an integration may use, and the only relative ones are
-  # this plugin's views/ and common/ (no view forked outside views/; gate G8 b).
+  # this plugin's views/, common/ and the vendored kit ui/ (no view forked
+  # outside views/; gate G8 b).
   hits=""
   for f in "${present[@]}"; do
     h=$(grep -nE '^import ' "$f" | grep -vE '^[0-9]+:import (QtQuick|Quickshell|Quickshell\.Io|qs\.Commons|qs\.Ui)$' |
-      grep -vE '^[0-9]+:import "(views|common)(/[A-Za-z]+\.js)?"( as [A-Za-z]+)?$' | sed "s#^#    $f:#")
+      grep -vE '^[0-9]+:import "(views|common|ui)(/[A-Za-z]+\.js)?"( as [A-Za-z]+)?$' | sed "s#^#    $f:#")
     [[ -n $h ]] && hits+="$h"$'\n'
   done
   if [[ -n $hits ]]; then

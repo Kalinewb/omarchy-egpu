@@ -2,9 +2,12 @@
 
 # Everything the plugin checks about itself, nothing installed, nothing reloaded, no hardware.
 #
-#   ./dev/test.sh              lint, the engine tests, the panel offscreen (G1, G8), the keys
+#   ./dev/test.sh              lint, the engine tests, the panel offscreen (G1, G8), the keys, the UI gate
 #   ./dev/test.sh --quick      lint only (shell, JSON, QML)
 #   ./dev/test.sh --no-engine  everything but tests/run.sh (the engine suite, about 7 minutes)
+#
+# tests/run.sh has one check that fails here on main as well, before any UI work ("device: 20 cycles":
+# every cycle reports `already: true`; not looked into, it is the engine's); everything else in it passes.
 #
 # Each part prints its own pass/FAIL lines; this prints one summary. The marketplace scanner (bin/scan.mjs
 # in the suite repo) and dev/check-pins.sh are run by hand: the scanner is not part of this repo.
@@ -36,6 +39,10 @@ if ((!quick)); then
   run "G1: the bar, the popup, Overview, Setup and the eject sheet, from fixtures" ./dev/g1-offscreen.sh
   run "G8: the notch integration, against the notch's own rules" ./dev/g8-offscreen.sh
   run "the keys, pressed for real, in the notch and the popup" ./dev/keys.sh
+  run "the UI gate: ui/ is the kit, no literals, no private controls, one Esc; the walk on every page, in seven configurations" \
+    ./dev/check-ui.sh --score --walk dev/walk-root.qml
+  run "the kit's scripts start no service, ask for no privilege and fetch nothing" bash -c '
+    ! grep -nE "systemctl|sudo|pkexec|curl|git (clone|fetch|pull)" dev/sync-ui.sh dev/check-ui.sh dev/walk.sh dev/harness/ui-walk.qml dev/harness/walk.js'
 fi
 
 echo

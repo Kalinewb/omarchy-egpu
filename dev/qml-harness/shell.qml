@@ -3,10 +3,12 @@ import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 import qs.Ui
+import qs.Commons as Colors
 import "egpu" as Egpu
 import "egpu/views" as EgpuViews
 import "egpu/common" as EgpuCommon
 import "egpu/common/Palette.js" as EgpuPalette
+import "egpu/ui" as EgpuUi
 
 // Gate G1 offscreen (plan-gui.md §10): the REAL Panel.qml, Service.qml and
 // views/StatusView.qml in a throwaway Quickshell with no compositor, against
@@ -26,7 +28,7 @@ import "egpu/common/Palette.js" as EgpuPalette
 //   routes      the popup's route stack: tabs, pushes, Back, Escape, first run
 //   view        one view (EGPU_HARNESS_VIEW: overview, details, setup, eject,
 //               compact) from a fixture's status and health, text and buttons
-//               dumped, optionally one button clicked (EGPU_HARNESS_CLICK) and
+//               dumped, optionally one button clicked (EGPU_HARNESS_CLICK; "A|B" for two) and
 //               dumped again, PNG
 //   primaries   the Overview and the compact view for every document in
 //               $EGPU_HARNESS_DOCS ({name: {status, health}}): the one
@@ -136,7 +138,7 @@ ShellRoot {
     rootObj.log("buttonOpacity", Math.round(ind.opacity * 100) / 100)
     // The glyph is painted in the role's colour (at full strength unless it is
     // pulsing), and the badge dot in the badge's.
-    var want = realPanel.roleColor(realPanel.barPalette, look.role)
+    var want = realPanel.barTone(look.role)
     rootObj.log("glyphColour", look.pulse ? "pulsing" : (Qt.colorEqual(ind.foreground, want) ? "role" : "wrong:" + ind.foreground))
   }
 
@@ -149,11 +151,15 @@ ShellRoot {
     printErrors: false
   }
 
-  readonly property var harnessTheme: EgpuPalette.make({
-    foreground: "#e0e0e0", secondary: "#8a8f94", accent: "#7aa2f7", good: "#7aa2f7",
-    warn: "#c99a6b", bad: "#a55555", background: "#101315", fontFamily: "JetBrainsMono Nerd Font",
-    unit: 1, font: { caption: 10, body: 12, title: 14, display: 24, icon: 14 }
-  })
+  // The kit's theme, standalone (no host): what the popup's views are handed. Omarchy's own palette, so
+  // the PNGs look like the popup.
+  FileView {
+    id: colorsFile
+    blockLoading: true
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+  }
+  EgpuUi.UTheme { id: harnessThemeObject }
+  readonly property var harnessTheme: harnessThemeObject
 
   // The views' engine: the dev stub (OMARCHY_EGPU_DEV_BIN), which answers
   // health and the device verbs from OMARCHY_EGPU_DEV_FIXTURE and records
@@ -175,9 +181,9 @@ ShellRoot {
     // The popup's content width at its default size, plus the inset.
     width: 328 + 32
     height: Math.max(80, (viewLoader.item ? viewLoader.item.implicitHeight : 0) + 32)
-    color: "#101315"
+    color: rootObj.harnessTheme.surface
 
-    Rectangle { anchors.fill: parent; color: "#101315" }
+    Rectangle { anchors.fill: parent; color: rootObj.harnessTheme.surface }
 
     Loader {
       id: viewLoader
@@ -201,28 +207,40 @@ ShellRoot {
   Component { id: ejectComp; EgpuViews.EjectFlow { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
   Component { id: compactViewComp; EgpuViews.CompactView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 320; active: true } }
 
-  // Visible buttons and links (views/ui Action and Link), by label; disabled
-  // ones marked, the primary one starred.
+  // What a person can press, by its words: the kit's UButton (`text`, `clicked`) and a row that opens a
+  // page (URow with `clickable`, `label`, `activated`) or a switch (USwitch, `label`, `toggled`). The
+  // label of a control is its `text` or its `label`.
+  function pressLabel(item) {
+    if (item.clicked !== undefined && typeof item.text === "string" && item.text !== "" && item.kind !== undefined) return item.text
+    if (item.activated !== undefined && item.clickable === true && typeof item.label === "string") return item.label
+    return ""
+  }
+  function isPrimary(item) { return item.kind === "primary" && item.clicked !== undefined }
+  // Visible buttons and rows that open a page, by label; disabled ones marked, the primary one starred.
   function buttons(item, out) {
     if (!item || !item.visible) return out
-    if (item.clicked !== undefined && typeof item.label === "string" && item.label !== "")
-      out.push((item.primary === true ? "*" : "") + item.label + (item.enabled ? "" : "(off)"))
+    var l = rootObj.pressLabel(item)
+    if (l !== "") out.push((rootObj.isPrimary(item) ? "*" : "") + l + (item.enabled ? "" : "(off)"))
     for (var i = 0; i < item.children.length; i++) rootObj.buttons(item.children[i], out)
     return out
   }
   function findButton(item, label) {
     if (!item || !item.visible) return null
-    if (item.clicked !== undefined && item.label === label && item.enabled) return item
+    if (rootObj.pressLabel(item) === label && item.enabled) return item
     for (var i = 0; i < item.children.length; i++) {
       var f = rootObj.findButton(item.children[i], label)
       if (f) return f
     }
     return null
   }
-  // The primary button: label|enabled, or "none".
+  // Press it as a click or a key would.
+  function press(item) { if (item.clicked !== undefined) item.clicked(); else item.activated() }
+  // The primary button: label|enabled, or "none". A call in flight is a ring and its words in place of the
+  // button (label|off).
   function primaryOf(item) {
     if (!item || !item.visible) return null
-    if (item.primary === true && typeof item.label === "string" && item.clicked !== undefined) return item.label + "|" + (item.enabled ? "on" : "off")
+    if (rootObj.isPrimary(item)) return item.text + "|" + (item.enabled ? "on" : "off")
+    if (item.indeterminate === true && typeof item.text === "string" && item.text !== "" && item.size !== undefined) return item.text + "|off"
     for (var i = 0; i < item.children.length; i++) {
       var f = rootObj.primaryOf(item.children[i])
       if (f) return f
@@ -238,8 +256,8 @@ ShellRoot {
       var ok = false
       for (var p = item; p && p !== view.parent; p = p.parent) {
         if (typeof p.route === "string" && p.route.indexOf("setup") === 0) { ok = true; break }
-        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.linkLabel !== "") { ok = true; break }
-        if (p.primary === true && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
+        if (typeof p.linkRoute === "string" && p.linkRoute.indexOf("setup") === 0 && p.actionText !== "") { ok = true; break }
+        if (p.kind === "primary" && view.d && view.d.button && (view.d.button.action === "setup" || view.d.button.action === "fix")) { ok = true; break }
       }
       if (!ok) out.push(item.text)
     }
@@ -276,7 +294,7 @@ ShellRoot {
     visible: rootObj.caseName === "primaries" || rootObj.caseName === "setups"
     width: 380
     height: 600
-    color: "#101315"
+    color: rootObj.harnessTheme.surface
     Column { id: docsColumn; x: 16; y: 16; width: 328 }
   }
   Component { id: primOverview; EgpuViews.StatusView { engine: viewEngine; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
@@ -349,6 +367,7 @@ ShellRoot {
   // ------------------------------------------------------------- finish
 
   Component.onCompleted: {
+    Colors.Color.loadColors(colorsFile.text())
     if (rootObj.caseName === "popup" || rootObj.caseName === "routes") Qt.callLater(function () { realPanel.open() })
     if (rootObj.caseName === "primaries" || rootObj.caseName === "setups") Qt.callLater(rootObj.runDocs)
   }
@@ -385,7 +404,8 @@ ShellRoot {
     rootObj.log("padding", w ? w.padding : "no window")
     // The tokens scale with the shell's spacing unit (the theme's [spacing]),
     // so the check needs the unit this run had.
-    rootObj.log("unit", realPanel.popupPalette.unit)
+    rootObj.log("unit", realPanel.uiTheme.space(1))
+    rootObj.log("inset", realPanel.uiTheme.sp.lg)
     Qt.exit(0)
   }
 
@@ -398,9 +418,16 @@ ShellRoot {
         rootObj.dumpView("")
         var click = Quickshell.env("EGPU_HARNESS_CLICK") || ""
         if (click === "") { rootObj.grab(viewWindow.contentItem, png, 1, function () { Qt.exit(0) }); return }
-        var b = rootObj.findButton(viewLoader.item, click)
-        rootObj.log("clicked", b ? "yes" : "no such button")
-        if (b) b.clicked()
+        // "A|B" presses A, then B (a confirm that asks, then the verb it asks for: the row it replaced
+        // is disabled while it asks, so the second press finds the confirm's own button).
+        var labels = click.split("|")
+        var seen = []
+        for (var li = 0; li < labels.length; li++) {
+          var b = rootObj.findButton(viewLoader.item, labels[li])
+          seen.push(b ? "yes" : "no such button")
+          if (b) rootObj.press(b)
+        }
+        rootObj.log("clicked", seen.join(","))
         afterClick.png = png
         afterClick.start()
         return

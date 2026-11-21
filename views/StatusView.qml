@@ -1,7 +1,5 @@
 import QtQuick
-import "ui"
-import "../common/Palette.js" as Palette
-import "../common/Errors.js" as Errors
+import "../ui"
 import "../common/Overview.js" as Overview
 
 // Overview: the state in plain words and the one thing to do next
@@ -18,17 +16,18 @@ import "../common/Overview.js" as Overview
 // differently. Every button runs one engine verb or opens a screen; nothing
 // here decides a state.
 //
-// A shared view (plan-gui.md §5.0): colours and sizes only from `theme`
-// (§5.0's `palette`, renamed because every Qt Quick Item already has a
-// `palette` property), no Process (calls go through `engine`), a pure
-// function of `status` and `health` plus the calls its buttons make.
+// A shared view (plan-gui.md §5.0): colours, sizes, spacing and radii only from
+// `theme` (the kit's UTheme, ui/; §5.0's `palette`, renamed because every Qt
+// Quick Item already has a `palette` property), no Process (calls go through
+// `engine`), a pure function of `status` and `health` plus the calls its
+// buttons make.
 Column {
   id: view
 
   // ----------------------------------------------------- shared interface
   property var status: null
   property var engine: null
-  property var theme: Palette.make({})
+  required property var theme
   property string density: "full"
   property real maxWidth: 0
   property real maxHeight: 0
@@ -47,6 +46,7 @@ Column {
 
   // No sub-sheets: Back always falls through to the shell.
   function popView() { return false }
+  readonly property bool canPop: false
 
   // The shell's header shows tabs over this view, never a title: the
   // headline below is the one place the state is said (ui-scope.md §0.3).
@@ -54,8 +54,7 @@ Column {
   readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
-  readonly property real u: view.theme.unit
-  readonly property var sp: view.theme.space
+  readonly property var sp: view.theme.sp
 
   function can(verb) { return !!view.engine && typeof view.engine.can === "function" && view.engine.can(verb) }
 
@@ -69,11 +68,6 @@ Column {
     rows: view.health ? view.health.rows : null,
     can: view.can, busy: view.busy, statusNote: view.statusNote, hintsShown: view.hintsShown
   })
-
-  function tone(name) {
-    var c = view.theme[name]
-    return c !== undefined && c !== null ? c : view.theme.foreground
-  }
 
   function run(name, args) {
     if (view.busy !== "" || !view.engine) return
@@ -98,24 +92,39 @@ Column {
     else if (b.action === "show") view.hintsShown = !view.hintsShown
   }
 
+  // Enter, with nothing under the focus to take it: the page's one primary button.
+  function activatePrimary() {
+    if (!view.d.button || !view.d.button.enabled) return false
+    view.act(view.d.button)
+    return true
+  }
+
+  // What the primary button does, in a few words (a tip, not a label).
+  function tipFor(action) {
+    return action === "eject" ? "Checks nothing is using it, then lets you unplug."
+         : action === "connect" ? "Loads the driver so apps can use the eGPU."
+         : action === "setup" ? "Opens Setup, which installs what the eGPU needs."
+         : ""
+  }
+
   // Sized by the shell's maxWidth (§5.0); a Column's implicit width is its own.
-  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : 300 * view.u)
-  spacing: view.sp.section
+  width: view.maxWidth > 0 ? view.maxWidth : (parent ? parent.width : view.theme.space(300))
+  spacing: view.sp.md
 
   // ------------------------------------------------------------- headline
   Column {
     width: parent.width
-    spacing: view.sp.row
+    spacing: view.sp.sm
 
     Row {
       width: parent.width
-      spacing: view.sp.row * 1.5
+      spacing: view.sp.md
 
       Glance {
         id: glance
         anchors.verticalCenter: headline.verticalCenter
-        status: view.status
         theme: view.theme
+        status: view.status
         active: view.active
         statusNote: view.statusNote
         showWord: false
@@ -126,10 +135,10 @@ Column {
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
         text: view.d.headline
-        color: view.theme.foreground
+        color: view.theme.label
         font.family: view.theme.fontFamily
-        font.pixelSize: view.theme.font.title
-        font.bold: true
+        font.pixelSize: view.theme.titleSize
+        font.weight: view.theme.titleWeight
         // A Setup problem's headline opens Setup on its row, like Fix.
         readonly property string route: view.d.headlineRoute
         MouseArea {
@@ -148,9 +157,9 @@ Column {
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       text: view.d.detail
-      color: view.theme.foreground
+      color: view.theme.label
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
       // A Setup problem's sentence opens Setup on its row, like its headline.
       readonly property string route: view.d.headlineRoute
       MouseArea {
@@ -169,80 +178,57 @@ Column {
       text: view.d.facts
       color: view.theme.secondary
       font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.body
+      font.pixelSize: view.theme.bodySize
     }
+  }
 
-    // When the status will not update by itself.
-    Text {
-      width: parent.width
-      visible: !!view.status && view.statusNote !== ""
-      textFormat: Text.PlainText
-      wrapMode: Text.WordWrap
-      text: "Not live: " + view.statusNote + "."
-      color: view.theme.warn
-      font.family: view.theme.fontFamily
-      font.pixelSize: view.theme.font.caption
-    }
+  // When the status will not update by itself.
+  UNotice {
+    theme: view.theme
+    width: parent.width
+    visible: !!view.status && view.statusNote !== ""
+    tone: "warning"
+    text: "Not live: " + view.statusNote + "."
   }
 
   // ------------------------------------------------------- the one button
-  Action {
+  // A call in flight is a ring and its words, not a dimmed button.
+  UButton {
     id: primaryButton
     width: parent.width
-    visible: !!view.d.button
+    visible: !!view.d.button && !view.d.button.busy
     theme: view.theme
-    primary: true
-    label: view.d.button ? view.d.button.label : ""
-    tone: view.d.button ? view.tone(view.d.button.tone) : view.theme.foreground
+    kind: "primary"
+    text: view.d.button ? view.d.button.label : ""
     enabled: !!view.d.button && view.d.button.enabled
-    busy: !!view.d.button && view.d.button.busy
-    animate: view.active
     onClicked: view.act(view.d.button)
+    UTip { theme: view.theme; placement: "foot"; text: view.d.button ? view.tipFor(view.d.button.action) : "" }
+  }
+  URing {
+    id: busyRing
+    anchors.horizontalCenter: parent.horizontalCenter
+    visible: !!view.d.button && view.d.button.busy
+    height: view.theme.rowHeight
+    theme: view.theme
+    text: view.d.button ? view.d.button.label : ""
   }
 
   // ------------------------------------------------------------ sentences
-  Sentence {
-    width: parent.width
+  StatusNotes {
     theme: view.theme
-    text: view.d.sentence ? view.d.sentence.text : ""
-    tone: view.d.sentence ? view.tone(view.d.sentence.tone) : view.theme.foreground
-    rule: !!view.d.sentence && view.d.sentence.tone !== "secondary"
-    linkLabel: view.d.sentence ? view.d.sentence.linkLabel : ""
-    linkRoute: view.d.sentence ? view.d.sentence.linkRoute : ""
-    onLinkClicked: view.requestRoute(linkRoute)
-  }
-
-  // A connecting enclosure's own hint (DEG2: "Check the mode switch…").
-  Repeater {
-    model: view.d.key === "connecting" ? view.d.hints : []
-    delegate: Sentence {
-      required property var modelData
-      width: view.width
-      theme: view.theme
-      text: modelData
-      tone: view.theme.accent
-    }
-  }
-
-  // What the last call answered, when it failed.
-  Sentence {
-    width: parent.width
-    theme: view.theme
-    text: view.lastResult ? Errors.forResult(view.lastResult) : ""
-    tone: view.theme.bad
-    linkLabel: Errors.routeFor(view.lastResult) === "setup" ? "Open Setup" : ""
-    linkRoute: Errors.routeFor(view.lastResult)
-    detail: Errors.code(view.lastResult)
-    onLinkClicked: view.requestRoute(linkRoute)
+    d: view.d
+    lastResult: view.lastResult
+    showHints: true
+    onRequestRoute: function (name) { view.requestRoute(name) }
   }
 
   // ---------------------------------------------------------------- more
-  Link {
+  URow {
     visible: view.density !== "compact" && !!view.status
     theme: view.theme
-    label: "Details ›"
-    route: "details"
-    tone: view.theme.secondary
-    onClicked: view.requestRoute("details")
+    clickable: true
+    label: "Details"
+    value: "›"
+    onActivated: view.requestRoute("details")
   }
 }
