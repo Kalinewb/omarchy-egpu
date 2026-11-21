@@ -13,8 +13,8 @@ import "../common/Errors.js" as Errors
 //                             engine's code only under Details
 //
 // Shared by the Overview and the compact view, so the two word and draw them
-// the same. A sentence that is only a quiet line (no link) is plain secondary
-// text, not a notice: "Everything is set up." is not a warning.
+// the same. A quiet sentence (a suggestion, "Everything is set up.") is plain
+// secondary text, with its link under it; only a problem is a notice.
 Column {
   id: notes
 
@@ -37,7 +37,9 @@ Column {
   readonly property var sentence: notes.d && notes.d.sentence
                                   && (notes.quietSetup || notes.d.sentence.tone !== "secondary" || notes.d.sentence.secondary)
                                   ? notes.d.sentence : null
-  readonly property bool quiet: !!notes.sentence && notes.sentence.tone === "secondary" && notes.sentence.linkLabel === ""
+  // A quiet line ("Setup has one suggestion.", "Everything is set up."), with its link if it has one, is
+  // plain secondary text: only a problem is a notice, so the page's weight goes to what matters.
+  readonly property bool quiet: !!notes.sentence && notes.sentence.tone === "secondary"
   readonly property string errorRoute: Errors.routeFor(notes.lastResult)
 
   // The state's sentence: a notice, or one quiet line.
@@ -51,15 +53,30 @@ Column {
     property string linkRoute: notes.sentence ? notes.sentence.linkRoute : ""
     onActed: notes.requestRoute(linkRoute)
   }
-  Text {
+  Column {
     width: notes.width
     visible: notes.quiet
-    textFormat: Text.PlainText
-    wrapMode: Text.WordWrap
-    text: notes.quiet ? notes.sentence.text : ""
-    color: notes.theme.secondary
-    font.family: notes.theme.fontFamily
-    font.pixelSize: notes.theme.bodySize
+    // The harness and the Setup-has-a-way-there rule read these two on the line that names Setup.
+    property string linkRoute: notes.sentence ? notes.sentence.linkRoute : ""
+    property string actionText: notes.sentence ? notes.sentence.linkLabel : ""
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: notes.quiet ? notes.sentence.text : ""
+      color: notes.theme.secondary
+      font.family: notes.theme.fontFamily
+      font.pixelSize: notes.theme.bodySize
+    }
+    UButton {
+      theme: notes.theme
+      visible: parent.actionText !== ""
+      kind: "link"
+      // The link's own padding sits left of the text: pull it back so the words line up.
+      x: -notes.theme.sp.sm
+      text: parent.actionText
+      onClicked: notes.requestRoute(parent.linkRoute)
+    }
   }
 
   // A connecting enclosure's own hint (DEG2: "Check the mode switch...").
