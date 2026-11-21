@@ -1,7 +1,7 @@
 #!/bin/bash -p
 #
 # omarchy-egpu system half
-# omarchy-egpu-version: 0.1.1
+# omarchy-egpu-version: 0.1.2
 #
 # The root helper (plan-engine.md §10.1): the few things the eGPU engine needs
 # root for, behind one polkit action per verb (no.kalinewb.egpu.policy).
@@ -112,7 +112,7 @@ umask 022
 export LC_ALL=C
 cd / 2>/dev/null || exit 1
 
-VERSION=0.1.1
+VERSION=0.1.2
 
 # One regex for a PCI address, used for the argument and for sysfs names. The
 # domain is four or more digits: Intel VMD domains are wider (10000:e0:06.0).

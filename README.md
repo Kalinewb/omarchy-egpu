@@ -38,6 +38,7 @@ a terminal, from the installed plugin folder. The helper takes only fixed verbs 
 security review with conditions; the changes made for it (auto-connect switch, eject latch) await a re-review.
 0.1.1 changes the helper's `unload` (it may now run with the eGPU still on the bus) and adds a second root
 script, the sleep guard (below): both await a security review before they are installed.
+0.1.2 (after two reviews) makes the helper's `remove` refuse while the NVIDIA modules are loaded, makes the sleep guard exit 0 on SIGTERM/SIGHUP/SIGINT, answers a repeated eject with the driver still loaded as `modules_held` (do not suspend) instead of "safe", and says when a failed eject left the driver unloaded. The version is bumped so the engine can tell this helper from the older installed one: after updating, reinstall the system half (below).
 
 - Connect, eject and rescan ask for no password at the active local session (polkit `allow_active=yes`). Turning
   auto-connect on or off from the panel asks for your own password.
@@ -80,7 +81,7 @@ script, the sleep guard (below): both await a security review before they are in
 
 ### Installing or updating the system half
 
-The engine refuses a helper whose version differs from the plugin's, so after updating the plugin to 0.1.1 the
+The engine refuses a helper whose version differs from the plugin's, so after updating the plugin to 0.1.2 the
 system half must be installed again (`reinstall`, below) before eject, connect or rescan work; until then they
 answer `helper_missing`.
 
@@ -89,7 +90,7 @@ a root-only directory, checks the copy and runs it. The installer checks every f
 checksums in its own text. Compare what you paste with this:
 
 ```bash
-d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.1/system/install.sh.sha256) && sudo /usr/bin/bash -c 'PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; /usr/bin/rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
+d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.2/system/install.sh.sha256) && sudo /usr/bin/bash -c 'PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; /usr/bin/rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
 ```
 
 - `bash system/install.sh --print-command uninstall` (or `reinstall`) prints the same command for removing it.
@@ -105,10 +106,10 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
   or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
   password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
 - The terminal Setup opens first asks GitHub whether the release the command points at is published, before
-  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.1` was never pushed, or the repository is private) it
+  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.2` was never pushed, or the repository is private) it
   says so, changes nothing and stops, instead of the command's own `curl: (22) ... 404`.
 - While the repository is private, the checksum URL needs authentication: fetch it with
-  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.1'`
+  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.2'`
   instead of `curl`.
 
 ## The panel's UI
