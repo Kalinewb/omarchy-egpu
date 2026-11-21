@@ -485,7 +485,7 @@ ej_test_unload() {
     '.driver_unloaded == true and .pkexec == 126 and (.detail | test("Press Connect") and test("open the lid") and test("unloaded"))'
   dv_assert "unload, remove (declined); no load was tried; the card is attached, no marker" \
     bash -c "[ \"\$(grep '^pkexec' '$EGPU_FAKE_LOG' | sed 's|$EGPU_ADMIN|H|' | paste -sd'|')\" = 'pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF' ] && [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ] && [ ! -d '$FX_ROOT/sys/module/nvidia' ]"
-  dv_assert "and said on the terminal" grep -q 'could not be loaded again' "$T/err"
+  dv_assert "and said on the terminal, in words that do not claim a load was tried" grep -q 'could not be used to load it again' "$T/err"
   ej_done
   ej_new remove-busy
   ej_ready
@@ -658,7 +658,23 @@ ej_test_display_safety() {
     ".display.off[0].description == \"$DSP_TV\" and (.display | has(\"restored\") | not)"
   dv_assert "the TV is still off, no enable was sent" \
     test "$(dsp_mon_field "$DSP_TV" .disabled)" = true
+  dv_check "and the answer says what to do about the screens (a hung driver cannot be asked)" \
+    '(.detail | test("Open the lid or turn the display back on"))'
   dv_assert "nothing was unloaded or removed" bash -c "! grep -qE '^pkexec .* (unload|remove) ' '$EGPU_FAKE_LOG'"
+  ej_done
+
+  # The driver unloaded, then the helper cannot be used: nothing can light a monitor on a card with no driver.
+  echo "${BOLD}eject: the driver stays unloaded after the monitors were turned off: they are not re-enabled${RESET}"
+  ej_new tv-unloaded egpu-hdmi
+  ej_ready
+  ej_world_tv
+  echo 126 >"$EGPU_FAKE_DIR/pkexec-rc-remove"
+  ej --quiet
+  dv_error "the remove is declined after the monitors went off" remove_failed 126
+  dv_check "driver_unloaded, the TV listed as off, no restore attempted" \
+    ".driver_unloaded == true and .display.off[0].description == \"$DSP_TV\" and (.display | has(\"restored\") | not)"
+  dv_assert "the TV is still off, no enable was sent" \
+    test "$(dsp_mon_field "$DSP_TV" .disabled)" = true
   ej_done
 
   echo "${BOLD}eject: holders_present keeps the monitors off (the convention)${RESET}"
@@ -936,7 +952,7 @@ ej_test_cycles() {
     ej --quiet
     jq -e '.error == "holders_present"' "$T/out.json" >/dev/null 2>&1 || { fails=$((fails + 1)); echo "      cycle $i first eject: $(head -c 200 "$T/out.json")"; }
     ej --quiet --close
-    if (( DV_RC != 0 )) || ! jq -e '.ok == true and .modules.held_after_eject == false' "$T/out.json" >/dev/null 2>&1; then
+    if (( DV_RC != 0 )) || ! jq -e '.ok == true and .already == false and .modules.held_after_eject == false' "$T/out.json" >/dev/null 2>&1; then
       fails=$((fails + 1))
       echo "      cycle $i eject: rc $DV_RC $(head -c 200 "$T/out.json")"
     fi
