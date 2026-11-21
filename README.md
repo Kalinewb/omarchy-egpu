@@ -31,18 +31,36 @@ dev/check-pins.sh     # the root half's pins, checksum, versions and the command
 Connect, eject and rescan need a small root helper, `/usr/local/bin/omarchy-egpu-admin`, with polkit actions
 (`no.kalinewb.egpu.policy`, one per helper verb), a udev rule (`/etc/udev/rules.d/61-omarchy-egpu.rules`: the
 `/dev/dri/omarchy-egpu-primary` and `-external` links, and auto-connect), a boot-load mask in
-`/etc/modules-load.d/` named after the file the driver package ships, and the auto-connect flag
-`/etc/omarchy-egpu/autoconnect`. `omarchy plugin add` never runs sudo, so this half is installed afterwards, from
+`/etc/modules-load.d/` named after the file the driver package ships, the auto-connect flag
+`/etc/omarchy-egpu/autoconnect`, and (0.1.1) the sleep guard with its two systemd drop-ins. `omarchy plugin add` never runs sudo, so this half is installed afterwards, from
 a terminal, from the installed plugin folder. The helper takes only fixed verbs and loads only
 `nvidia nvidia_modeset nvidia_drm nvidia_uvm`; see the header of `system/omarchy-egpu-admin`. It passed a
 security review with conditions; the changes made for it (auto-connect switch, eject latch) await a re-review.
+0.1.1 changes the helper's `unload` (it may now run with the eGPU still on the bus) and adds a second root
+script, the sleep guard (below): both await a security review before they are installed.
 
 - Connect, eject and rescan ask for no password at the active local session (polkit `allow_active=yes`). Turning
   auto-connect on or off from the panel asks for your own password.
 - Safe eject refuses while a monitor on the eGPU is still lit, and after it the eGPU is left alone by
   auto-connect until you unplug it or press Connect.
+- Safe eject unloads the NVIDIA driver **before** it removes the card, and refuses while anything still holds
+  the driver: it answers `driver_in_use`, names what holds it, and leaves the eGPU attached and working. (A
+  removed GPU with the driver left loaded oopses `nvidia_uvm` at the next suspend and then freezes the
+  machine.) Nothing is killed to free the driver; `--close` still asks only your own GPU apps to quit. A
+  session that holds the card for its whole life (the compositor, the shell, `nvidia-persistenced`) makes the
+  eject say so until you log out or close it. This is a change from 0.1.0, which removed first and left the
+  driver loaded.
+- The **sleep guard** (`/usr/local/bin/omarchy-egpu-sleep-guard`, run before `nvidia-suspend.service` and
+  `nvidia-hibernate.service` by a drop-in in `/etc/systemd/system/`) is the net for a card that left without a
+  safe eject (a cable pull, a crash): if the NVIDIA modules are loaded and no NVIDIA GPU is on the PCI bus it
+  unloads them, within about 10 s, and logs to the journal (`journalctl -t omarchy-egpu-sleep-guard`). With a
+  GPU present it does nothing, and it never fails or blocks a sleep. Threat model: `docs/plan-engine.md` §10.5.
 
 ### Installing or updating the system half
+
+The engine refuses a helper whose version differs from the plugin's, so after updating the plugin to 0.1.1 the
+system half must be installed again (`reinstall`, below) before eject, connect or rescan work; until then they
+answer `helper_missing`.
 
 The command fetches the installer's checksum from this release's tag on GitHub, copies `system/install.sh` into
 a root-only directory, checks the copy and runs it. The installer checks every file it installs against
@@ -53,7 +71,8 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
 ```
 
 - `bash system/install.sh --print-command uninstall` (or `reinstall`) prints the same command for removing it.
-  Uninstall removes every installed file, the auto-connect flag included, and puts back what install replaced
+  Uninstall removes every installed file (the sleep guard and its drop-ins included), the auto-connect flag
+  included, and puts back what install replaced
   (saved under `/var/backups/omarchy-egpu/`). **Removing the boot-load mask means the driver package loads
   `nvidia-uvm` at boot again**; with no eGPU attached at boot, that is what froze this machine. Uninstall says so.
 - A refused install or reinstall changes nothing: every check runs before the first file is touched.
@@ -64,10 +83,10 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
   or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
   password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
 - The terminal Setup opens first asks GitHub whether the release the command points at is published, before
-  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.0` was never pushed, or the repository is private) it
+  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.1` was never pushed, or the repository is private) it
   says so, changes nothing and stops, instead of the command's own `curl: (22) ... 404`.
 - While the repository is private, the checksum URL needs authentication: fetch it with
-  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.0'`
+  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.1'`
   instead of `curl`.
 
 ## The panel's UI

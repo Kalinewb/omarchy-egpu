@@ -218,7 +218,7 @@ The standalone popup is a `Panel` (omarchy:shell/Ui/qmldir:17) with a header row
   - `display.needs_relogin`: "The HDMI monitor needs a new session to appear.
     Offloading apps works now." with a **Log out** button. A `ConfirmDialog` lists
     that every open app closes, then runs `omarchy-system-logout`.
-  - `modules.held_after_eject`: "Log out before plugging the eGPU in again."
+  - `modules.held_after_eject`: "Log out before plugging the eGPU in again." Since 0.1.1 a safe eject never ends in this state (it answers `driver_in_use` instead, docs/notch-requests.md, "UI strings for 0.1.1"); it is what a cable pull leaves, until the next suspend's sleep guard or a logout.
 
 ### 5.2 Eject flow (`EjectFlow.qml`)
 

@@ -42,7 +42,7 @@ Same as face:system/omarchy-face-admin:11-14.
 
 | module | codes |
 |---|---|
-| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing`; added in E5: `remove_failed` (the helper refused or failed during eject), `modules_held` and `rescan_failed` (rescan), `holders_failed` (`device holders`) |
+| device | `not_connected`, `no_pci_device`, `modules_failed`, `smi_hung`, `holders_present`, `remove_timeout`, `helper_missing`; added in E5: `remove_failed` (the helper refused or failed during eject), `modules_held` and `rescan_failed` (rescan), `holders_failed` (`device holders`); added in 0.1.1: `driver_in_use` (eject: the driver cannot be unloaded, so the eGPU is left attached) |
 | display | `hdmi_still_active`, `unsafe_name` |
 | any backend call | `backend_stub` |
 | steam | `steam_not_found`, `account_not_found`, `steam_running`, `game_running`, `steam_close_timeout`, `vdf_parse_failed`, `vdf_check_failed`, `vdf_changed_underneath`, `token_modified`, `manual_offload`, `backup_failed` |
@@ -113,8 +113,15 @@ can only ever be secondary, so ordering only has to be right at login:
 
 ### O2. Unload the modules, or PCI remove + unbind?
 
-**Answer: PCI remove first, then unload if the module refcount allows. A plain module
-unload is not a usable eject on its own.**
+**Answer (REVISED 2026-11-21, 0.1.1): unload the modules FIRST, then PCI remove, and
+refuse to remove while anything holds the modules. The 2026-10-09 answer, "PCI remove
+first, then unload if the refcount allows", is withdrawn: it left `nvidia` and
+`nvidia_uvm` loaded with a removed GPU, and the next suspend oopsed the kernel
+(`uvm_suspend` writes through the unmapped BAR of the gone GPU; journal of
+2026-11-20 21:11, then a hard freeze; EGPU-Buddy unloads first for the same reason).
+A card with no driver loaded is safe to remove; a removed card with a driver loaded
+is not safe to suspend. The text below is kept as the reasoning that led to the old
+rule and to the facts it rests on.**
 
 - Under REVISION 2026-10-09 the compositor deliberately opens the NVIDIA DRM card for
   HDMI scanout. While any process holds `/dev/dri/cardN` or `/dev/nvidia*`, the
@@ -130,11 +137,20 @@ unload is not a usable eject on its own.**
   the device, and whether aquamarine drops its fd on the DRM remove uevent. Gate E5
   measures both. The helper runs the sysfs write in a child with a timeout, so a
   hang is reported as `remove_timeout` and never freezes the engine.
-- If the modules stay loaded with no device after eject (Hyprland still holds a
-  reference), status reports `modules.held_after_eject: true`. The panel then asks
-  for a logout before the next plug-in. Loading or keeping nvidia with no card
-  present is exactly the condition the user saw hard freezes with (binding fact 1),
-  so re-plugging into a held, deviceless module stack is not offered as normal.
+- If the modules stay loaded with no device (a cable pull, an unplug, a crash: any
+  removal the eject did not do), status reports `modules.held_after_eject: true`. The
+  panel then asks for a logout before the next plug-in. Loading or keeping nvidia
+  with no card present is exactly the condition the user saw hard freezes with
+  (binding fact 1), so re-plugging into a held, deviceless module stack is not
+  offered as normal. Since 0.1.1 a safe eject never leaves that state (it aborts
+  instead, §6.3), and the sleep guard (§10.5) unloads the stack before the next
+  suspend when a removal the plugin never saw left it.
+- **The cost, stated plainly:** the compositor (aquamarine opens every GPU it finds)
+  and the shell (quickshell loads libEGL_nvidia) can hold the modules for the whole
+  session (dev/e0-facts.md: nvidia_drm refcnt 2, nvidia 26). Then the eject answers
+  `driver_in_use` and the way out is to close what holds the card, or log out. The
+  session variables the toggle file sets (§7.2: the primary's EGL vendor, Qt decoders)
+  exist to keep that list short.
 
 ### O3. Hotplug when nvidia was never loaded at boot. Is `modeset=1` required?
 
@@ -540,14 +556,15 @@ Order (REVISION 2026-10-09: display first):
    its own.
 4. **Steam warning.** If Steam is running and owns an eGPU process, it is listed as a
    holder like any other.
-5. **Remove.** Run `pkexec omarchy-egpu-admin remove <bdf>`. The helper removes every
+5. **Unload (0.1.1; before the remove).** Read the refcounts of the backend's modules.
+   If anything but the stack's own modules holds one, answer `driver_in_use` and stop:
+   nothing is removed, no marker is written, the eGPU stays attached and in service
+   (the screens turned off in step 2 stay off and are reported in `display`). Otherwise
+   `pkexec omarchy-egpu-admin unload <backend>` with the card still on the bus.
+6. **Remove.** Run `pkexec omarchy-egpu-admin remove <bdf>`. The helper removes every
    function of the slot (GPU and HDMI audio). On `remove_timeout`, tell the user
    **not** to unplug, and treat logging out as the recovery.
-6. **Settle.** Wait for the card node and by-path link to disappear. Then record
-   whether the backend modules' refcounts reached 0
-   (`/sys/module/<m>/refcnt`).
-7. **Unload** if they are all 0: `pkexec omarchy-egpu-admin unload <backend>`.
-   Otherwise set `modules.held_after_eject` (O2).
+7. **Settle.** Wait for the card node and by-path link to disappear.
 8. Notify "Safe to unplug". Phase becomes `ejected`.
 
 **Crash risk of yanking (documented to the user in the panel and README).**
@@ -568,9 +585,21 @@ Order (REVISION 2026-10-09: display first):
   the managed Steam marker `OMARCHY_EGPU=1` or the backend's whole offload set:
   blocks, closeable when the user's own and not the engine's ancestor) and
   `incidental` (`/dev/nvidia*` open, no memory: reported, never blocks).
-- Unload is not required: after the remove the engine asks the helper to unload
-  only when nothing holds the modules; otherwise `modules.held_after_eject` is
-  true and the holders' names go into the marker, shown as `modules.held_by`.
+- Unload is required (DECISION 2026-11-21, replacing 2026-10-10's "unload is not
+  required"): the engine unloads through the helper BEFORE the remove, and anything
+  that still holds the modules (incidental holders, the compositor, the shell,
+  nvidia-persistenced) aborts the eject as `driver_in_use`, which names every holder
+  with its role, the busy modules with their refcounts, and says the eGPU is left
+  attached. The reason is the suspend oops of a removed GPU with the modules loaded
+  (O2). `--close` is unchanged: it signals only this user's blocking apps (step 4),
+  so it cannot help with incidental holders, the shell or the compositor; the
+  error's `can_close` says so. After the unload, a failed remove puts the driver
+  back (`load`), except after `remove_timeout` (the card is in an unknown state:
+  nothing more is touched). `modules.held_after_eject` in an eject's answer is false
+  unless the modules were loaded again behind its back; `modules.unloaded` says the
+  engine unloaded them. A machine with another NVIDIA GPU (the laptop's own) cannot
+  unload the shared driver: the helper answers `device_present` and the eject answers
+  `driver_in_use` with `shared_driver: true`.
 - Before the remove the kernel's own `enabled` attribute of every connector must
   read disabled (the helper refuses `monitor_active` otherwise); a port still lit
   (also by the console with fbdev=1) is `hdmi_still_active`.
@@ -987,7 +1016,7 @@ handling, because unload is unsupported for them (§4.2).
 | `version` | prints `{"version":"x.y.z"}` | — |
 | `load <backend>` | `modprobe` the allowlisted set for that backend, in fixed order; clears the eject latch (the user connects) | a matching device exists in `/sys/bus/pci/devices` (never load with no card, binding fact 1) |
 | `load auto` | the same, backend from the device (the udev rule's call) | as above, and the eject latch does not name a present device on the same connection (`eject_latched`) |
-| `unload <backend>` | `modprobe -r` in fixed reverse order | no matching device exists, and every refcnt is 0 |
+| `unload <backend>` | `modprobe -r` in fixed reverse order | no display device of that vendor exists that is not an eGPU (removable, not boot VGA; since 0.1.1 the eGPU itself may be on the bus: eject unloads before it removes), and every refcnt is accounted for by the allowlisted modules |
 | `remove <bdf>` | writes the eject latch, then `1` to `remove` for every function in that slot, in a child with a 20 s timeout | BDF matches `^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`, class 0x03xxxx, not `boot_vga`, `removable` = `removable`; no connector under the card's `drm/card*/card*-*/enabled` reads `enabled` (`monitor_active`) |
 | `rescan` | writes `1` to `/sys/bus/pci/rescan` | — |
 | `holders` | read-only list of pids/comm/uid holding allowlisted nodes | — |
@@ -1059,7 +1088,9 @@ annotation copies face:system/no.user.face.policy:26-35.
 - `system/install.sh` is face's mechanism, with egpu names: terminal command, fetched
   checksum, pinned snapshot, owner checks (O4).
 - It installs: the helper, the policy, the udev rule, the modules-load mask (Fix
-  `boot.modules_load_mask`), and the pacman hook (§9.1).
+  `boot.modules_load_mask`), the sleep guard and its two systemd drop-ins (§10.5, since
+  0.1.1; it runs `systemctl daemon-reload` after installing and after removing them),
+  and the pacman hook (§9.1).
 - Optionally, each behind its own confirmation printed in the terminal: the
   modprobe options and removal of `/etc/mkinitcpio.conf.d/nvidia.conf`.
 - Every replaced `/etc` file goes first to `/var/backups/omarchy-egpu/<UTC>/`.
@@ -1082,6 +1113,74 @@ annotation copies face:system/no.user.face.policy:26-35.
     (PluginRegistry.qml:734-735).
   - Then it rsyncs with `--delete-excluded`.
   - It refuses to restart the shell while the session is locked (face:install.sh:96-106).
+
+### 10.5 The sleep guard (`omarchy-egpu-sleep-guard`, since 0.1.1)
+
+The net for removals the plugin did not do. A safe eject unloads the NVIDIA modules
+before it removes the card (§6.3), so it never leaves them loaded with no card; a cable
+pull, an unplug or a crash does, and the next suspend then oopses in `nvidia_uvm`
+(O2). Installed to `/usr/local/bin/omarchy-egpu-sleep-guard` (root, 0755), with the
+same drop-in under `nvidia-suspend.service.d/` and `nvidia-hibernate.service.d/` in
+`/etc/systemd/system/` (`omarchy-egpu-sleep-guard.conf`):
+
+```
+[Service]
+ExecStartPre=-/usr/local/bin/omarchy-egpu-sleep-guard
+```
+
+The rule, in full:
+
+- none of `nvidia nvidia_modeset nvidia_drm nvidia_uvm` loaded: nothing;
+- any PCI device with vendor `0x10de` and a display (`0x03xxxx`, VGA or 3D) class on
+  the bus: nothing at all, not even a log line;
+- the PCI bus unreadable, empty, or a device on it with an unreadable vendor or class:
+  one log line, nothing else (it acts only on a positive "no NVIDIA GPU is here");
+- otherwise `modprobe -r` each loaded module in the fixed reverse order (`nvidia_uvm`
+  first), each under a hard deadline inside a 10 s total, and log what happened.
+
+**Threat model.**
+
+- *Who can run it.* systemd, as root, from the drop-ins; the script and the drop-ins are
+  root-owned and not writable by anyone else (the installer checks the directories and
+  installs from a pinned snapshot, like the helper). An unprivileged user who runs it
+  does nothing: not root and no test seam is "not root; doing nothing", and run any way
+  but `bash -p` (a plain `bash file`, a modified shebang) it refuses before reading
+  anything. It takes no argument and reads no environment variable as root.
+- *What it reads.* `/sys/module/<name>` (is it a directory) for the four fixed names, and
+  `vendor` and `class` of every `/sys/bus/pci/devices/<bdf>` whose name matches the PCI
+  address regex. Nothing else, and it writes nothing: no file, no temp file, no
+  `/proc` or `/sys` write.
+- *What it can unload.* Exactly the four modules of the helper's allowlist (the list is
+  the same text, and `dev/check-pins.sh` fails if the two differ), by `modprobe -r --`,
+  which the kernel refuses for a module that is in use (delete_module without force:
+  nothing is forced, no process is touched or killed).
+- *Every failure ends in exit 0.* A bus it cannot read: logged, nothing unloaded. A
+  module that will not unload (held by a process, or by `nvidia_peermem`): logged, left
+  loaded, the sleep goes on as it would have without the guard. A `modprobe` or
+  `logger` that hangs: sent SIGKILL at its deadline and abandoned (the helper's
+  `run_bounded`), so nothing waits on it; the budget bounds the whole run to about
+  10 s plus the log calls' 3 s each. `ExecStartPre=-` ignores any other status,
+  including a missing script, so the guard can never block or fail a suspend. What it
+  cannot do: if a module stays loaded, the suspend still oopses as before, and a
+  `modprobe` stuck in an uninterruptible state cannot be killed (it is abandoned).
+- *Why an unprivileged user cannot abuse it.* There is no input to abuse: no argument,
+  no verb, no path, no module name, no environment (`PATH=/usr/bin`, `LC_ALL=C`, `bash
+  -p` imports no function and reads no `BASH_ENV`). The only thing it can be made to do
+  is unload the NVIDIA modules when no NVIDIA GPU is on the PCI bus and they are not in
+  use, and what such a user can do to cause that (unplug the eGPU) they could already
+  do by hand and is what the guard exists for. Creating a fake PCI device is
+  root-only; a directory named like a GPU in a place the user can write is never read
+  (only the fixed `/sys` paths are). The test seam (`OMARCHY_EGPU_GUARD_TEST_ROOT`,
+  `OMARCHY_EGPU_GUARD_TEST_DEADLINE`, and a `modprobe` and `logger` from the caller's
+  `PATH`) is honoured only when the process is not root, as the helper's is; as root
+  all of it is ignored and unset.
+- *Residual risk.* A false "no NVIDIA GPU on the bus" while a GPU is present (a PCI
+  enumeration glitch during suspend) would unload a driver that is not in use, which
+  the kernel refuses if anything holds it, and which `modprobe` reloads on the next
+  use. Unloading the modules of a removed GPU is itself **unverified** on hardware: it
+  is the order EGPU-Buddy uses, and the oops is on the suspend path, not the unload
+  path, but it was not tested here.
+
 
 ---
 
