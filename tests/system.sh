@@ -252,10 +252,15 @@ sy_test_remove() {
   fx_pci 0000:08:00.0 0x030000 0x10de 0x2783 removable=removable boot_vga=1     # removable but boot VGA
   local a
   for a in ../../../etc 0000:03:00.0/../../../x '0000:03:00.0;id' "0000:03:00.0 " $'0000:03:00.0\n' \
-    0000:0A:00.0 0000:03:00.8 0000:3:00.0 00000:03:00.0 -r --force '*' '0000:03:00.?' '$(id)' ''; do
+    0000:0A:00.0 0000:03:00.8 0000:3:00.0 10000:0A:00.0 100000:03:00.8 -r --force '*' '0000:03:00.?' '$(id)' ''; do
     sy_admin remove "$a"
     sy_error "helper: remove '$(printf '%q' "$a")' refused" bad_address
   done
+  # M1: a domain of more than four digits is an address (Intel VMD).
+  fx_pci 10000:e0:06.0 0x030000 0x10de 0x2783 removable=fixed boot_vga=0
+  sy_admin remove 10000:e0:06.0
+  sy_error "helper: remove a VMD-domain address (10000:e0:06.0) is an address, refused as not an eGPU" not_egpu
+  fx_pci_remove 10000:e0:06.0
   sy_admin remove "$SY_IGPU"
   sy_error "helper: remove the iGPU" not_egpu
   sy_check_reason() { jq -e --arg r "$1" '.reason == $r' "$T/out.json" >/dev/null 2>&1 && ok "  …reason $1" || bad "  …reason: $(cat "$T/out.json")"; }
@@ -460,6 +465,12 @@ sy_test_modules() {
   sy_admin unload nvidia
   sy_error "helper: unload while an internal NVIDIA GPU exists" device_present
   fx_pci_remove 0000:01:00.0
+  # M1: the same GPU at a VMD-domain address is seen, not missed.
+  fx_pci 10000:e0:06.0 0x030200 0x10de 0x28e0 boot_vga=0
+  sy_admin unload nvidia
+  sy_error "helper: unload while an internal NVIDIA GPU exists at 10000:e0:06.0 (VMD domain)" device_present
+  sy_assert "  …and names it" bash -c 'jq -e ".device == \"10000:e0:06.0\"" "$1" >/dev/null' _ "$T/out.json"
+  fx_pci_remove 10000:e0:06.0
 
   sy_admin rescan
   sy_check "helper: rescan after a clean eject" '.ok == true'
@@ -594,6 +605,15 @@ sy_test_namespace() {
   sy_check "namespace (uid 0): unload answers although logger hangs" '.ok == true and (.unloaded | length) == 4'
   sy_assert "  …within the audit deadline ($((SECONDS - t0)) s)" test $((SECONDS - t0)) -le 9
   rm -f "$EGPU_FAKE_DIR/logger-hang"
+
+  # M3: a refused unload is in the journal like the ones that ran.
+  fx_nvidia_modules
+  echo 5 >"$FX_ROOT/sys/module/nvidia_uvm/refcnt"
+  : >"$EGPU_FAKE_LOG"
+  sy_ns unload nvidia
+  sy_error "namespace (uid 0): unload with something holding nvidia_uvm" modules_in_use
+  sy_assert "  …the refusal is audit-logged (fake logger)" sy_log_has '^logger .*unload nvidia: refused \(modules_in_use'
+  fx_modules_remove nvidia_uvm nvidia_drm nvidia_modeset nvidia
 
   # The sleep guard as uid 0: the eGPU is gone (removed above) and the modules
   # are loaded again. Its test seam (a decoy root with no modules) is ignored
@@ -1383,6 +1403,11 @@ sy_test_install() {
   fi
   sy_install uninstall
   sy_check "install: uninstall again is a no-op" '.ok == true and .removed == [] and .restored == []'
+  # M2: only a --root test tree may lose /etc/systemd/system and /etc/systemd.
+  # (A real uninstall cannot run here; this checks the source's guard.)
+  sy_assert "install: uninstall removes systemd's own directories only under --root (M2)" \
+    bash -c 'grep -Eq "^  \(\(ROOT_GIVEN\)\) && rmdir -- \"\$SYSD_DIR\" \"\$\{SYSD_DIR%/\*\}\"" "$1"
+      [[ $(grep -c "rmdir -- \"\$SYSD_DIR\"" "$1") == 1 ]]' _ "$SY_INSTALL"
 }
 
 sy_test_install_masks() {

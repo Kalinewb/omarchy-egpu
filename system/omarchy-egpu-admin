@@ -60,7 +60,7 @@
 #     modules is a release of this file and a review, nothing else (REVISION 3).
 #   * No verb takes a path, a module name, an option or a command line. The
 #     only free-form input is a PCI address, which must match
-#     ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ before it is used in a path,
+#     ^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ before it is used in a path,
 #     and which must then name a display-class function of an allowlisted
 #     vendor whose `removable` attribute is "removable" and which is not the
 #     boot VGA device. Every other function of that slot must pass the same
@@ -111,8 +111,10 @@ cd / 2>/dev/null || exit 1
 
 VERSION=0.1.1
 
-# One regex for a PCI address, used for the argument and for sysfs names.
-BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+# One regex for a PCI address, used for the argument and for sysfs names. The
+# domain is four or more digits: Intel VMD domains are wider (10000:e0:06.0).
+# The sleep guard uses the same expression.
+BDF_RE='^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
 
 # Deadlines, in seconds.
 REMOVE_DEADLINE=20
@@ -351,6 +353,14 @@ audit() {
   run_bounded "$AUDIT_DEADLINE" - logger -t omarchy-egpu -p auth.notice -- "uid $caller_uid: $*" || true
 }
 
+# unload_refused <die arguments…>: an unload that was turned away, in the
+# journal as the ones that ran are, then the same error answer. A refusal here
+# is how a same-user process probing the verb would show up.
+unload_refused() {
+  audit "unload $BACKEND: refused ($1${2:+ $2})"
+  die "$@"
+}
+
 # write_one <file>: the sysfs write, as a function so run_bounded can run it
 # in a child. printf is a builtin; the redirection is the whole operation.
 write_one() { printf '1\n' >"$1"; }
@@ -514,7 +524,7 @@ case $verb in
     # The eGPU itself may be present: eject unloads before it removes. Only a
     # display device that is not an eGPU (the laptop's own) refuses.
     present=$(fixed_displays "$VENDOR" | head -n1)
-    [[ -z $present ]] || die device_present "\"device\":$(json_string "$present")"
+    [[ -z $present ]] || unload_refused device_present "\"device\":$(json_string "$present")"
 
     # Reverse load order. A module may only be held by the allowlisted modules
     # loaded on top of it, which are removed first; each of those adds one to
@@ -524,17 +534,17 @@ case $verb in
     for ((i = ${#MODULES[@]} - 1; i >= 0; i--)); do order+=("${MODULES[i]}"); done
     for m in "${order[@]}"; do
       module_loaded "$m" || continue
-      refcnt=$(attr "$MODULE_DIR/$m/refcnt") || die modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
-      [[ $refcnt =~ ^[0-9]+$ ]] || die modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
+      refcnt=$(attr "$MODULE_DIR/$m/refcnt") || unload_refused modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
+      [[ $refcnt =~ ^[0-9]+$ ]] || unload_refused modules_in_use "\"module\":$(json_string "$m"),\"detail\":\"refcnt unreadable\""
       expected=0
       for h in "$MODULE_DIR/$m/holders"/*; do
         h=${h##*/}
         ok=0
         for a in "${MODULES[@]}"; do [[ $h == "$a" ]] && ok=1; done
-        ((ok)) || die modules_in_use "\"module\":$(json_string "$m"),\"holder\":$(json_string "$h")"
+        ((ok)) || unload_refused modules_in_use "\"module\":$(json_string "$m"),\"holder\":$(json_string "$h")"
         expected=$((expected + 1))
       done
-      ((refcnt == expected)) || die modules_in_use "\"module\":$(json_string "$m"),\"refcnt\":$refcnt"
+      ((refcnt == expected)) || unload_refused modules_in_use "\"module\":$(json_string "$m"),\"refcnt\":$refcnt"
     done
 
     work_dir

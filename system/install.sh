@@ -93,7 +93,7 @@ SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules o
 
 # pins:begin
 declare -A PINS=(
-  [omarchy-egpu-admin]=a9ab88f57d7d177939c747ddc486de3e48f7a7a750cc6724338f5b879c02025e
+  [omarchy-egpu-admin]=1e734338aac56b5dde2b908c65a87610525e5ede03c11e5f69c74b0803fdb0d4
   [no.kalinewb.egpu.policy]=b8bbe2b6c2b633ed407f486be9cdf071ad9b15aa578af85051b4fffbbe60af74
   [61-omarchy-egpu.rules]=e9c95c46641ade3f860ca47e35010b50699745a66133028ba9df40a273e20b4b
   [omarchy-egpu-modules.conf]=0c286ef1856803955ce50ab600f5372258b995cd9c5d58d8966bced39442e6ed
@@ -796,9 +796,10 @@ do_uninstall() {
     unset 'sha_of_path[$path]'
     rmdir -- "${path%/*}" 2>/dev/null
   done
-  # Made by install when systemd's directory was missing (a bare root); a real
-  # /etc/systemd/system is never empty, and rmdir leaves anything that is.
-  rmdir -- "$SYSD_DIR" "${SYSD_DIR%/*}" 2>/dev/null
+  # Made by install when systemd's directory was missing: only in a --root test
+  # tree. On a real system /etc/systemd/system is systemd's and is never ours to
+  # remove, empty or not.
+  ((ROOT_GIVEN)) && rmdir -- "$SYSD_DIR" "${SYSD_DIR%/*}" 2>/dev/null
   for path in "$POLICY" "$HELPER" "$GUARD"; do
     unput "$path" "${sha_of_path[$path]:-}"
     unset 'sha_of_path[$path]'
