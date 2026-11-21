@@ -619,7 +619,10 @@ case $verb in
     # A module loaded again in the gap between the engine's unload and here is
     # refused too; the engine puts the driver back and reports a failed eject.
     for m in "${MODULES[@]}"; do
-      module_loaded "$m" && die modules_loaded "\"device\":$(json_string "$bdf"),\"module\":$(json_string "$m")"
+      if module_loaded "$m"; then
+        audit "remove $bdf: refused (modules_loaded $m)"
+        die modules_loaded "\"device\":$(json_string "$bdf"),\"module\":$(json_string "$m")"
+      fi
     done
     latch_write "$bdf"
     work_dir

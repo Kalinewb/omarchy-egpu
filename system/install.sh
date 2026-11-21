@@ -93,7 +93,7 @@ SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules o
 
 # pins:begin
 declare -A PINS=(
-  [omarchy-egpu-admin]=968d2272726e8aea9cfd551c392c2df1ff1ed35a3b1a2e3da806080695b63b61
+  [omarchy-egpu-admin]=5710165f5c81b5c2fab3de7b893c4c63313a5c6971c0f85fb21e7eb5fb8c0e4d
   [no.kalinewb.egpu.policy]=0906b1ae0864c1a7d519d9b876dbaa86043bc5560ef52308f859f57691657d1b
   [61-omarchy-egpu.rules]=158f111d031adb56caaaf850cb292bc8854e316a4fc5c411ba4ef2fcb5a82b5e
   [omarchy-egpu-modules.conf]=a80ef11952aa2a990213899c77ca3511191d1ac0360fc0a8b91677da7589f123
