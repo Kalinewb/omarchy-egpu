@@ -179,7 +179,8 @@ ready-hdmi|in_use|in use|accent|accent|false|true|In use|Safe eject…,Turn off 
 in-use-procs|in_use|in use|accent|accent|false|false|In use|Safe eject…,Open full panel|Safe eject…,Open full panel
 ejecting|ejecting|ejecting|foreground|none|true|false|Ejecting…|Ejecting…(off),Open full panel|Ejecting…(off),Open full panel
 ejected-clean|safe_to_unplug|unplug|good|none|false|false|Ejected|Done,Open full panel|Done,Open full panel
-ejected-held|attention|log out|good|warn|false|false|Ejected|Done,Open full panel|Done,Open full panel
+ejected-held|attention|log out|good|warn|false|false|Log out|Done,Open full panel|Done,Open full panel
+held-no-device|attention|log out|secondary|warn|false|false|Log out|Open full panel|Open full panel
 this-machine|attention|log out|accent|warn|false|false|Log out|Safe eject,Open full panel|Safe eject,Open full panel
 amd-stub|attention|check setup|foreground|warn|false|false|Unsupported|Open Setup,Open full panel|Open Setup,Open full panel
 bolt-down|attention|check setup|accent|warn|false|false|Setup issue|Fix,Safe eject,Open full panel|Fix,Safe eject,Open full panel
@@ -203,7 +204,7 @@ check "the card, its temperature and how busy it is in one line while it answers
   "$(has ready 'RTX 4070 SUPER · 29 °C · idle' "$out")|$(has absent '°C' "$out")"
 check "attention: log out for the HDMI monitor" "yes" \
   "$(has this-machine 'The HDMI monitor needs a new session to appear. Offloading apps works now.' "$out")"
-check "attention: held modules" "yes" "$(has ejected-held 'Log out before plugging the eGPU in again.' "$out")"
+check "attention: held modules" "yes" "$(has ejected-held 'Do not suspend the computer: the driver is still loaded. Log out first, then plug the eGPU in again.' "$out")"
 check "attention: smi_hung says do not unplug" "yes" \
   "$(has smi-hung 'The driver is not answering. Do not unplug: save your work, then log out or reboot.' "$out")"
 check "attention: an unsupported backend" "yes" "$(has amd-stub 'This kind of GPU is detected but not supported yet.' "$out")"

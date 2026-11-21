@@ -215,8 +215,11 @@ function decide(s, ctx) {
       r.sentence = { text: Errors.note("needs_relogin"), tone: "warn", linkLabel: "", linkRoute: "" }
     } else if (held) {
       r.key = "attention_held"
-      r.headline = phase === "ejected" ? "Ejected" : "Log out"
-      r.detail = phase === "ejected" ? "Safe to unplug" : "Log out before plugging in again"
+      // The driver is loaded and the card is gone: a suspend now oopses the kernel, so this never says
+      // "Safe to unplug". The headline is the action (it must fit beside the notch's back zone); the detail is the
+      // engine's line, which leads with the warning.
+      r.headline = "Log out"
+      r.detail = String(s.summary.line || "") !== "" ? String(s.summary.line) : "Do not suspend · the driver is still loaded · log out first"
       r.button = phaseButton()
       r.sentence = { text: Errors.note("held_after_eject"), tone: "warn", linkLabel: "", linkRoute: "" }
     } else if (unsupported) {
@@ -234,7 +237,7 @@ function decide(s, ctx) {
       r.button = btn("Fix", "fix", { rowId: err ? err.id : "" })
       // The eGPU underneath still needs its own way out (secondary).
       var eject = phase === "ready" && can("device eject")
-      r.sentence = { text: phase === "ready" ? "The eGPU itself is ready." : (phase === "ejected" ? "Safe to unplug." : "The eGPU is connecting."),
+      r.sentence = { text: phase === "ready" ? "The eGPU itself is ready." : (held ? "Do not suspend: the driver is still loaded." : phase === "ejected" ? "Safe to unplug." : "The eGPU is connecting."),
                      tone: "secondary", linkLabel: eject ? "Safe eject" : "", linkRoute: eject ? "eject" : "", secondary: true }
     }
   } else if (state === "error") {

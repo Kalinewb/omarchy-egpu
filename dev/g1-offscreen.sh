@@ -354,7 +354,8 @@ ejecting|ejecting|Ejecting…|Ejecting…|off
 ejected-clean|safe_to_unplug|Ejected|Done|on
 bolt-down|attention (Setup)|Setup issue|Fix|on
 this-machine|attention (log out)|Log out|Safe eject|on
-ejected-held|attention (held)|Ejected|Done|on
+ejected-held|attention (held)|Log out|Done|on
+held-no-device|attention (held, no card)|Log out|none|
 amd-stub|attention (unsupported)|Unsupported|none|
 auth-error|error|Error|Open Setup|on
 smi-hung|error (driver hung)|Error|none|
@@ -440,7 +441,8 @@ out=$(view overview this-machine)
 check "needs_relogin: the plan's sentence" "yes" \
   "$(has 'The HDMI monitor needs a new session to appear. Offloading apps works now.' "$(field texts "$out")")"
 out=$(view overview ejected-held)
-check "held modules: 'log out before plugging in again'" "yes" "$(has 'Log out before plugging the eGPU in again.' "$(field texts "$out")")"
+check "held modules: the warning leads, and nothing says it is safe to unplug" "yes|yes|no" \
+  "$(has 'Do not suspend the computer: the driver is still loaded. Log out first, then plug the eGPU in again.' "$(field texts "$out")")|$(has 'Do not suspend · the driver is still loaded · log out first' "$(field texts "$out")")|$(has 'Safe to unplug' "$(field texts "$out")")"
 out=$(view overview amd-stub)
 check "an unsupported backend says so (backend_stub), with a way to Setup" "yes|yes" \
   "$(has 'This kind of GPU is detected but not supported yet.' "$(field texts "$out")")|$(has 'Open Setup' "$(field buttons "$out")")"

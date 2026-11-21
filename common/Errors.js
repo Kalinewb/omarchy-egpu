@@ -76,7 +76,7 @@ function code(result) {
 // and the notch's compact view say them in the same words.
 var notes = {
   needs_relogin: "The HDMI monitor needs a new session to appear. Offloading apps works now.",
-  held_after_eject: "Log out before plugging the eGPU in again.",
+  held_after_eject: "Do not suspend the computer: the driver is still loaded. Log out first, then plug the eGPU in again.",
   health_errors: "Setup has found a problem."
 }
 
