@@ -1,7 +1,7 @@
 #!/bin/bash -p
 #
 # omarchy-egpu system half
-# omarchy-egpu-version: 0.1.0
+# omarchy-egpu-version: 0.1.1
 #
 # Installs, reinstalls or removes the root half of omarchy-egpu (plan-engine.md
 # §10.4), the only way root ever receives files from the plugin folder:
@@ -79,7 +79,7 @@ shopt -s nullglob
 umask 022
 export LC_ALL=C
 
-VERSION=0.1.0
+VERSION=0.1.1
 RAW_URL=https://raw.githubusercontent.com/Kalinewb/omarchy-egpu
 PLUGIN_ID=kalinewb.egpu
 BDF_RE='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
@@ -90,10 +90,10 @@ SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules o
 
 # pins:begin
 declare -A PINS=(
-  [omarchy-egpu-admin]=997627524c10ed790ee25865defcb89745fe9ba8c431b432d5b3f4cd4e4284fd
-  [no.kalinewb.egpu.policy]=f6a9b4fdcfdf0c1fda682179add22bcfddb55751e76f5006e55847e8e7864e08
-  [61-omarchy-egpu.rules]=2cbed591334bad87ed3ce0656756ef1660b0fd67b2321be26feee0a896e2899f
-  [omarchy-egpu-modules.conf]=320dd82349c86f8727806b0b27ce8439568dd9b61c85db48365ee79233684704
+  [omarchy-egpu-admin]=a9ab88f57d7d177939c747ddc486de3e48f7a7a750cc6724338f5b879c02025e
+  [no.kalinewb.egpu.policy]=b8bbe2b6c2b633ed407f486be9cdf071ad9b15aa578af85051b4fffbbe60af74
+  [61-omarchy-egpu.rules]=e9c95c46641ade3f860ca47e35010b50699745a66133028ba9df40a273e20b4b
+  [omarchy-egpu-modules.conf]=0c286ef1856803955ce50ab600f5372258b995cd9c5d58d8966bced39442e6ed
 )
 # pins:end
 

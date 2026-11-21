@@ -3,7 +3,7 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!--
   omarchy-egpu system half
-  omarchy-egpu-version: 0.1.0
+  omarchy-egpu-version: 0.1.1
 
   The polkit actions for the root helper (plan-engine.md §10.2), one per verb
   of /usr/local/bin/omarchy-egpu-admin. pkexec picks the action whose

@@ -390,12 +390,30 @@ sy_test_modules() {
   SY_DEADLINE=2 sy_admin load nvidia
   sy_check "  …the next call gets the lock: the grandchild holds no copy of it" '.ok == true and .loaded == ["nvidia_drm","nvidia_uvm"]'
 
-  # Unload: refused while the card exists.
+  # Unload with the eGPU still on the bus: safe eject unloads BEFORE it
+  # removes (a removed GPU with the modules left loaded oopses the next
+  # suspend). Refused only for a GPU that is not an eGPU (the laptop's own),
+  # or while the kernel says something holds a module.
   fx_nvidia_modules
   : >"$EGPU_FAKE_LOG"
+  fx_pci 0000:01:00.0 0x030200 0x10de 0x28e0 boot_vga=0
   sy_admin unload nvidia
-  sy_error "helper: unload with the eGPU present" device_present
+  sy_error "helper: unload while an internal NVIDIA GPU exists (eGPU present too)" device_present
   sy_assert "  …ran no modprobe" sy_no_modprobe
+  fx_pci_remove 0000:01:00.0
+  echo 1 >"$FX_ROOT/sys/module/nvidia_drm/refcnt"
+  sy_admin unload nvidia
+  sy_error "helper: unload with the eGPU present while something holds nvidia_drm" modules_in_use
+  sy_assert "  …ran no modprobe" sy_no_modprobe
+  echo 0 >"$FX_ROOT/sys/module/nvidia_drm/refcnt"
+  sy_admin unload nvidia
+  sy_check "helper: unload with the eGPU still on the bus and the modules free" \
+    '.ok == true and .unloaded == ["nvidia_uvm","nvidia_drm","nvidia_modeset","nvidia"]'
+  sy_assert "  …in reverse order, and the card itself untouched" \
+    test "$(grep '^modprobe' "$EGPU_FAKE_LOG" | paste -sd'|')" = \
+    "modprobe -r -- nvidia_uvm|modprobe -r -- nvidia_drm|modprobe -r -- nvidia_modeset|modprobe -r -- nvidia" -a -d "$FX_PCI/$SY_EGPU"
+  fx_nvidia_modules
+  : >"$EGPU_FAKE_LOG"
 
   # The card gone; the stack as the kernel shows it: each module held only by
   # the allowlisted ones above it, plus the compositor on nvidia_drm.

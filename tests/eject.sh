@@ -197,9 +197,12 @@ ej_test_clean() {
   dv_check "nothing held: modules unloaded through the helper" \
     '.modules.held_after_eject == false and .modules.unloaded == true and .modules.held_by == []'
   dv_check "igpu policy: no eGPU monitor, the display was left alone" '.display.policy == "igpu" and .display.off == []'
-  dv_assert "exactly: holders, remove <bdf>, holders, unload nvidia through pkexec" \
+  dv_assert "exactly: holders, unload nvidia, remove <bdf> through pkexec (unload BEFORE remove)" \
     test "$(grep '^pkexec' "$EGPU_FAKE_LOG" | sed "s|$EGPU_ADMIN|H|" | paste -sd'|')" = \
-    "pkexec H holders|pkexec H remove $EJ_BDF|pkexec H holders|pkexec H unload nvidia"
+    "pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF"
+  dv_assert "the modules were unloaded in the reverse load order, before the remove was asked" \
+    bash -c "[ \"\$(grep '^modprobe' '$EGPU_FAKE_LOG' | paste -sd'|')\" = 'modprobe -r -- nvidia_uvm|modprobe -r -- nvidia_drm|modprobe -r -- nvidia_modeset|modprobe -r -- nvidia' ] &&
+      [ \"\$(grep -n '^modprobe -r -- nvidia\$' '$EGPU_FAKE_LOG' | cut -d: -f1)\" -lt \"\$(grep -n 'pkexec .* remove $EJ_BDF' '$EGPU_FAKE_LOG' | cut -d: -f1)\" ]"
   dv_assert "no hyprctl eval and no toggle file written" \
     bash -c "! grep -q '^hyprctl eval' '$EGPU_FAKE_LOG' && [ ! -e '$HOME/.local/state/omarchy/toggles/hypr/zz-omarchy-egpu.lua' ]"
   dv_assert "the modules are gone (fake modprobe -r)" test ! -e "$FX_ROOT/sys/module/nvidia"
@@ -337,29 +340,6 @@ ej_test_holders() {
   dv_check "--close: both closed, ejected" ".ok == true and (.closed | map(.pid) | sort) == ([$game, $glx] | sort)"
   ej_done
 
-  echo "${BOLD}eject: incidental holders only (proceeds, held_after_eject)${RESET}"
-  ej_new incidental
-  ej_ready
-  ej_proc 7001 quickshell "$UID" /dev/nvidia0 /dev/nvidiactl
-  ej_proc 7002 voxtype-osd-gtk "$UID" /dev/nvidia0
-  ej_proc 7003 nvidia-persiste 0 /dev/nvidiactl
-  echo 12 >"$FX_ROOT/sys/module/nvidia/refcnt"
-  ej --quiet
-  dv_check "exit 0, ejected, held after eject by their names" \
-    '.ok == true and .phase == "ejected" and .modules.held_after_eject == true
-     and .modules.held_by == ["nvidia-persiste", "quickshell", "voxtype-osd-gtk"] and .modules.unloaded == false'
-  dv_check "reported as incidental (shell role for quickshell), none closed" \
-    '([.incidental[] | {comm, role}] | sort_by(.comm)) == [{comm: "nvidia-persiste", role: "incidental"}, {comm: "quickshell", role: "shell"}, {comm: "voxtype-osd-gtk", role: "incidental"}]
-     and .closed == []'
-  dv_assert "unload was not even asked for (holders present)" bash -c "! grep -q 'unload' '$EGPU_FAKE_LOG'"
-  dv_assert "status: ejected, attention, held_by from the marker" \
-    bash -c "'$ENGINE' status --json | jq -e '.phase == \"ejected\" and .summary.state == \"attention\" and .modules.held_by == [\"nvidia-persiste\",\"quickshell\",\"voxtype-osd-gtk\"]' >/dev/null"
-  : >"$EGPU_FAKE_LOG"
-  ej_rescan --quiet
-  dv_error "rescan while the modules are held" modules_held
-  dv_assert "…refused before pkexec" bash -c "! grep -q '^pkexec' '$EGPU_FAKE_LOG'"
-  ej_done
-
   echo "${BOLD}eject: the shell with memory on the card blocks, and is never signalled${RESET}"
   ej_new shell-mem
   ej_ready
@@ -373,12 +353,162 @@ ej_test_holders() {
   ej_done
 }
 
+# 0.1.1: the driver is unloaded BEFORE the remove, and a driver that cannot be
+# unloaded aborts the eject with the card still attached (docs/plan-engine.md
+# §6.3, DECISION 2026-11-21): a removed GPU with the modules left loaded
+# oopses the next suspend.
+ej_test_unload() {
+  echo "${BOLD}eject: incidental holders keep the driver loaded: aborted, nothing removed${RESET}"
+  ej_new incidental
+  ej_ready
+  ej_proc 7001 quickshell "$UID" /dev/nvidia0 /dev/nvidiactl
+  ej_proc 7002 voxtype-osd-gtk "$UID" /dev/nvidia0
+  ej_proc 7003 nvidia-persiste 0 /dev/nvidiactl
+  echo 12 >"$FX_ROOT/sys/module/nvidia/refcnt"
+  ej --quiet
+  dv_error "the modules are held" driver_in_use
+  dv_check "names the holders, every role, sorted" \
+    '.names == ["nvidia-persiste", "quickshell", "voxtype-osd-gtk"]
+     and ([.holders[] | {comm, role}] | sort_by(.comm)) == [{comm: "nvidia-persiste", role: "incidental"}, {comm: "quickshell", role: "shell"}, {comm: "voxtype-osd-gtk", role: "incidental"}]'
+  dv_check "names the busy module and its references; the session holds it, --close cannot help" \
+    '.modules == [{module: "nvidia", refcnt: 12, expected: 0, foreign: []}] and .session_holds == true and .can_close == false and .closed == []'
+  dv_check "the sentence names them, says the eGPU is left attached, and what to do" \
+    '.detail | test("nvidia-persiste, quickshell, voxtype-osd-gtk") and test("left attached") and test("log out")'
+  dv_check "the error names the phase the card is left in (ready) and carries the display" '.phase == "ready" and (.display | has("policy"))'
+  dv_assert "the unload was not even asked for (the engine read the refcounts first), nothing removed" \
+    bash -c "! grep -qE 'unload|remove|^modprobe' '$EGPU_FAKE_LOG'"
+  dv_assert "the card is still on the bus and still bound" test -d "$FX_PCI/$EJ_BDF" -a -L "$FX_PCI/$EJ_BDF/driver"
+  dv_assert "the modules are all still loaded" test -d "$FX_ROOT/sys/module/nvidia_uvm" -a -d "$FX_ROOT/sys/module/nvidia"
+  dv_assert "no ejected marker; status: ready, not safe_to_unplug, no held_after_eject" \
+    bash -c "[ ! -e '$EGPU_RUN/ejected' ] && '$ENGINE' status --json | jq -e '.phase == \"ready\" and .summary.state != \"safe_to_unplug\" and .modules.held_after_eject == false' >/dev/null"
+  dv_assert "no \"Safe to unplug\" notification, lock released, no job left" \
+    bash -c "! grep -q 'Safe to unplug' '$EGPU_FAKE_LOG' && [ ! -e '$EGPU_RUN/job' ]"
+  dv_assert "nothing was signalled: every holder's /proc entry is still there" test -d "$FX_ROOT/proc/7001" -a -d "$FX_ROOT/proc/7002" -a -d "$FX_ROOT/proc/7003"
+  ej --quiet --close
+  dv_error "--close changes nothing here: it only closes apps (none), never the shell or a root service" driver_in_use
+  # The holders let go: the same eject now goes through, unloading first.
+  rm -rf -- "${FX_ROOT:?}/proc/7001" "${FX_ROOT:?}/proc/7002" "${FX_ROOT:?}/proc/7003"
+  echo 0 >"$FX_ROOT/sys/module/nvidia/refcnt"
+  : >"$EGPU_FAKE_LOG"
+  ej --quiet
+  dv_check "once nothing holds the driver the eject goes through: unloaded, then removed" \
+    '.ok == true and .phase == "ejected" and .modules == {held_after_eject: false, held_by: [], unloaded: true, unload: {ok: true, backend: "nvidia", unloaded: ["nvidia_uvm","nvidia_drm","nvidia_modeset","nvidia"], rc: 0}}'
+  ej_done
+
+  echo "${BOLD}eject: references with no process to name, and a holder that is a foreign module${RESET}"
+  ej_new refs
+  ej_ready
+  echo 3 >"$FX_ROOT/sys/module/nvidia_drm/refcnt"
+  ej --quiet
+  dv_error "nvidia_drm has 3 references and no holder" driver_in_use
+  dv_check "no process to name; the module is named; the sentence says the kernel still counts references" \
+    '.names == [] and .modules == [{module: "nvidia_drm", refcnt: 3, expected: 0, foreign: []}] and (.detail | test("kernel still counts"))'
+  echo 0 >"$FX_ROOT/sys/module/nvidia_drm/refcnt"
+  mkdir -p "$FX_ROOT/sys/module/nvidia/holders"
+  : >"$FX_ROOT/sys/module/nvidia/holders/nvidia_peermem"
+  echo 1 >"$FX_ROOT/sys/module/nvidia/refcnt"
+  ej --quiet
+  dv_error "a module outside the stack holds nvidia" driver_in_use
+  dv_check "named as foreign" '.modules == [{module: "nvidia", refcnt: 1, expected: 1, foreign: ["nvidia_peermem"]}]'
+  dv_assert "nothing removed, nothing unloaded" bash -c "! grep -qE 'unload|remove|^modprobe' '$EGPU_FAKE_LOG'"
+  ej_done
+
+  echo "${BOLD}eject: another NVIDIA GPU in the machine shares the driver${RESET}"
+  ej_new shared
+  ej_ready
+  fx_pci 0000:01:00.0 0x030200 0x10de 0x28e0 boot_vga=0
+  ej --quiet
+  dv_error "the helper refuses to unload under the laptop's own NVIDIA GPU" driver_in_use
+  dv_check "says it is shared; the helper's answer is attached" \
+    '.shared_driver == true and .helper.error == "device_present" and (.detail | test("shared with another NVIDIA GPU"))'
+  dv_assert "nothing removed, the eGPU attached, no modprobe, no marker" \
+    bash -c "! grep -qE 'remove|^modprobe' '$EGPU_FAKE_LOG' && [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ]"
+  ej_done
+
+  echo "${BOLD}eject: the unload fails half way: the stack is put back${RESET}"
+  ej_new partial
+  ej_ready
+  echo nvidia_modeset >"$EGPU_FAKE_DIR/modprobe-fail"
+  ej --quiet
+  dv_error "nvidia_modeset will not unload (after nvidia_uvm and nvidia_drm did)" driver_in_use
+  dv_check "the helper's answer lists what went" '.helper.error == "modules_failed" and .helper.module == "nvidia_modeset" and .helper.unloaded == ["nvidia_uvm","nvidia_drm"]'
+  dv_assert "the engine asked the helper to load the driver again, nothing was removed" \
+    bash -c "grep -q 'pkexec .* load nvidia' '$EGPU_FAKE_LOG' && ! grep -q 'remove' '$EGPU_FAKE_LOG'"
+  dv_assert "all four modules are loaded again, the card attached, no marker" \
+    bash -c "for m in nvidia nvidia_modeset nvidia_drm nvidia_uvm; do [ -d \"$FX_ROOT/sys/module/\$m\" ] || exit 1; done; [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ]"
+  ej_done
+
+  echo "${BOLD}eject: the remove fails after the unload: the driver is put back${RESET}"
+  ej_new remove-fails
+  ej_ready
+  # No kernel stand-in: the slot's functions have no `remove` attribute.
+  rm -f -- "${FX_PCI:?}/${EJ_BDF:?}/remove" "${FX_PCI:?}/0000:03:00.1/remove"
+  ej --quiet
+  dv_error "the helper cannot remove (no remove attribute)" remove_failed
+  dv_assert "unload ran first, then remove, then the driver was loaded again" \
+    bash -c "[ \"\$(grep '^pkexec' '$EGPU_FAKE_LOG' | sed 's|$EGPU_ADMIN|H|' | paste -sd'|')\" = 'pkexec H holders|pkexec H unload nvidia|pkexec H remove $EJ_BDF|pkexec H load nvidia' ]"
+  dv_assert "the modules are loaded again, no marker, the card attached" \
+    bash -c "[ -d '$FX_ROOT/sys/module/nvidia_uvm' ] && [ -d '$FX_PCI/$EJ_BDF' ] && [ ! -e '$EGPU_RUN/ejected' ]"
+  ej_done
+
+  echo "${BOLD}eject: the remove hangs after the unload: nothing more is touched${RESET}"
+  ej_new remove-hangs
+  ej_ready
+  ej_kernel_hang
+  EJ_DEADLINE=2 ej
+  dv_error "remove never returns" remove_timeout
+  dv_assert "the driver was NOT loaded again (the card is in an unknown state): no load call" \
+    bash -c "! grep -q 'pkexec .* load' '$EGPU_FAKE_LOG'"
+  dv_assert "\"Do not unplug\" notification, no marker" bash -c "grep -q '^notify-send .*Do not unplug the eGPU' '$EGPU_FAKE_LOG' && [ ! -e '$EGPU_RUN/ejected' ]"
+  ej_done
+
+  echo "${BOLD}eject: modules that were never loaded (nothing to unload)${RESET}"
+  ej_new no-modules
+  ej_ready
+  fx_modules_remove nvidia nvidia_modeset nvidia_drm nvidia_uvm
+  ej --quiet
+  dv_check "ejected; no unload asked for; unloaded false" '.ok == true and .modules.unloaded == false and .modules.unload == null and .modules.held_after_eject == false'
+  dv_assert "no unload call" bash -c "! grep -q unload '$EGPU_FAKE_LOG'"
+  ej_done
+
+  echo "${BOLD}eject: already ejected; unsupported backend${RESET}"
+  ej_new already
+  ej_ready
+  ej --quiet
+  dv_check "ejected" '.ok == true and .already == false'
+  : >"$EGPU_FAKE_LOG"
+  ej --quiet
+  dv_check "again: already, nothing touched" '.ok == true and .already == true and .bdf == null and .modules.held_after_eject == false'
+  dv_assert "no pkexec, no modprobe" bash -c "! grep -qE '^(pkexec|modprobe)' '$EGPU_FAKE_LOG'"
+  ej_done
+  ej_new stub
+  fx_bolt aaaaaaaa-0000-0000-0000-000000000002 "Razer" "Core X" authorized true iommu
+  fx_pci 0000:05:00.0 0x030000 0x1002 0x744c removable=removable boot_vga=0 driver=amdgpu
+  fx_modules amdgpu
+  ej --quiet
+  dv_error "an AMD eGPU: the backend is a stub" backend_stub
+  dv_assert "nothing unloaded, nothing removed" bash -c "! grep -qE '^(pkexec|modprobe)' '$EGPU_FAKE_LOG'"
+  ej_done
+
+  echo "${BOLD}eject: a cable pull leaves the driver loaded; rescan refuses (modules_held)${RESET}"
+  ej_new pulled
+  ej_ready
+  fx_egpu_unplug
+  dv_assert "status: modules loaded with no card is held_after_eject (the sleep guard's case)" \
+    bash -c "'$ENGINE' status --json | jq -e '.modules.held_after_eject == true' >/dev/null"
+  ej_rescan --quiet
+  dv_error "rescan after a pull, modules still loaded" modules_held
+  dv_assert "...refused before pkexec" bash -c "! grep -q '^pkexec' '$EGPU_FAKE_LOG'"
+  ej_done
+}
+
+
 ej_test_failures() {
   echo "${BOLD}eject: the helper's remove times out${RESET}"
   ej_new remove-timeout
   dv_ready
   ej_kernel_hang
-  EJ_DEADLINE=1 ej
+  EJ_DEADLINE=2 ej
   dv_error "remove never returns" remove_timeout
   dv_check "the helper's own answer is kept" '.helper.error == "remove_timeout" and .step == "remove"'
   dv_assert "no marker: status does not say safe to unplug" \
@@ -553,6 +683,7 @@ test_eject() {
   (ej_test_clean)
   (ej_test_hdmi)
   (ej_test_holders)
+  (ej_test_unload)
   (ej_test_failures)
   (ej_test_rescan)
   (ej_test_holders_verb)
