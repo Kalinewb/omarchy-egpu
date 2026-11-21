@@ -118,7 +118,7 @@
       "required": ["card_bypath", "link", "compositor_has_card"],
       "properties": {
         "card": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^card[0-9]+$" }] },
-        "card_bypath": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^pci-[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]-card$" }] },
+        "card_bypath": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^pci-[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]-card$" }] },
         "link": { "$ref": "#/definitions/nstring" },
         "compositor_has_card": { "type": ["boolean", "null"] }
       }
@@ -185,6 +185,6 @@
       }
     },
     "nstring": { "type": ["string", "null"] },
-    "bdf": { "type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$" }
+    "bdf": { "type": "string", "pattern": "^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$" }
   }
 }

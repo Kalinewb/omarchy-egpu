@@ -546,8 +546,10 @@ terminals.
 Order (REVISION 2026-10-09: display first):
 
 1. Lock. Status must be `bound` or `ready`, or eject exits 0 with nothing to do, with
-   one exception (0.1.2): with no card on the bus but the driver still loaded (a cable pull,
-   or this verb run again after `modules_held`, which is what the UI's "Try again" does),
+   one exception (0.1.2): with no card on the bus but the driver still loaded (this verb run
+   again after `modules_held`, which is what the UI's "Try again" does, or an enclosure that
+   stays connected with its GPU function gone; a real cable pull is phase `absent`, which
+   answers `not_connected` and never reaches this branch),
    the answer is never `already: true` / "Safe to unplug". The engine unloads once more
    if nothing holds the modules (the helper is asked, `unload`), and answers the ordinary
    `already: true` with `modules.unloaded: true` if that worked; otherwise `modules_held`
@@ -1300,9 +1302,11 @@ with root.
   file exits 2 at the parse, before any trap exists, which is a skip (health compares the
   file with the plugin's copy, `system.helper`, M8). Only root and systemd can send the
   guard a signal; an unprivileged user cannot. The new trap is tested with real signals
-  (`tests/system.sh`, the guard group), except SIGINT: a background process of a
+  (`tests/system.sh`, the guard group): TERM, HUP and INT. A background process of a
   non-interactive shell starts with SIGINT ignored, which bash does not let a script trap,
-  so the test cannot send it (under systemd it is not ignored).
+  so `tests/guard-signal.py` starts the guard itself with SIGINT and SIGHUP at their defaults
+  (as under systemd, where they are not ignored), waits until it is on a hung child, and sends
+  the real signal; all three exit 0 there.
 
 **Threat model.**
 

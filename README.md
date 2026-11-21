@@ -55,8 +55,12 @@ script, the sleep guard (below): both await a security review before they are in
   log out first** (`modules_held`), never "Safe to unplug"; so does an eject run again with no card and the driver
   still loaded (it unloads once more if nothing holds the driver). This is a change from 0.1.0, which removed first and
   left the driver loaded. From 0.1.2 the helper's own `remove` also refuses (`modules_loaded`) while any of the
-  four NVIDIA modules is loaded, so another program of yours cannot remove the card under a loaded driver by
-  calling the helper directly; the engine unloads first, so a normal eject never meets it.
+  four NVIDIA modules is loaded, so calling the helper directly does not remove the card under a loaded driver;
+  the engine unloads first, so a normal eject never meets it. This is a narrow race backstopped by the sleep
+  guard, not a guarantee: `/usr/bin/nvidia-modprobe` is setuid root here, so a process of yours can load
+  `nvidia` or `nvidia_uvm` in the few tens of milliseconds between the helper's check and its write, and the
+  card is then removed under a loaded driver. The sleep guard (below) is what catches that at the next suspend,
+  except on the suspend-then-hibernate hook path, which it does not cover.
 - The **sleep guard** (`/usr/local/bin/omarchy-egpu-sleep-guard`, run before the NVIDIA sleep actions of
   `nvidia-suspend.service`, `nvidia-hibernate.service` and `nvidia-suspend-then-hibernate.service` by a drop-in
   in `/etc/systemd/system/`) is a **partial** net for a card that left without a safe eject (a cable pull, a
@@ -154,9 +158,10 @@ keeps the glyphs, `look()` (the one state-to-look mapping the bar, the glance an
 
 ### Changes since 0.1.0 (the UI migration; no engine, service, manifest or helper change)
 
-The manifest stays at 0.1.0: the version is pinned in `system/` (the helper's and the installer's `VERSION`, their
-checksums and `install.sh.sha256`), which a UI-only change does not touch, so a bump would break `dev/check-pins.sh`
-and root's refusal to install. Bump them together at release.
+The UI migration alone left the version at 0.1.0: it is pinned in `system/` (the helper's and the installer's
+`VERSION`, their checksums and `install.sh.sha256`), which a UI-only change does not touch, so a bump would have broken
+`dev/check-pins.sh` and root's refusal to install. This branch carries the eject fix as well, which does change those
+files, so everything is at 0.1.2 together (`manifest.json`, the helper, the installer, the pins).
 
 - **Standalone Esc** was already back one step in 0.1.0 (`back()`), and still is; it now goes through the kit's `UKeys`.
   PanelKeyCatcher is gone from the popup (it took Tab, Enter and Space before a control could), so **Tab now walks the
@@ -175,6 +180,22 @@ and root's refusal to install. Bump them together at release.
 - Sizes are the kit's: titles of 14 px, a body of 12 (notch) or 13 (standalone) at the default scale, 11 px footnotes and
   an 11 px floor for everything, in place of 10 px captions; "Safe to unplug" is a title, not a 26 px display line.
 - New tips on the foot line (what a button does) and a Tab-reachable `Open Setup` / `Fix` / `Details` everywhere.
+
+### The eject sheet and the held driver (0.1.2)
+
+- **Never "Safe to unplug" with the driver still loaded.** The Overview's state for held modules says `Log out`
+  (the headline, short enough for the notch) over `Do not suspend · the driver is still loaded · log out first`, in
+  either phase; the sheet's done step does too if a stale
+  status says the driver stayed loaded. The engine's status line says the same for a cable pull (phase `absent`).
+- **The failed step says what happened.** `driver_in_use`: who still uses the driver (`Still using it: quickshell,
+  voxtype-osd-gtk and nvidia-persiste.`), `Your session itself holds the driver; logging out lets go of it.` when it does,
+  `Close <app>` (behind the confirm) only when an app can be asked to quit, and with the driver shared with this
+  computer's own NVIDIA GPU a sentence that says to shut down, with no retry. `modules_held`: the engine's detail,
+  `Do not suspend. Log out first.`, no retry. A failed remove with the driver unloaded: `The driver is unloaded. Open the
+  lid or press Connect to bring the eGPU back.`, Connect is the primary action. Monitors the eject left off: `Turn the
+  screens back on` (the engine's `display enable`; with a hung driver it says to open the lid instead).
+- Screenshots of each state, before (the UI-kit main) and after, are in `docs/screens/` (`eject-in-use*`,
+  `eject-modules-held`, `eject-unloaded`, `eject-hung-screens`, `held-ejected`, `held-no-card`).
 
 ## In the notch
 
