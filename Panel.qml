@@ -265,6 +265,8 @@ Panel {
   readonly property var setupSummary: SetupRows.summarize(healthSource.rows)
   readonly property bool firstRun: root.setupSummary.neverSetUp && (!root.status || !root.status.summary
                                    || root.status.summary.state === "absent")
+  readonly property bool absentAndSetUp: !root.firstRun && !!root.status && !!root.status.summary
+                                         && root.status.summary.state === "absent"
   onFirstRunChanged: if (root.opened && root.firstRun && !root.navigated) root.resetRoute("setup")
 
   // Left click opens on the Overview (§4), or on Setup on a first run.
@@ -288,8 +290,13 @@ Panel {
 
   // ---------------------------------------------------------- bar button
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  // Not in the bar while no eGPU is attached and the system helper is already
+  // set up: nothing here to look at. A first run keeps it, since the glyph is
+  // how you reach Setup before there is anything to plug in. Settings stay one
+  // press away on the notch's Plugins page ("Open settings").
+  visible: !root.absentAndSetUp
+  implicitWidth: root.visible ? button.implicitWidth : 0
+  implicitHeight: root.visible ? button.implicitHeight : 0
 
   // A slow fade while connecting or ejecting (§4 "pulsing"). Runs only while
   // the glyph is on screen: a looping animation repaints every frame even when
@@ -311,10 +318,8 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     moduleName: root.moduleName
-    // Always shown. BarIndicator conceals an inactive glyph unless the bar's
-    // indicator block reveals it; this one is a widget of its own, and its
-    // "absent" look is a dim glyph, not no glyph (§4). Hiding while absent is
-    // the user's `gui.hide_when_absent`, which arrives with `config` (E3+).
+    // Always active as an indicator; whether the widget is there at all is
+    // decided on the root (absentAndSetUp). Its "absent" look is a dim glyph.
     activeOverride: true
     activeText: Palette.glyph
     activeTooltipText: root.look.tooltip
