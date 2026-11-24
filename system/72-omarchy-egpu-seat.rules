@@ -1,0 +1,30 @@
+# omarchy-egpu system half
+# omarchy-egpu-version: 0.1.3
+#
+# Keeps the compositor off the eGPU's card node (system/install.sh installs this
+# as /etc/udev/rules.d/72-omarchy-egpu-seat.rules). It sorts after systemd's
+# 71-seat.rules, which tags every DRM card "seat" and "master-of-seat"; a rule
+# before it could not take those tags off again.
+#
+# Why: Hyprland's backend (aquamarine) reads AQ_DRM_DEVICES only for the GPUs
+# present at login. A GPU that appears later is opened as a secondary device
+# whatever the list says, and its fd is kept, one more per plug-in. logind keeps
+# its own copy of that fd (TakeDevice) and PID 1 holds logind's (the fd store).
+# The driver cannot unload while any of them is open, so a safe eject said
+# "still in use: Hyprland, systemd-logind, systemd" until the next logout.
+#
+# What: a card node without the "seat" tag is not on any seat, so logind
+# refuses TakeDevice for it and Hyprland's open fails quietly. No new seat is
+# made (a seat with a master device would be offered to the display manager as
+# a place for a login screen). Render nodes and /dev/nvidia* are untouched:
+# apps still offload to the card. The effect starts at the next plug-in.
+#
+# The display policy egpu-hdmi (the compositor drives the eGPU's ports) needs
+# the card on the user's seat: create /etc/omarchy-egpu/egpu-display to switch
+# this off. TEST is evaluated per event, so no reload is needed.
+
+ACTION=="remove", GOTO="omarchy_egpu_seat_end"
+
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", SUBSYSTEMS=="pci", ATTRS{class}=="0x03[0-9]*", ATTRS{removable}=="removable", TEST!="/etc/omarchy-egpu/egpu-display", TAG-="seat", TAG-="master-of-seat"
+
+LABEL="omarchy_egpu_seat_end"

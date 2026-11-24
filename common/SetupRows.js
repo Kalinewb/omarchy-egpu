@@ -29,7 +29,7 @@ var IDS = [
   "kernel.nouveau_blacklist", "driver.modeset", "driver.fbdev", "driver.flavour",
   "driver.persistenced", "driver.sleep", "backend.supported", "hypr.links", "hypr.order",
   "hypr.gpu_list", "hypr.session_env", "tools.vulkaninfo", "system.helper",
-  "system.autoconnect", "steam.pending", "steam.options", "steam.stale",
+  "system.autoconnect", "steam.pending", "steam.client", "steam.options", "steam.stale",
   "steam.flatpak_gl", "diag.kernel_params"
 ]
 
@@ -201,6 +201,13 @@ function describe(row, rows) {
       say((k === 1 ? "One game change waits" : k + " game changes wait") + " for Steam to close", "",
           { kind: "engine", label: "Close Steam and apply", args: ["steam", "apply", "--close", "--relaunch"], verb: "steam apply" })
     }
+    break
+  case "steam.client":
+    if (level === "ok") say("Steam's own window stays off the eGPU")
+    else if (level === "skipped") say("Steam is not installed")
+    else if (level === "info") say("Steam's launcher has its own settings", "It is left alone.")
+    else say("Steam can keep the eGPU busy", "Its window holds the eGPU until Steam quits, so eject cannot finish. Games still use the eGPU.",
+             { kind: "engine", label: "Fix", args: ["steam", "client", "apply"], verb: "steam client", note: "Restart Steam once for it to count." })
     break
   case "steam.options":
     if (level === "ok") say("Steam's game settings look fine")

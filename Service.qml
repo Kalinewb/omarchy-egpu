@@ -157,7 +157,13 @@ Item {
     onTriggered: root.start()
   }
 
-  Component.onCompleted: root.start()
+  // Defaults that belong to setup: Steam's own window stays off the eGPU, so a
+  // safe eject is not held up by it (lib/steam/steam.sh, "client window").
+  // Once only; Setup's row shows the state and can undo it.
+  Component.onCompleted: {
+    root.start()
+    engineRunner.run(["steam", "client", "apply", "--once"], function (r) {})
+  }
 
   // Terminated, not orphaned: an orphan would keep the lock, and the Service
   // rebuilt after a plugin reload would find itself "busy" for a session.

@@ -1,0 +1,42 @@
+{
+  "run": "/home/u/.config/omarchy/plugins/kalinewb.egpu/bin/egpu-run",
+  "on": 1,
+  "apps": [
+    {
+      "id": "blender.desktop",
+      "name": "Blender",
+      "icon": "blender",
+      "comment": "",
+      "state": "on",
+      "game": false,
+      "terminal": false
+    },
+    {
+      "id": "gimp.desktop",
+      "name": "GIMP",
+      "icon": "gimp",
+      "comment": "",
+      "state": "off",
+      "game": false,
+      "terminal": false
+    },
+    {
+      "id": "obs.desktop",
+      "name": "OBS Studio",
+      "icon": "obs",
+      "comment": "",
+      "state": "off",
+      "game": false,
+      "terminal": false
+    },
+    {
+      "id": "lutris.desktop",
+      "name": "Lutris",
+      "icon": "lutris",
+      "comment": "",
+      "state": "manual",
+      "game": true,
+      "terminal": false
+    }
+  ]
+}

@@ -299,14 +299,14 @@ check "…the compact view's content: headline and the one close, facts, the one
 check "no Back at the root" "false" "$(field main.back "$o")"
 check "Open full panel pushes the Overview" "main>overview" "$(field toFull "$o")"
 check "full: the back chevron, the tabs and the one close, then the shared Overview, the state said once" "yes|yes|no" \
-  "$(grep -qF '‹ ¦ Overview ¦ Setup ¦ ✕ ¦ glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Details ¦ ›' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'TBGAA' <<<"$(field full.texts "$o")" && echo yes || echo no)"
+  "$(grep -qF '‹ ¦ Overview ¦ Games ¦ Setup ¦ ✕ ¦ glyph ¦ eGPU ready ¦ RTX 4070 SUPER · 29 °C · idle ¦ Safe eject' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'Details ¦ ›' <<<"$(field full.texts "$o")" && echo yes || echo no)|$(grep -qF 'TBGAA' <<<"$(field full.texts "$o")" && echo yes || echo no)"
 check "the one close keeps the inset from the right edge, and sits below the top inset" "$LG|yes" \
   "$(field closeGap "$o" | cut -d, -f1)|$( (( $(field closeGap "$o" | cut -d, -f2) >= LG )) && echo yes || echo no)"
 check "full: only the host's colours, only radiusFor() radii" "host-only|radiusFor" "$(field full.colours "$o")|$(field full.radii "$o")"
 check "a Fix opens Setup on its row, pushed (Back returns)" "main>overview>setup|system.helper" "$(field toSetup "$o")"
 check "Details ›: the Details page, pushed, titled" "main>overview>details|Details" "$(field toDetails "$o")"
 check "a tab picked in the header replaces the tab on screen" "main>setup" "$(field pickTab "$o")"
-check "an unbuilt route (games) is refused, not shown blank" "main>overview" "$(field unbuiltGames "$o")"
+check "an unbuilt route (screens) is refused, not shown blank" "main>overview" "$(field unbuiltGames "$o")"
 check "the eject sheet is built and pushed over the Overview" "main>overview>eject|Safe eject" "$(field builtEject "$o")"
 check "Escape: a view's own dialog → eject → overview → main → closed" \
   "view:main>overview>eject route:main>overview route:main close:main|1" "$(field escape "$o")|$(field closes "$o")"

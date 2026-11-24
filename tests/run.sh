@@ -5,6 +5,7 @@
 #   tests/run.sh               every scenario, the Steam gate tests, then the watcher
 #   tests/run.sh absent ...    only these scenarios ("watch" for the watcher,
 #                              "steam" for the Steam module, tests/steam.sh,
+#                              "apps" for desktop apps and Steam's window, tests/apps.sh,
 #                              "device" for connect and egpu-run, tests/device.sh,
 #                              "eject" for eject, rescan and holders, tests/eject.sh,
 #                              "display" for monitors and the toggle file, tests/display.sh,
@@ -347,6 +348,11 @@ test_watch() {
 # shellcheck source=tests/steam.sh
 source "$TESTS/steam.sh"
 
+# ---------------------------------------------------------------- apps
+
+# shellcheck source=tests/apps.sh
+source "$TESTS/apps.sh"
+
 # ---------------------------------------------------------------- device
 
 # shellcheck source=tests/device.sh
@@ -376,13 +382,15 @@ mapfile -t ALL < <(cd "$TESTS/fixtures" && for d in */; do
   [[ $d != watch-sequence && -r $d/expect.json ]] && echo "$d"
 done)
 targets=("$@")
-(( ${#targets[@]} )) || targets=("${ALL[@]}" steam device eject display system watch)
+(( ${#targets[@]} )) || targets=("${ALL[@]}" steam apps device eject display system watch)
 
 for s in "${targets[@]}"; do
   if [[ $s == watch ]]; then
     (test_watch)
   elif [[ $s == steam ]]; then
     test_steam
+  elif [[ $s == apps ]]; then
+    test_apps
   elif [[ $s == device ]]; then
     test_device
   elif [[ $s == eject ]]; then

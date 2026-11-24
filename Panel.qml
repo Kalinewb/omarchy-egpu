@@ -207,7 +207,8 @@ Panel {
   // the phase that builds its view — until then requesting it is a no-op
   // with a console line, never a blank page.
   readonly property var builtRoutes: ({ overview: overviewComponent, setup: setupComponent,
-                                        details: detailsComponent, eject: ejectComponent })
+                                        details: detailsComponent, eject: ejectComponent,
+                                        games: gamesComponent })
   readonly property var tabOrder: ["overview", "display", "games", "setup"]
   readonly property var tabLabels: ({ overview: "Overview", display: "Screens", games: "Games", setup: "Setup" })
   readonly property var tabs: tabOrder.filter(function (t) { return !!root.builtRoutes[t] })
@@ -523,6 +524,22 @@ Panel {
       active: root.opened
       statusNote: root.statusNote
       focusId: root.setupFocus
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.close()
+    }
+  }
+
+  Component {
+    id: gamesComponent
+    GamesView {
+      status: root.status
+      engine: engineRunner
+      health: healthSource
+      theme: popupTheme
+      density: "full"
+      maxWidth: column.width
+      active: root.opened
+      statusNote: root.statusNote
       onRequestRoute: function (name) { root.requestRoute(name) }
       onRequestClose: root.close()
     }

@@ -183,14 +183,14 @@ step "the popup: header, padding and routes (ui-scope.md §0, §2; §7.7)"
 rm -f "$RUN/status.json"; put ready
 out=$(harness indicator EGPU_HARNESS_WAIT_MS=1200)
 check "a route that is not built yet is refused, not shown blank" "overview" "$(field unbuiltRoute "$out")"
-check "the built tabs are offered: Overview and Setup" "overview,setup" "$(field tabs "$out")"
+check "the built tabs are offered: Overview, Games and Setup" "overview,games,setup" "$(field tabs "$out")"
 
 out=$(harness popup EGPU_HARNESS_WAIT_MS=1500 ${PNG:+EGPU_HARNESS_PNG="$PNG/popup-ready.png"})
 texts=$(sed -n 's/^text=//p' <<<"$out" | paste -sd'|')
 check "the popup opens with the Overview inside it" "true|true" "$(field opened "$out")|$(field popupVisible "$out")"
 check "…its header is the tab row and the one close, then the headline, said once (no enclosure name, no engine line)" \
-  "Overview|Setup|✕|glyph|eGPU ready|RTX 4070 SUPER · 29 °C · idle|Safe eject|no|no" \
-  "$(cut -d'|' -f1-7 <<<"$texts")|$(grep -qF 'TBGAA' <<<"$texts" && echo yes || echo no)|$(grep -qiF 'eject before unplugging' <<<"$texts" && echo yes || echo no)"
+  "Overview|Games|Setup|✕|glyph|eGPU ready|RTX 4070 SUPER · 29 °C · idle|Safe eject|no|no" \
+  "$(cut -d'|' -f1-8 <<<"$texts")|$(grep -qF 'TBGAA' <<<"$texts" && echo yes || echo no)|$(grep -qiF 'eject before unplugging' <<<"$texts" && echo yes || echo no)"
 check "…with no Back at the root" "false" "$(field backVisible "$out")"
 check "Escape (back) at the root closes it" "closed" "$(field afterBack "$out")"
 check "…and the popup, its header and the Overview throw no JavaScript errors" "" "$(jserrors)"

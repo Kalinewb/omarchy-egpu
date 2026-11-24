@@ -11,6 +11,7 @@
 #   omarchy-egpu steam close [--root R]
 #   omarchy-egpu steam restore <accountid> <backup> [--root R]
 #   omarchy-egpu steam status                      roots, default account, queue
+#   omarchy-egpu steam client status|apply|restore Steam's own window off the eGPU
 #
 # Works without an eGPU and without Hyprland. The option string comes only from
 # the backend (be_offload_env, be_steam_extras), the eGPU's readiness only from
@@ -27,6 +28,9 @@
 
 # shellcheck source=lib/common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/../common.sh"
+
+# shellcheck source=lib/apps.sh
+source "$EGPU_LIB/apps.sh"
 
 STEAM_LIB="$EGPU_LIB/steam"
 STEAM_FLATPAK_APP=com.valvesoftware.Steam
@@ -469,7 +473,7 @@ steam_list() {
 
 # Parses the common options; sets OPT_* and leaves the positionals in ARGS.
 _steam_opts() {
-  OPT_ROOT='' OPT_ACCOUNT='' OPT_QUEUE=0 OPT_NVAPI='' OPT_ADOPT=0 OPT_ONLY_STALE=0 OPT_CLOSE=0 OPT_RELAUNCH=0
+  OPT_ROOT='' OPT_ACCOUNT='' OPT_QUEUE=0 OPT_NVAPI='' OPT_ADOPT=0 OPT_ONLY_STALE=0 OPT_CLOSE=0 OPT_RELAUNCH=0 OPT_ONCE=0
   ARGS=()
   while (( $# )); do
     case $1 in
@@ -481,6 +485,7 @@ _steam_opts() {
       --only-stale) OPT_ONLY_STALE=1 ;;
       --close) OPT_CLOSE=1 ;;
       --relaunch) OPT_RELAUNCH=1 ;;
+      --once) OPT_ONCE=1 ;;
       --*) json_error usage "$(jq -cn --arg o "$1" '{detail: "unknown option", got: $o}')"; return 1 ;;
       *) ARGS+=("$1") ;;
     esac
@@ -627,11 +632,82 @@ _steam_close_kind() {
 _steam_relaunch_kind() {
   if [[ $1 == flatpak ]]; then
     (flatpak run "$STEAM_FLATPAK_APP" </dev/null >/dev/null 2>&1 &)
-  elif command -v uwsm-app >/dev/null 2>&1; then
-    (uwsm-app -- steam </dev/null >/dev/null 2>&1 &)
   else
-    (steam </dev/null >/dev/null 2>&1 &)
+    local args=()
+    mapfile -t args < <(_steam_client_args)
+    if command -v uwsm-app >/dev/null 2>&1; then
+      (uwsm-app -- steam "${args[@]}" </dev/null >/dev/null 2>&1 &)
+    else
+      (steam "${args[@]}" </dev/null >/dev/null 2>&1 &)
+    fi
   fi
+}
+
+# ---------------------------------------------------------------- client window
+
+# Steam's window is a Chromium (steamwebhelper). It opens every GPU it can see,
+# the eGPU included, and keeps it until Steam quits, which long after a game
+# was closed makes a safe eject answer "still in use" (README: the eject
+# sheet). `-cef-disable-gpu` keeps its own window on the CPU, so Steam never
+# opens the card; games started from Steam are separate processes and still
+# get the eGPU through their own switch. The options are config
+# `steam.client_args` (default ["-cef-disable-gpu"]); they are put into a copy
+# of Steam's launcher in the user's applications directory (lib/apps.py).
+# Flatpak Steam has no such launcher here and is left as it is.
+
+_steam_client_args() { config_get steam.client_args '["-cef-disable-gpu"]' | jq -r '.[]?'; }
+
+# _steam_client_py <status|enable|disable>: apps.py's answer.
+_steam_client_py() {
+  python3 -I "$APPS_PY" client "$1" --user-dir "$(_apps_user_dir)" --sys-dirs "$(_apps_sys_dirs)" \
+    --args "$(config_get steam.client_args '["-cef-disable-gpu"]')"
+}
+
+# `apply --once` is the default the panel's service runs at every start: it
+# applies the options the first time it can (Steam installed, no launcher of the
+# user's own) and never again, so a later `restore` stays restored.
+STEAM_CLIENT_STATE="$EGPU_STATE/steam-client.json"
+
+steam_client() {
+  local action=${1:-status} out rc=0
+  case $action in
+    status)
+      _steam_client_py status
+      return
+      ;;
+    apply)
+      if (( OPT_ONCE )) && [[ -e $STEAM_CLIENT_STATE ]]; then
+        jq -cn '{skipped: true, reason: "already_applied_once"}'
+        return 0
+      fi
+      out=$(_steam_client_py enable) || rc=$?
+      if (( OPT_ONCE )); then
+        if (( rc == 0 )); then
+          mkdir -p -- "$EGPU_STATE" && printf '{"applied":true}\n' >"$STEAM_CLIENT_STATE"
+        else
+          # Nothing to do yet (no Steam) or not ours to change: quiet, try again next start.
+          jq -cn --argjson r "$out" '{skipped: true, reason: $r.error}'
+          return 0
+        fi
+      fi
+      ;;
+    restore)
+      out=$(_steam_client_py disable) || rc=$?
+      # A restore is the user's answer: --once never applies it again.
+      if (( rc == 0 )) && [[ ! -e $STEAM_CLIENT_STATE ]]; then
+        mkdir -p -- "$EGPU_STATE" && printf '{"applied":false}\n' >"$STEAM_CLIENT_STATE"
+      fi
+      ;;
+    *)
+      json_error usage '{"detail":"steam client status|apply|restore"}'
+      return 1
+      ;;
+  esac
+  if (( rc == 0 )); then
+    out=$(jq -c --argjson r "$(_steam_native_running && echo true || echo false)" '. + {running: $r, takes_effect: "the next time Steam starts"}' <<<"$out")
+  fi
+  printf '%s\n' "$out"
+  return "$rc"
 }
 
 steam_close() {
@@ -766,6 +842,7 @@ steam_health_rows() {
     health_row steam.stale steam skipped "Games set to the eGPU" "Steam is not installed." none ""
     return 0
   fi
+  _steam_health_client
   _steam_backend
   local files=() kind root d
   while IFS=$'\t' read -r kind root; do
@@ -811,6 +888,30 @@ steam_health_rows() {
   if grep -q '^flatpak' <<<"$roots"; then
     _steam_health_flatpak_gl
   fi
+}
+
+# steam.client: Steam's own window is kept off the eGPU (see "client window").
+_steam_health_client() {
+  local st
+  st=$(_steam_client_py status 2>/dev/null | jq -r '.state // "missing"' 2>/dev/null)
+  case $st in
+    on)
+      health_row steam.client steam ok "Steam's own window stays off the eGPU" \
+        "The launcher passes $(config_get steam.client_args '["-cef-disable-gpu"]' | jq -r 'join(" ")'); restart Steam once for it to count."
+      ;;
+    off | stale)
+      health_row steam.client steam warn "Steam's own window can keep the eGPU busy" \
+        "Steam opens the eGPU for its window and holds it until it quits, so a safe eject says the driver is still in use. Apply keeps the window on the laptop GPU; games still use the eGPU. Restart Steam once." \
+        user "omarchy-egpu steam client apply"
+      ;;
+    manual)
+      health_row steam.client steam info "Steam's launcher has its own settings" \
+        "A steam.desktop of yours in the applications folder is left alone. Add -cef-disable-gpu to its Exec line to keep Steam's window off the eGPU." none ""
+      ;;
+    *)
+      health_row steam.client steam skipped "Steam's own window" "Steam is not installed as a normal package here." none ""
+      ;;
+  esac
 }
 
 # steam.flatpak_gl: Flatpak Steam needs the GL extension matching the host
@@ -863,8 +964,9 @@ steam_main() {
     close) steam_close ;;
     restore) steam_restore ;;
     status) steam_status_verb ;;
+    client) steam_client "${ARGS[@]}" ;;
     *)
-      json_error usage '{"detail":"steam roots|accounts|list|set|set-all|apply|close|restore|status"}'
+      json_error usage '{"detail":"steam roots|accounts|list|set|set-all|apply|close|restore|status|client"}'
       return 1
       ;;
   esac

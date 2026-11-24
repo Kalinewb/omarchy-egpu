@@ -32,6 +32,10 @@ var sentences = {
   unsafe_name: "That monitor name cannot be used safely.",
   // any backend call
   backend_stub: "This kind of GPU is detected but not supported yet.",
+  // apps
+  app_manual: "This app has settings of its own, so it was left alone.",
+  app_not_found: "That app is not installed any more.",
+  run_missing: "The plugin's launcher helper is missing. Reinstall the plugin.",
   // steam
   steam_not_found: "Steam is not installed.",
   account_not_found: "That Steam account was not found.",

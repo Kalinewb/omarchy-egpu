@@ -1,14 +1,14 @@
 # omarchy-egpu
 
 eGPU manager for [Omarchy](https://omarchy.org): connect and safely eject a Thunderbolt/USB4 eGPU without
-rebooting, see its state in the bar, and toggle "run on eGPU" per Steam game.
+rebooting, see its state in the bar, and toggle "run on eGPU" per Steam game and per app.
 
 **Status: work in progress, not installable yet.** The engine (status, health, connect, safe eject, rescan),
 the root helper and the Steam launch-option module are tested against fake hardware and fixtures. The
 panel's Overview, Details, Setup and safe-eject sheet render every state offscreen, and the optional notch
 integration (for [omarchy-notch](docs/notch-requests.md)) renders and declines offscreen against the notch's own
-rules. The panel is drawn with the suite's shared UI kit (see "The panel's UI" below). Games, Screens and
-notifications have no panel yet, and nothing is verified under the live shell or on real hardware yet. First
+rules. The panel is drawn with the suite's shared UI kit (see "The panel's UI" below). Games (Steam games and
+desktop apps, one switch each) has a panel; Screens and notifications have none yet, and nothing is verified under the live shell or on real hardware yet. First
 tested hardware: Minisforum DEG2 + RTX 4070 SUPER on an Intel Lunar Lake laptop.
 
 Design: see `docs/` (`scope.md`, `plan-engine.md`, `plan-gui.md`) and `dev/e0-facts.md` for what was observed on
@@ -85,7 +85,7 @@ script, the sleep guard (below): both await a security review before they are in
 
 ### Installing or updating the system half
 
-The engine refuses a helper whose version differs from the plugin's, so after updating the plugin to 0.1.2 the
+The engine refuses a helper whose version differs from the plugin's, so after updating the plugin to 0.1.3 the
 system half must be installed again (`reinstall`, below) before eject, connect or rescan work; until then they
 answer `helper_missing`.
 
@@ -94,7 +94,7 @@ a root-only directory, checks the copy and runs it. The installer checks every f
 checksums in its own text. Compare what you paste with this:
 
 ```bash
-d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.2/system/install.sh.sha256) && sudo /usr/bin/bash -c 'PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; /usr/bin/rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
+d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.githubusercontent.com/Kalinewb/omarchy-egpu/v0.1.3/system/install.sh.sha256) && sudo /usr/bin/bash -c 'PATH=/usr/bin; t=$(/usr/bin/mktemp -d /run/omarchy-egpu-installer.XXXXXX) && /usr/bin/cp -- "$1/system/install.sh" "$t/install.sh" && printf "%s  %s\n" "$2" "$t/install.sh" | /usr/bin/sha256sum -c --quiet - && /usr/bin/bash -p "$t/install.sh" --expect-sha256 "$2" install "$1" "$3"; s=$?; /usr/bin/rm -rf -- "$t"; exit $s' omarchy-egpu "$d" "$sum" "$USER"
 ```
 
 - `bash system/install.sh --print-command uninstall` (or `reinstall`) prints the same command for removing it.
@@ -110,11 +110,47 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
   or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
   password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
 - The terminal Setup opens first asks GitHub whether the release the command points at is published, before
-  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.2` was never pushed, or the repository is private) it
+  any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.3` was never pushed, or the repository is private) it
   says so, changes nothing and stops, instead of the command's own `curl: (22) ... 404`.
 - While the repository is private, the checksum URL needs authentication: fetch it with
-  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.2'`
+  `gh api -H 'Accept: application/vnd.github.raw' 'repos/Kalinewb/omarchy-egpu/contents/system/install.sh.sha256?ref=v0.1.3'`
   instead of `curl`.
+
+### 0.1.3: why a safe eject said "still in use" after a game, and what changed
+
+Seen live: a normal gaming session, game closed, eject answered `driver_in_use` naming Hyprland, steamwebhelper,
+systemd and systemd-logind. Three separate causes, found from `fuser` and Hyprland's own log:
+
+- **Hyprland adopts the eGPU on every plug-in.** `AQ_DRM_DEVICES` (the toggle file pins it) is read only for the
+  GPUs present at login; aquamarine opens a GPU that appears later as a secondary device whatever the list says
+  (`udev add event for card1`, `Starting backend for /dev/dri/card1`) and keeps the fd, one more per plug-in.
+  logind keeps its own copy of that fd (`TakeDevice`) and PID 1 holds logind's (the fd store), which is why
+  `systemd` and `systemd-logind` were listed: one chain, not three leaks. Since the unload comes before the
+  remove, a card Hyprland holds could never be ejected without logging out. **Fix (root half, needs the reinstall
+  below):** a second udev rule, `72-omarchy-egpu-seat.rules`, takes the `seat` tags off the eGPU's card node. It must
+  sort after systemd's `71-seat.rules`, which adds them, so it is its own file. A card node on no seat is refused by
+  logind's `TakeDevice` (`logind-session-device.c`), so Hyprland's open fails quietly. It makes no new seat: a seat
+  with a master device would be offered to the display manager for a login screen. Render nodes and `/dev/nvidia*`
+  are untouched: offload works as before. It applies at the next plug-in. The display policy `egpu-hdmi` (the
+  compositor drives the eGPU's ports) needs the card on your seat: `sudo touch /etc/omarchy-egpu/egpu-display`
+  switches this off. Not verified on real hardware yet; if Hyprland still holds the card after a replug, the
+  `fuser -v /dev/dri/card1` after the next game says so.
+- **Steam's own window holds the card until Steam quits.** `steamwebhelper` (a Chromium) opens every GPU it sees,
+  the eGPU included, and never lets go; closing the game changes nothing. It has no memory on the card, so
+  nvidia-smi never names it. **Fix:** the eject now treats the Steam client as one app, "Steam", that blocks and that
+  `--close` quits with `steam -shutdown` (refused while a game Steam started runs). And by default Steam's own
+  window is kept off the eGPU: `omarchy-egpu steam client apply` puts `-cef-disable-gpu` (config
+  `steam.client_args`) into a copy of Steam's launcher in `~/.local/share/applications/`; games started from Steam
+  are separate processes and still get the eGPU. The panel's service runs `steam client apply --once` at every
+  start (it applies the first time it can and never again, so a `steam client restore` stays restored), and
+  Setup's `Steam can keep the eGPU busy` row has a Fix. Takes effect the next time Steam starts. Not verified on
+  real hardware yet.
+- **Apps and games, one switch each.** The new Games tab lists Steam games (the existing launch-option module) and
+  desktop apps (`omarchy-egpu apps list|set|set-all`). Turning an app on puts a copy of its launcher in
+  `~/.local/share/applications/` whose `Exec` lines start with `egpu-run --quiet --`, so any launcher starts it on
+  the eGPU, or on the laptop GPU when the eGPU is not there. Off deletes that copy. Only files with the marker
+  `X-Omarchy-eGPU=managed` are ever changed; an entry you overrode yourself is shown as "set by hand" and left alone,
+  and your own entries (web apps) and Flatpak apps are not listed. Everything starts off.
 
 ## The panel's UI
 

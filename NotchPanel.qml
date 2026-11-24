@@ -93,7 +93,7 @@ FocusScope {
   // Not readonly: dev/g8-offscreen.sh swaps in a stand-in `eject` holding a
   // dialog, to walk the whole Escape chain through a view's own popView().
   property var builtRoutes: ({ main: compactComponent, overview: overviewComponent, setup: setupComponent,
-                               details: detailsComponent, eject: ejectComponent })
+                               details: detailsComponent, eject: ejectComponent, games: gamesComponent })
   readonly property var tabOrder: ["overview", "display", "games", "setup"]
   readonly property var tabLabels: ({ overview: "Overview", display: "Screens", games: "Games", setup: "Setup" })
   readonly property var tabs: root.tabOrder.filter(function (t) { return !!root.builtRoutes[t] })
@@ -342,6 +342,22 @@ FocusScope {
       active: root.active
       statusNote: root.statusNote
       focusId: root.setupFocus
+      onRequestRoute: function (name) { root.requestRoute(name) }
+      onRequestClose: root.closeRequested()
+    }
+  }
+
+  Component {
+    id: gamesComponent
+    GamesView {
+      status: root.status
+      engine: root.engine
+      health: root.health
+      theme: root.theme
+      density: "full"
+      maxWidth: column.width
+      active: root.active
+      statusNote: root.statusNote
       onRequestRoute: function (name) { root.requestRoute(name) }
       onRequestClose: root.closeRequested()
     }

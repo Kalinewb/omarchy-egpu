@@ -62,7 +62,8 @@ Item {
   // E4 `display …`).
   readonly property var builtVerbs: ["status", "status watch", "health",
     "steam roots", "steam accounts", "steam list", "steam status", "steam set", "steam set-all",
-    "steam apply", "steam close", "steam restore",
+    "steam apply", "steam close", "steam restore", "steam client",
+    "apps list", "apps set", "apps set-all", "apps status",
     "device connect", "device eject", "device rescan", "device holders",
     // lib/display.sh (E4). Only the verb Setup's Fix runs is listed: the
     // monitor verbs arrive with the Screens view (G4), and listing them now

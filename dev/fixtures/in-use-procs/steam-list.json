@@ -1,0 +1,53 @@
+{
+  "root": "/home/u/.local/share/Steam",
+  "kind": "native",
+  "account": "100000003",
+  "persona": "Player",
+  "backend": "nvidia",
+  "egpu_ready": true,
+  "egpu_phase": "ready",
+  "steam_running": false,
+  "extras": [
+    {
+      "id": "nvapi",
+      "label": "NVAPI"
+    }
+  ],
+  "games": [
+    {
+      "appid": "1091500",
+      "name": "Cyberpunk 2077",
+      "state": "on",
+      "options": "",
+      "extras": {}
+    },
+    {
+      "appid": "1245620",
+      "name": "Elden Ring",
+      "state": "manual",
+      "options": "",
+      "extras": {}
+    },
+    {
+      "appid": "1145360",
+      "name": "Hades",
+      "state": "off",
+      "options": "",
+      "extras": {}
+    },
+    {
+      "appid": "367520",
+      "name": "Hollow Knight",
+      "state": "off",
+      "options": "",
+      "extras": {}
+    },
+    {
+      "appid": "413150",
+      "name": "Stardew Valley",
+      "state": "pending_on",
+      "options": "",
+      "extras": {}
+    }
+  ]
+}

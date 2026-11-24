@@ -6,6 +6,7 @@
 #   status watch                JSON-lines stream + $XDG_RUNTIME_DIR/omarchy-egpu/status.json
 #   health [--json|--human]     setup/health rows (§9)
 #   steam <verb> [args]         per-game "Run on eGPU" in Steam (§8; lib/steam/steam.sh)
+#   apps <verb> [args]          per-app "Run on eGPU" for desktop apps (lib/apps.sh)
 #   display <verb> [args]       eGPU monitors, display.policy, the toggle file (§7; lib/display.sh)
 #   device connect [opts]       bolt → PCI → driver → verify (§6.1; lib/device.sh)
 #   connect [opts]              the same
@@ -34,6 +35,8 @@ usage: omarchy-egpu <module> <verb> [args]
   steam set <appid> on|off [--nvapi on|off] [--adopt] [--account A] [--queue]
   steam set-all on|off [--only-stale] [--account A] [--queue]
   steam apply [--close] [--relaunch] | close | restore <accountid> <backup>
+  steam client status | apply | restore       keep Steam's own window off the eGPU
+  apps list | status | set <id> on|off | set-all off
   device connect [--timeout S] [--enroll] [--quiet]   (also: connect ...)
   device eject [--close] [--quiet] | rescan [--timeout S] [--quiet] | holders
   display list | off | render | apply
@@ -61,6 +64,11 @@ case $module in
     # shellcheck source=lib/steam/steam.sh
     source "$EGPU_LIB/steam/steam.sh"
     steam_main "$@"
+    ;;
+  apps)
+    # shellcheck source=lib/apps.sh
+    source "$EGPU_LIB/apps.sh"
+    apps_main "$@"
     ;;
   display)
     # shellcheck source=lib/display.sh

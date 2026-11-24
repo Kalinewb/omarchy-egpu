@@ -11,12 +11,23 @@ import "keys.js" as KeyMap
 //   link         the `flow` variant of full-screen flows (enrol, wizard): accent text,
 //                no shape; semibold when it is the one that finishes
 //
+// The icon-only form is the same button with `glyph` (one character of the
+// theme's font) in place of the label: `UButton { glyph: "✎"; name: "Rename" }`.
+// `name` is then required, it is the accessible name and the tooltip and is not
+// drawn. Same kinds, same focus ring, same selected look for a primary, a
+// square as tall as the text button (so it sits in a row with one), and never
+// under 24 px.
+//
 // Dismiss words are three: Cancel, Done, Not now; anything else is a verb and
 // an object ("Remove Ana", "Install Face ID"). dev/check-ui.sh holds the list.
 Item {
   id: root
   required property var theme
   property string text: ""
+  // Icon-only form: the mark drawn instead of `text`, and the name a screen reader says
+  // (and the tooltip). A glyph with no name logs a warning.
+  property string glyph: ""
+  property string name: ""
   property string kind: "quiet"
   // The one that finishes a flow; semibold. A page-level UKeys.onPrimary calls clicked() on it.
   property bool finishes: false
@@ -28,15 +39,18 @@ Item {
   property bool down: mouse.pressed
   property bool showFocus: activeFocus
 
+  readonly property bool iconOnly: glyph !== ""
   readonly property bool isLink: kind === "link"
   readonly property bool isPrimary: kind === "primary"
   readonly property bool isDestructive: kind === "destructive"
 
   implicitHeight: isLink ? theme.controlHeight : theme.rowHeight
-  implicitWidth: Math.max(theme.minHit, label.implicitWidth + 2 * (isLink ? theme.sp.sm : theme.sp.lg))
+  implicitWidth: iconOnly ? Math.max(theme.minHit, implicitHeight)
+    : Math.max(theme.minHit, label.implicitWidth + 2 * (isLink ? theme.sp.sm : theme.sp.lg))
   activeFocusOnTab: enabled
   Accessible.role: Accessible.Button
-  Accessible.name: text
+  Accessible.name: iconOnly && name !== "" ? name : text
+  Component.onCompleted: if (iconOnly && name === "" && text === "") console.warn("ui: UButton glyph \"" + glyph + "\" has no name")
   Accessible.onPressAction: root.clicked()
 
   Item {
@@ -69,12 +83,12 @@ Item {
     Text {
       id: label
       anchors.centerIn: parent
-      text: root.text
+      text: root.iconOnly ? root.glyph : root.text
       color: !root.enabled ? root.theme.disabled
         : root.isLink ? (root.hot ? root.theme.label : root.theme.accentText)
         : root.isDestructive ? root.theme.destructive : root.theme.label
       font.family: root.theme.fontFamily
-      font.pixelSize: root.theme.bodySize
+      font.pixelSize: root.iconOnly ? root.theme.titleSize : root.theme.bodySize
       font.weight: root.isPrimary || root.finishes ? root.theme.headlineWeight : Font.Normal
       font.underline: root.isLink && root.hot
     }
@@ -90,5 +104,6 @@ Item {
   Keys.onPressed: function(event) {
     if (KeyMap.action("button", event.key) === "activate") { root.clicked(); event.accepted = true }
   }
-  UTip { theme: root.theme; text: root.tip }
+  // An icon has no label to read, so its name is its tooltip unless `tip` says more.
+  UTip { theme: root.theme; text: root.tip !== "" ? root.tip : (root.iconOnly ? root.Accessible.name : "") }
 }

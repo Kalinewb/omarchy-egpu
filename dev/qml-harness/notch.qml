@@ -490,7 +490,7 @@ ShellRoot {
     p.pickTab("setup")
     rootObj.log("pickTab", st())
     p.pickTab("overview")
-    p.requestRoute("games")
+    p.requestRoute("display")
     rootObj.log("unbuiltGames", st())
     p.requestRoute("eject")
     rootObj.log("builtEject", st() + "|" + (content(p).title || ""))
@@ -516,7 +516,7 @@ ShellRoot {
     rootObj.log("escapeFromFull", s2.join(" "))
 
     // An unbuilt route asked for by the notch lands on main, never blank.
-    p.open("games")
+    p.open("display")
     rootObj.log("openGames", st())
     // The notch rebinding `route` while open moves the stack too.
     p.route = "full"

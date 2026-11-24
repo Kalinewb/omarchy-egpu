@@ -242,9 +242,12 @@ ShellRoot {
       if (seg) {
         seg.forceActiveFocus()
         t.keyClick(Qt.Key_Right); t.wait(50)
-        shell.check("Right on the tabs picks Setup (the tab replaces the tab)", "main>setup", t.st())
+        shell.check("Right on the tabs picks Games (the tab replaces the tab)", "main>games", t.st())
+        t.keyClick(Qt.Key_Right); t.wait(50)
+        shell.check("Right again picks Setup (the tab replaces the tab)", "main>setup", t.st())
         t.keyClick(Qt.Key_Left); t.wait(50)
-        shell.check("Left picks Overview again", "main>overview", t.st())
+        t.keyClick(Qt.Key_Left); t.wait(50)
+        shell.check("Left twice picks Overview again", "main>overview", t.st())
       }
       // The one close: Tab to it, Enter.
       p = t.make(); p.open("full"); t.wait(300)
@@ -472,9 +475,12 @@ ShellRoot {
       var seg = shell.findProp(w.contentItem, "options")
       seg.forceActiveFocus()
       t.keyClick(Qt.Key_Right); t.wait(50)
-      shell.check("Right on the tabs picks Setup", "setup/open", st())
+      shell.check("Right on the tabs picks Games", "games/open", st())
+      t.keyClick(Qt.Key_Right); t.wait(50)
+      shell.check("Right again picks Setup", "setup/open", st())
       t.keyClick(Qt.Key_Left); t.wait(50)
-      shell.check("Left on them picks Overview again", "overview/open", st())
+      t.keyClick(Qt.Key_Left); t.wait(50)
+      shell.check("Left twice picks Overview again", "overview/open", st())
       // The one close.
       focus()
       for (var j = 0; j < 4 && shell.focusName(w) !== "✕"; j++) t.keyClick(Qt.Key_Tab)

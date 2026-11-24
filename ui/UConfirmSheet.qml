@@ -2,10 +2,13 @@ import QtQuick
 
 // The confirm (plan-apple-ui.md 4.2 "Confirm"): an inline row, never an
 // overlay or a window. It replaces the action row it belongs to, in place:
-// one sentence naming the consequence (60 characters at most, "Remove Ana? Her
-// face data is erased."), then [Cancel] [verb]. The slot is as tall as the
-// larger of the two states, so nothing around it moves; the swap is a 90 ms
-// fade. Esc is Cancel (the "modal" layer of UKeys). A destructive verb is
+// one sentence naming the consequence ("Remove Ana? Her face data is erased."),
+// then [Cancel] [verb]. A sentence that fits one line beside the buttons sits
+// there (one row high); a longer one wraps over the full width with the buttons
+// right-aligned under it (`stacked`). Over 400 characters it logs a warning: a
+// consequence that long wants a shorter sentence and a UNotice. The slot is as
+// tall as the larger of the two states, so nothing around it moves; the swap is
+// a 90 ms fade. Esc is Cancel (the "modal" layer of UKeys). A destructive verb is
 // never the default and never takes the initial focus (Cancel does, Enter
 // does not fire the verb); any other verb takes it, so Enter confirms.
 //
@@ -22,6 +25,11 @@ Item {
   property string verb: ""
   property bool destructive: false
   property bool asking: false
+  // True when the sentence does not fit one line beside the buttons: it wraps
+  // across the full width and the buttons sit right-aligned under it.
+  readonly property bool stacked: probe.implicitWidth > width - buttons.width - theme.sp.sm
+  // A longer sentence is a smell (a consequence that long wants a UNotice), not an error.
+  readonly property int sentenceMax: 400
   signal confirmed()
   signal cancelled()
 
@@ -38,7 +46,7 @@ Item {
 
   implicitWidth: 360
   implicitHeight: Math.max(actionsHolder.childrenRect.height, asker.implicitHeight, theme.rowHeight)
-  Component.onCompleted: if (sentence.length > theme.tipMax) console.warn("ui: UConfirmSheet sentence over " + theme.tipMax + " characters: " + sentence)
+  Component.onCompleted: if (sentence.length > sentenceMax) console.warn("ui: UConfirmSheet sentence over " + sentenceMax + " characters: " + sentence)
 
   Item {
     id: actionsHolder
@@ -52,27 +60,34 @@ Item {
   Item {
     id: asker
     anchors.fill: parent
-    implicitHeight: root.theme.rowHeight
+    implicitHeight: root.stacked ? sentenceText.height + root.theme.sp.sm + buttons.height : Math.max(root.theme.rowHeight, buttons.height)
     opacity: root.asking ? 1 : 0
     visible: opacity > 0 || root.asking
     enabled: root.asking
     Behavior on opacity { NumberAnimation { duration: root.theme.fadeOutMs; easing.type: Easing.OutCubic } }
 
+    // Measures the sentence on one line, to choose the layout; never shown.
     Text {
-      anchors.left: parent.left
-      anchors.right: buttons.left
-      anchors.rightMargin: root.theme.sp.sm
-      anchors.verticalCenter: parent.verticalCenter
+      id: probe
+      visible: false
       text: root.sentence
-      elide: Text.ElideRight
+      font: sentenceText.font
+    }
+    Text {
+      id: sentenceText
+      x: 0
+      y: root.stacked ? 0 : (asker.height - height) / 2
+      width: root.stacked ? asker.width : asker.width - buttons.width - root.theme.sp.sm
+      text: root.sentence
+      wrapMode: Text.Wrap
       color: root.theme.label
       font.family: root.theme.fontFamily
       font.pixelSize: root.theme.bodySize
     }
     Row {
       id: buttons
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
+      x: asker.width - width
+      y: root.stacked ? sentenceText.height + root.theme.sp.sm : (asker.height - height) / 2
       spacing: root.theme.sp.sm
       UButton { id: cancelButton; theme: root.theme; text: "Cancel"; onClicked: root.cancel() }
       UButton {

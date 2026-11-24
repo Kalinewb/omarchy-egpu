@@ -346,6 +346,38 @@ ej_test_holders() {
   dv_check "--close: both closed, ejected" ".ok == true and (.closed | map(.pid) | sort) == ([$game, $glx] | sort)"
   ej_done
 
+  echo "${BOLD}eject: the Steam client is one app that blocks, and --close quits it with steam -shutdown${RESET}"
+  ej_new steam-client
+  ej_ready
+  ej_app steam - term "/dev/nvidiactl"
+  local st=$EJ_PID
+  ej_app steamwebhelper - term "/dev/nvidiactl /dev/nvidia0"
+  local sw=$EJ_PID
+  printf 'steam %s\nsteamwebhelper %s\n' "$st" "$sw" >"$EGPU_FAKE_DIR/pgrep.txt"
+  printf '%s\n%s\n' "$st" "$sw" >"$EGPU_FAKE_DIR/steam-pids"
+  ej --quiet
+  dv_error "Steam holds the driver with no memory on the card" holders_present
+  dv_check "one row named Steam, an app that blocks and can be closed" \
+    "[.holders[] | {comm, role, why, closeable}] == [{comm: \"Steam\", role: \"app\", why: \"steam_client\", closeable: true}] and .can_close == true"
+  dv_assert "nothing signalled without --close" bash -c "kill -0 $st 2>/dev/null && kill -0 $sw 2>/dev/null"
+  ej --quiet --close
+  dv_check "--close: ejected, Steam closed" '.ok == true and .phase == "ejected" and (.closed | length) == 1'
+  dv_assert "Steam was asked with -shutdown, not killed" grep -qx 'steam -shutdown' "$EGPU_FAKE_LOG"
+  ej_done
+
+  echo "${BOLD}eject: --close leaves Steam alone while a game it started runs${RESET}"
+  ej_new steam-game
+  ej_ready
+  ej_app steamwebhelper - term "/dev/nvidiactl"
+  sw=$EJ_PID
+  printf 'steamwebhelper %s\nreaper 9999\n' "$sw" >"$EGPU_FAKE_DIR/pgrep.txt"
+  printf '%s\n' "$sw" >"$EGPU_FAKE_DIR/steam-pids"
+  ej --quiet --close
+  dv_error "a Steam game is running" holders_present
+  dv_assert "steam -shutdown was not run" bash -c "! grep -qx 'steam -shutdown' '$EGPU_FAKE_LOG'"
+  dv_assert "the helper was not signalled" ej_alive "$sw"
+  ej_done
+
   echo "${BOLD}eject: the shell with memory on the card blocks, and is never signalled${RESET}"
   ej_new shell-mem
   ej_ready

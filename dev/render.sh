@@ -119,6 +119,7 @@ eject-in-use-screens|eject-in-use-screens|eject
 eject-modules-held|eject-modules-held|eject
 eject-unloaded|eject-unloaded|eject
 eject-hung-screens|eject-hung-screens|eject
+games|ready|games
 STATES
   exit $status
 fi

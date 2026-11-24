@@ -17,7 +17,7 @@
 #   1. ui/ hash mismatch against ui/KIT; a file in ui/ not listed there; a type in ui/ not starting with U
 #   2. outside ui/: pixelSize: <digit>, "#hex" and Qt.rgba(<digits> colour literals,
 #      radius: <digit>, duration: <digit>, Style.font.caption
-#   3. a component named *Switch|Toggle|Choice|Chip|Confirm|Tip|Toast*; a *Row that is not a URow; the Omarchy or
+#   3. a component named *Switch|Toggle|Choice|Chip|Confirm|Tip|Toast*; a *Row whose root is not a URow (`component ProfileRow: URow` passes); the Omarchy or
 #      QtQuick Controls Button, Toggle, TextField, ToggleSwitch, ConfirmDialog, Dropdown, PanelActionButton, ToolTip
 #   4. a dismiss label of Close, Keep, Later, Dismiss, OK, Okay; raw Key_Escape or onEscapePressed (UKeys owns Esc)
 #   5. the walk (dev/harness/ui-walk.qml): names, hit targets, text size, contrast from rendered pixels, loops
@@ -149,7 +149,7 @@ rule 'Style.font.caption (10 px; the footnote is 11)' 'Style\.font\.caption'
 echo
 echo "${BOLD}3. One component per control class${RESET}"
 rule 'no private Switch, Toggle, Choice, Chip, Confirm, Tip or Toast component' '^\s*component\s+\w*(Switch|Toggle|Choice|Chip|Confirm|Tip|Toast)\w*\s*:'
-rule 'every *Row component is a URow' '^\s*component\s+\w*Row\s*:\s*(?!URow\b)'
+rule 'every *Row component is a URow' '^\s*component\s+\w*Row\s*:(?!\s*URow\b)'
 rule 'no ToggleSwitch, ConfirmDialog, Dropdown, PanelActionButton or ToolTip' '\b(ToggleSwitch|ConfirmDialog|Dropdown|PanelActionButton|ToolTip)\s*\{'
 rule 'no Button, Toggle or TextField (Omarchy qs.Ui or QtQuick Controls): UButton, USwitch, UField' '\b(Button|Toggle|TextField)\s*\{'
 
@@ -230,7 +230,7 @@ if ((score)); then
     'Switch@@\bUSwitch\s*\{@@\bToggleSwitch\s*\{|\bToggle\s*\{|^\s*component\s+\w*Switch\w*\s*:|(?<![A-Za-z])Switch\s*\{'
     'Pick / segmented@@\b(USegmented|UPick)\s*\{@@\b(ButtonGroup|Dropdown)\s*\{|^\s*component\s+\w*(Choice|Chip)\w*\s*:|\b\w*(Chips|ChoiceRow|ScopeChoice)\s*\{'
     'Field@@\b(UField|UStepper)\s*\{@@\b(TextField|NumberField|SpinBox)\s*\{'
-    'Row@@\bURow\s*\{@@^\s*component\s+\w*Row\s*:\s*(?!URow\b)'
+    'Row@@\bURow\s*\{@@^\s*component\s+\w*Row\s*:(?!\s*URow\b)'
     'Section header@@\bUSection\s*\{@@\bPanelSectionHeader\s*\{|^\s*component\s+\w*(Section|Heading)\w*\s*:'
     'Tip@@\bUTip\s*\{@@\b(ToolTip|PanelToolTip)\s*\{|^\s*component\s+\w*Tip\w*\s*:'
     'Toast / notice@@\b(UToast|UNotice)\s*\{@@^\s*component\s+\w*(Toast|Notice)\w*\s*:'

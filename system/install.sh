@@ -1,7 +1,7 @@
 #!/bin/bash -p
 #
 # omarchy-egpu system half
-# omarchy-egpu-version: 0.1.2
+# omarchy-egpu-version: 0.1.3
 #
 # Installs, reinstalls or removes the root half of omarchy-egpu (plan-engine.md
 # §10.4), the only way root ever receives files from the plugin folder:
@@ -12,6 +12,7 @@
 #                                                        runs the guard before those units
 #   /usr/share/polkit-1/actions/no.kalinewb.egpu.policy  its polkit actions
 #   /etc/udev/rules.d/61-omarchy-egpu.rules              links + auto-connect
+#   /etc/udev/rules.d/72-omarchy-egpu-seat.rules         keeps the compositor off the eGPU's card
 #   /etc/modules-load.d/<shipped name>                   boot-load mask (§9.2)
 #   /etc/omarchy-egpu/                                   the flag's directory
 #   /etc/omarchy-egpu/autoconnect                        the auto-connect flag
@@ -82,23 +83,24 @@ shopt -s nullglob
 umask 022
 export LC_ALL=C
 
-VERSION=0.1.2
+VERSION=0.1.3
 RAW_URL=https://raw.githubusercontent.com/Kalinewb/omarchy-egpu
 PLUGIN_ID=kalinewb.egpu
 BDF_RE='^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
 
 # The files root installs, by their name in system/. Each must hash to its pin
 # below; there is no other list, so a name missing here is never copied.
-SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules omarchy-egpu-modules.conf omarchy-egpu-sleep-guard omarchy-egpu-sleep-guard.conf)
+SYSTEM_FILES=(omarchy-egpu-admin no.kalinewb.egpu.policy 61-omarchy-egpu.rules 72-omarchy-egpu-seat.rules omarchy-egpu-modules.conf omarchy-egpu-sleep-guard omarchy-egpu-sleep-guard.conf)
 
 # pins:begin
 declare -A PINS=(
-  [omarchy-egpu-admin]=5710165f5c81b5c2fab3de7b893c4c63313a5c6971c0f85fb21e7eb5fb8c0e4d
-  [no.kalinewb.egpu.policy]=0906b1ae0864c1a7d519d9b876dbaa86043bc5560ef52308f859f57691657d1b
-  [61-omarchy-egpu.rules]=158f111d031adb56caaaf850cb292bc8854e316a4fc5c411ba4ef2fcb5a82b5e
-  [omarchy-egpu-modules.conf]=a80ef11952aa2a990213899c77ca3511191d1ac0360fc0a8b91677da7589f123
-  [omarchy-egpu-sleep-guard]=1910c8431f1bfc2b47fc3fc1e24a5e62d24dd9dd815d09ee4583567cefbe0431
-  [omarchy-egpu-sleep-guard.conf]=44294427616cc838352984c20295699e2f6f2da57ffe42dce7c54e8f05774e2a
+  [omarchy-egpu-admin]=563c51a92035ecc6f8cc3ed87b453ab059d0f2d51554c74e25607bee23c5ada2
+  [no.kalinewb.egpu.policy]=ce24eae4f24a9537134b3f67053ee004c4860ea655baf483b4bb74daa2f4e776
+  [61-omarchy-egpu.rules]=c0042d7c7449239fe443f4957602f110c5e0df4d280e3cf0c947552967d5394c
+  [72-omarchy-egpu-seat.rules]=a1f778283b6506c7802f9c7374152b9997a4cd00ea1f34058325165d289fd78e
+  [omarchy-egpu-modules.conf]=cf585d7bdaaeab63e5b479c047ba9ab3d31ab2ea31e8ce9969d6ab068afd79ff
+  [omarchy-egpu-sleep-guard]=35f8da66e66b307caef027fb00c04e59ffb43c448f4ffe3d89bee16b4f36fcda
+  [omarchy-egpu-sleep-guard.conf]=6ec4fb9db47a04bbe4ef49b0ea2e12bc784c2caee1e94af560fcd208f322e4ae
 )
 # pins:end
 
@@ -250,6 +252,7 @@ POLICY_DIR=$R/usr/share/polkit-1/actions
 POLICY=$POLICY_DIR/no.kalinewb.egpu.policy
 RULES_DIR=$R/etc/udev/rules.d
 RULES=$RULES_DIR/61-omarchy-egpu.rules
+RULES_SEAT=$RULES_DIR/72-omarchy-egpu-seat.rules
 MLD_ETC=$R/etc/modules-load.d
 # Where else systemd-modules-load reads, by precedence after /etc: one file
 # per name, the first found wins (modules-load.d(5)).
@@ -732,6 +735,7 @@ apply() {
   put "$SNAP/omarchy-egpu-admin" "$HELPER" 0755
   put "$SNAP/no.kalinewb.egpu.policy" "$POLICY" 0644
   put "$RULES_SRC" "$RULES" 0644
+  put "$SNAP/72-omarchy-egpu-seat.rules" "$RULES_SEAT" 0644
   put "$SNAP/omarchy-egpu-sleep-guard" "$GUARD" 0755
   for d in "${DROPINS[@]}"; do put "$SNAP/omarchy-egpu-sleep-guard.conf" "$d" 0644; done
   install_masks
@@ -782,6 +786,8 @@ do_uninstall() {
   # the helper; the helper; then everything else recorded.
   unput "$RULES" "${sha_of_path[$RULES]:-}"
   unset 'sha_of_path[$RULES]'
+  unput "$RULES_SEAT" "${sha_of_path[$RULES_SEAT]:-}"
+  unset 'sha_of_path[$RULES_SEAT]'
   if [[ -L $FLAG || -f $FLAG ]]; then
     rm -f -- "$FLAG" || die uninstall_failed "cannot remove $FLAG"
     REMOVED+=("${FLAG#"$R"}")

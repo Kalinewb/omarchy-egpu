@@ -51,7 +51,7 @@ Rectangle {
         id: mark
         width: 20
         height: 20
-        radius: width / 2
+        radius: root.theme.radius(height)   // the host's radius, so a square host gets a square ring
         color: root.theme.none
         border.width: root.theme.hairlineWidth
         border.color: root.ink

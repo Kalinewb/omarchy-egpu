@@ -83,3 +83,9 @@ Personal use first, but must be publishable later. So:
 ## DECISION 2026-10-10 (user): auto-connect defaults ON after setup
 - After the system half is installed, plugging in the eGPU connects it automatically (udev `load auto` + authorize), with a visible switch in Setup to turn it off.
 - Implementation notes (do after the security review of the current helper finishes, then re-review the delta): installer default `--autoconnect on` (still overridable); a helper verb or equivalent to toggle /etc/omarchy-egpu/autoconnect from the panel without a terminal (fixed path, fixed content, no arguments beyond on|off); engine config `connect.auto` reflects the real flag file; uninstall removes the flag.
+
+## DECISIONS 2026-11-24 (user): "still in use" after a game; apps and Steam's window by default
+- Safe eject must work after a normal gaming session. Causes found live (README, "0.1.3"): Hyprland adopts a hot-plugged eGPU despite `AQ_DRM_DEVICES` (logind and PID 1 hold the same fd), and Steam's window holds the card until Steam quits.
+- A second udev rule (`72-omarchy-egpu-seat.rules`, after systemd's 71-seat.rules) takes the seat tags off the eGPU's card node, so logind refuses Hyprland's TakeDevice, unless `/etc/omarchy-egpu/egpu-display` exists (policy `egpu-hdmi`). No new seat (a seat with a master device would get a login screen from the display manager). Root half: 0.1.3, reinstall needed, security re-review of the one added rule line.
+- The eject treats the Steam client as one closeable app (`steam -shutdown`); Steam's own window is kept off the eGPU by default (`-cef-disable-gpu` in a user copy of the launcher, applied once at the first service start, undoable in Setup).
+- Games view: Steam games and desktop apps, one switch each, all off by default; apps through `egpu-run` in a user copy of the launcher (`omarchy-egpu apps`). Supersedes "Games: Steam only" (ui-scope.md §7) for desktop apps.

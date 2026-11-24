@@ -53,6 +53,8 @@
 
 # shellcheck source=lib/status.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/status.sh"
+# shellcheck source=lib/steam/steam.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/steam/steam.sh"
 
 # The helper's verbs (§10.1). Nothing else is ever passed to pkexec.
 DEV_ADMIN_VERBS=(version load unload remove rescan holders inspect-initramfs)
@@ -499,6 +501,13 @@ device_connect() {
 # restart of the shell or a logout is the way out, not a SIGTERM from here).
 DEV_SHELL_COMMS=(quickshell)
 
+# Steam's own processes. The client's UI (steamwebhelper, a Chromium) opens
+# every GPU it can see, the eGPU included, and keeps it until Steam quits,
+# long after a game was closed. It has no memory on the card, so nvidia-smi
+# never names it, yet it holds the driver: the eject treats the whole client as
+# ONE app, "Steam", that blocks and that --close quits with `steam -shutdown`.
+DEV_STEAM_COMMS=(steam steamwebhelper)
+
 # _dev_family: this process and its ancestors, one pid per line. None of
 # them is ever signalled, whatever environment it carries: an eject typed into
 # a terminal started with egpu-run must not close that terminal.
@@ -573,12 +582,19 @@ _dev_offload_users() {
 #                apps that loaded libEGL_nvidia). Reported, does not block:
 #                they keep the modules loaded, not the card (DECISIONS
 #                2026-10-10, dev/e0-facts.md).
+#   Exception: this user's Steam client (DEV_STEAM_COMMS) is an `app`, why
+#                "steam_client", one row named "Steam" however many of its
+#                processes hold the card. The unload happens before the remove
+#                (DECISION 2026-11-21), so an open /dev/nvidia* or render node
+#                does block, and Steam is the one holder the user can close.
 _dev_classify() {
-  local holders=$1 procs=$2 offload=$3 family comp
+  local holders=$1 procs=$2 offload=$3 family comp steams
   family=$(printf '%s\n' "$4" | jq -R -s -c 'split("\n") | map(select(length > 0) | tonumber)')
+  steams=$(printf '%s\n' "${DEV_STEAM_COMMS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
   comp=$(compositor_pid)
   jq -cn --argjson h "$holders" --argjson procs "$procs" --argjson off "$offload" \
     --argjson comp "${comp:-0}" --argjson family "$family" --argjson uid "$UID" \
+    --argjson steams "$steams" \
     --args '
     $ARGS.positional as $shells
     | ([$h.holders[]?.pid]) as $held
@@ -595,16 +611,21 @@ _dev_classify() {
         | (if $x.pid == $comp or $x.comm == "Hyprland" then "compositor"
            elif ($shells | index($x.comm)) then "shell"
            elif $mem or $m != null then "app"
+           elif ($steams | index($x.comm)) and $x.uid == $uid then "app"
            else "incidental" end) as $role
         | {pid: $x.pid, comm: ($x.comm // ""), uid: $x.uid, nodes: ($x.nodes // []), role: $role,
            why: (if $role == "compositor" then "compositor"
                  elif $m != null then $m.why
                  elif $mem then "gpu_memory"
+                 elif $role == "app" then "steam_client"
                  else "open_device" end),
            gpu_mem_mb: (if $g == null then null else $g.mem_mb end),
            blocks: ($role == "app" or ($role == "shell" and $mem)),
            closeable: ($role == "app" and $x.uid == $uid and ($family | index($x.pid) | not))})
-    | unique_by(.pid)' "${DEV_SHELL_COMMS[@]}"
+    | unique_by(.pid)
+    | ([.[] | select(.why == "steam_client")] | .[0:1] | map(.comm = "Steam")) as $steam
+    | [.[] | select(.why != "steam_client")] + $steam
+    | sort_by(.pid)' "${DEV_SHELL_COMMS[@]}"
 }
 
 # _dev_survey <bdf> <family-lines>: who uses the card now, through the helper
@@ -637,16 +658,38 @@ _dev_gone() {
   return 1
 }
 
+# _dev_close_steam: ask this user's Steam to quit, without waiting (the
+# caller's loop waits, bounded by its own timeout). `steam -shutdown` is
+# Steam's own way; Flatpak Steam is asked through flatpak. Refuses (status 1)
+# while a game Steam started is running: the user's to close, never ours.
+_dev_close_steam() {
+  _steam_game_running && return 1
+  if _steam_native_running; then
+    (timeout 15 steam -shutdown >/dev/null 2>&1 </dev/null &)
+  elif _steam_flatpak_running; then
+    (timeout 15 flatpak run "$STEAM_FLATPAK_APP" -shutdown >/dev/null 2>&1 </dev/null &)
+  fi
+  return 0
+}
+
 # _dev_close <survey json> <timeout s>: SIGTERM to every closeable blocking
 # holder, then wait. Prints {closed: [...], survivors: [...]}. A pid whose
 # name changed since the survey is not signalled (it is not the same process).
 # Nothing is ever sent SIGKILL: what survives is the user's to decide.
 _dev_close() {
-  local survey=$1 secs=$2 n i pid comm sent=() deadline left=()
+  local survey=$1 secs=$2 n i pid comm why sent=() deadline left=()
   n=$(jq '[.[] | select(.blocks and .closeable)] | length' <<<"$survey")
   for ((i = 0; i < n; i++)); do
     pid=$(jq -r "[.[] | select(.blocks and .closeable)][$i].pid" <<<"$survey")
     comm=$(jq -r "[.[] | select(.blocks and .closeable)][$i].comm" <<<"$survey")
+    why=$(jq -r "[.[] | select(.blocks and .closeable)][$i].why" <<<"$survey")
+    if [[ $why == steam_client ]]; then
+      # The client is asked through Steam itself (`steam -shutdown`), never
+      # SIGTERM to its helper: Steam saves its state and stops its children.
+      # Refused while a game Steam started runs; then Steam is a survivor.
+      _dev_close_steam && sent+=("$pid")
+      continue
+    fi
     [[ $(read_attr "$EGPU_PROC/$pid/comm") == "$comm" ]] || continue
     kill -TERM "$pid" 2>/dev/null && sent+=("$pid")
   done
@@ -654,6 +697,12 @@ _dev_close() {
   while :; do
     left=()
     for pid in "${sent[@]}"; do
+      if [[ $(jq -r --argjson p "$pid" '.[] | select(.pid == $p) | .why' <<<"$survey") == steam_client ]]; then
+        # Steam is gone when none of its processes is left, not one pid.
+        _steam_native_running || _steam_flatpak_running || continue
+        left+=("$pid")
+        continue
+      fi
       _dev_gone "$pid" "$(jq -r --argjson p "$pid" '.[] | select(.pid == $p) | .comm' <<<"$survey")" || left+=("$pid")
     done
     (( ${#left[@]} == 0 )) && break

@@ -904,11 +904,23 @@ PY
       ! grep -qE "card[0-9]+\"|KERNEL==\"card1" "$1"' _ "$rules"
   sy_assert "rule: auto-connect runs only 'load auto', only with the flag file" \
     bash -c '[[ $(grep -c "RUN+=" "$1") == 1 ]] && grep "RUN+=" "$1" | grep -q "TEST==\"/etc/omarchy-egpu/autoconnect\".*RUN+=\"/usr/local/bin/omarchy-egpu-admin load auto\"$"' _ "$rules"
+  local seat=$REPO/system/72-omarchy-egpu-seat.rules
+  sy_assert "seat rule: sorts after systemd's 71-seat.rules, which adds the tags it removes" \
+    bash -c '[[ $(basename "$1") > 71-seat.rules ]]' _ "$seat"
+  sy_assert "seat rule: one rule line, for the eGPU's card node only (removable display class, drm_minor), not without the egpu-display flag" \
+    bash -c '[[ $(grep -c "TAG-=" "$1") == 1 ]] && grep "TAG-=" "$1" |
+      grep -q "^SUBSYSTEM==\"drm\", KERNEL==\"card\[0-9\]\*\", ENV{DEVTYPE}==\"drm_minor\", SUBSYSTEMS==\"pci\", ATTRS{class}==\"0x03\[0-9\]\*\", ATTRS{removable}==\"removable\", TEST!=\"/etc/omarchy-egpu/egpu-display\", TAG-=\"seat\", TAG-=\"master-of-seat\"$"' _ "$seat"
+  sy_assert "seat rule: only removes the two seat tags: no ID_SEAT (no new seat for the display manager to offer a login to), no RUN, no SYMLINK, no TAG+=" \
+    bash -c '! grep -vE "^\s*#" "$1" | grep -qE "ID_SEAT|RUN|SYMLINK|TAG\+=|OWNER|GROUP|MODE"' _ "$seat"
+  sy_assert "seat rule: skips removals" bash -c 'grep -qx "ACTION==\"remove\", GOTO=\"omarchy_egpu_seat_end\"" "$1"' _ "$seat"
   local udevadm_bin
   if udevadm_bin=$(PATH=/usr/bin:/bin type -P udevadm) && "$udevadm_bin" verify --help >/dev/null 2>&1; then
     sed 's/@PRIMARY_BDF@/0000:00:02.0/' "$rules" >"$T/61-omarchy-egpu.rules"
     if "$udevadm_bin" verify "$T/61-omarchy-egpu.rules" >"$T/err" 2>&1; then ok "rule: udevadm verify accepts the rendered rule"
     else bad "rule: udevadm verify: $(head -c 300 "$T/err")"; fi
+    cp -- "$seat" "$T/72-omarchy-egpu-seat.rules"
+    if "$udevadm_bin" verify "$T/72-omarchy-egpu-seat.rules" >"$T/err" 2>&1; then ok "seat rule: udevadm verify accepts it"
+    else bad "seat rule: udevadm verify: $(head -c 300 "$T/err")"; fi
   else
     echo "  ${DIM}skip  udevadm verify is not available${RESET}"
   fi
@@ -1389,6 +1401,8 @@ sy_test_install() {
   sy_assert "  …the auto-connect flag, mode 644, in a 755 directory" \
     test -f "$FX_ROOT/etc/omarchy-egpu/autoconnect" -a "$(stat -c %a "$FX_ROOT/etc/omarchy-egpu/autoconnect")" = 644 \
     -a "$(stat -c %a "$FX_ROOT/etc/omarchy-egpu")" = 755
+  sy_assert "  …the seat rule is the repo's bytes, mode 644, in /etc/udev/rules.d" \
+    bash -c 'cmp -s "$1" "$2" && [[ $(stat -c %a "$2") == 644 ]]' _ "$REPO/system/72-omarchy-egpu-seat.rules" "$FX_ROOT/etc/udev/rules.d/72-omarchy-egpu-seat.rules"
   sy_assert "  …the sleep guard is the repo's bytes, mode 755, in /usr/local/bin" \
     bash -c 'cmp -s "$1" "$2" && [[ $(stat -c %a "$2") == 755 ]]' _ "$REPO/system/omarchy-egpu-sleep-guard" "$FX_ROOT/usr/local/bin/omarchy-egpu-sleep-guard"
   sy_assert "  …its drop-in under nvidia-suspend, nvidia-hibernate and nvidia-suspend-then-hibernate, mode 644, the repo's bytes" \
@@ -1402,7 +1416,7 @@ sy_test_install() {
   sy_assert "  …a failure to start the guard (203) goes on, and nothing else is set" \
     bash -c '[[ $(grep -vc "^#\|^\[Service\]\|^ExecCondition=\|^$" "$1") == 1 ]] && grep -qx "SuccessExitStatus=203" "$1"' _ "$FX_ROOT/etc/systemd/system/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf"
   sy_assert "  …a record of every file and backup" \
-    bash -c '[[ $(grep -c "^file" "$1") == 9 && $(grep -c "^backup" "$1") == 1 ]]' _ "$FX_ROOT/var/lib/omarchy-egpu/installed"
+    bash -c '[[ $(grep -c "^file" "$1") == 10 && $(grep -c "^backup" "$1") == 1 ]]' _ "$FX_ROOT/var/lib/omarchy-egpu/installed"
 
   "$ENGINE" health >"$T/health.after" 2>/dev/null
   jq -e '(.[] | select(.id == "boot.modules_load_mask") | .level) == "ok"
@@ -1484,8 +1498,9 @@ sy_test_install() {
   printf 'edited by hand\n' >"$FX_ROOT/etc/omarchy-egpu/autoconnect"
   sy_install uninstall
   sy_check "install: uninstall removes everything and restores the stale file" \
-    '.ok == true and .kept == [] and .restored == ["/etc/modules-load.d/nvidia-utils.conf"] and (.removed | length) == 9
+    '.ok == true and .kept == [] and .restored == ["/etc/modules-load.d/nvidia-utils.conf"] and (.removed | length) == 10
      and any(.removed[]; . == "/etc/omarchy-egpu/autoconnect")
+     and any(.removed[]; . == "/etc/udev/rules.d/72-omarchy-egpu-seat.rules")
      and any(.removed[]; . == "/usr/local/bin/omarchy-egpu-sleep-guard")
      and any(.removed[]; . == "/etc/systemd/system/nvidia-suspend.service.d/omarchy-egpu-sleep-guard.conf")
      and any(.removed[]; . == "/etc/systemd/system/nvidia-hibernate.service.d/omarchy-egpu-sleep-guard.conf")
