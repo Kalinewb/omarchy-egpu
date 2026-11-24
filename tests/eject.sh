@@ -289,6 +289,31 @@ ej_test_hdmi() {
   ej_done
 }
 
+# A watcher that died leaves its fifo behind. Once that is full a write blocks
+# forever, which hung a real eject (2026-11-24, after a plugin reinstall).
+ej_test_stale_fifo() {
+  echo "${BOLD}eject: a dead watcher's full fifo does not hang it${RESET}"
+  ej_new stale-fifo
+  ej_ready
+  : >"$EGPU_RUN/watch.lock"
+  ( exec 9>"$EGPU_RUN/watch.lock"; flock 9; sleep 60 ) &
+  local holder=$!
+  echo "$holder" >>"$EGPU_FAKE_DIR/apps"
+  sleep 0.2
+  local fifo=$EGPU_RUN/.watch.999999.fifo
+  mkfifo -m 600 -- "$fifo"
+  # Fill it: 128 KiB with no reader (the pipe holds 64 KiB).
+  ( exec 8<>"$fifo"; head -c 65536 /dev/zero >&8; sleep 30 ) &
+  echo "$!" >>"$EGPU_FAKE_DIR/apps"
+  sleep 0.2
+  timeout 30 "$ENGINE" device eject --quiet >"$T/out.json" 2>"$T/err"
+  local rc=$?
+  if (( rc == 0 )) && jq -e '.ok == true' "$T/out.json" >/dev/null 2>&1; then ok "eject finishes with a dead watcher's full fifo in the run dir"
+  else bad "eject with a stale full fifo: rc $rc $(head -c 200 "$T/out.json")"; fi
+  [[ ! -e $fifo ]] && ok "the dead watcher's fifo is removed" || bad "the stale fifo is still there"
+  ej_done
+}
+
 ej_test_holders() {
   echo "${BOLD}eject: a real GPU user blocks; --close asks it to quit${RESET}"
   ej_new app
@@ -1015,6 +1040,7 @@ test_eject() {
   ej_run ej_test_clean
   ej_run ej_test_hdmi
   ej_run ej_test_holders
+  ej_run ej_test_stale_fifo
   ej_run ej_test_unload
   ej_run ej_test_display_safety
   ej_run ej_test_late_modules

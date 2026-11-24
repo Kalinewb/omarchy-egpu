@@ -524,6 +524,15 @@ status_watch() {
   # Events posted while no watcher ran are stale; jobs post only to a running
   # one (lib/device.sh _dev_event).
   rm -f -- "$EGPU_RUN/events.spool"
+  # The fifos and docs of watchers that are gone (they cannot clean up after a SIGKILL).
+  local stale pid
+  for stale in "$EGPU_RUN"/.watch.*.fifo "$EGPU_RUN"/.watch.*.doc; do
+    [[ -e $stale ]] || continue
+    pid=${stale##*/.watch.}
+    pid=${pid%%.*}
+    [[ $pid == "$$" ]] && continue
+    tr '\0' ' ' </proc/$pid/cmdline 2>/dev/null | grep -q 'status watch' || rm -f -- "$stale"
+  done
 
   # Producers only mark the state dirty. They never inherit the lock fd, so a
   # stray child cannot keep a dead watcher's lock alive.

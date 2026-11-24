@@ -158,8 +158,20 @@ _dev_event() {
   flock -n "$EGPU_RUN/watch.lock" true 2>/dev/null && return 0
   jq -cn --arg e "$1" --argjson d "$d" --argjson at "$(now_ms)" \
     '{event: $e, at: $at, detail: $d}' >>"$EGPU_RUN/events.spool" 2>/dev/null || return 0
+  # Only a live watcher's fifo. One left by a watcher that died (a plugin
+  # update, a crash) has no reader: once it is full a write to it blocks
+  # forever, and with it the eject. Such a fifo is removed. The write itself is
+  # bounded too, in case a live watcher is stuck.
+  local pid
   for f in "$EGPU_RUN"/.watch.*.fifo; do
-    [[ -p $f ]] && printf 'egpu-event\n' 1<>"$f"
+    [[ -p $f ]] || continue
+    pid=${f##*/.watch.}
+    pid=${pid%.fifo}
+    if [[ $pid =~ ^[0-9]+$ ]] && tr '\0' ' ' </proc/$pid/cmdline 2>/dev/null | grep -q 'status watch'; then
+      timeout 1 sh -c 'printf "egpu-event\n"' 1<>"$f" 2>/dev/null
+    else
+      rm -f -- "$f" "${f%.fifo}.doc"
+    fi
   done
   return 0
 }
