@@ -31,6 +31,8 @@ Item {
   signal closeRequested()
 
   readonly property bool showTabs: header.tab !== "" && header.tabs.length > 1
+  // How wide the tabs want to be, so a notch panel can put them beside its back strip when they fit.
+  readonly property real tabsImplicitWidth: tabsControl.implicitWidth
 
   implicitHeight: header.theme.rowHeight
 
@@ -44,6 +46,7 @@ Item {
   }
 
   USegmented {
+    id: tabsControl
     theme: header.theme
     visible: header.showTabs
     anchors.left: backButton.visible ? backButton.right : parent.left

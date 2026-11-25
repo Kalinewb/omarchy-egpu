@@ -54,7 +54,8 @@ ShellRoot {
     readonly property real radius: 8
     readonly property string fontFamily: Commons.Style.font.family
     readonly property real restHeight: 32
-    readonly property real maxPanelWidth: 560
+    // 560 unless UI_RENDER_MAXW says otherwise (the live notch gives a panel most of the screen's width).
+    readonly property real maxPanelWidth: Number(Quickshell.env("UI_RENDER_MAXW") || 560)
     readonly property real maxPanelHeight: 600
     function radiusFor(size) { return Math.max(0, Math.min(radius, size / 2)) }
     function openPanel(r, s) { return "opened" }

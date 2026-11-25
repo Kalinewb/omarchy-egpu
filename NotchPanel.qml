@@ -82,7 +82,12 @@ FocusScope {
   readonly property real zoneWidth: root.surfaceHost && root.surfaceHost.backZoneWidth > 0 ? root.surfaceHost.backZoneWidth : 0
   readonly property bool besideZone: root.zoneWidth > 0 && (root.implicitWidth - root.zoneWidth) / 2 - root.inset >= root.theme.space(56)
   // Only the compact page has a first row that fits beside the zone; a header starts below it.
-  readonly property real topInset: (root.current === "main" && root.besideZone) ? root.inset : Math.max(root.inset, root.zoneHeight)
+  // A tab page's header (the tabs on the left, the close on the right) also sits beside the zone, in the
+  // same row as the strip, when the tabs fit in the left gutter; the panel widens a little for it (below).
+  readonly property real tabsWidth: header.tabsImplicitWidth
+  readonly property bool headerBeside: root.onTab && root.zoneWidth > 0 && root.tabsWidth > 0
+                                       && (root.implicitWidth - 2 * root.inset - root.zoneWidth) / 2 - root.theme.sp.sm >= root.tabsWidth
+  readonly property real topInset: ((root.current === "main" && root.besideZone) || root.headerBeside) ? root.inset : Math.max(root.inset, root.zoneHeight)
 
   // True between the notch's open() and close(). Every view keys its live
   // work on this, never on `visible` or the window (§7.7).
@@ -200,7 +205,9 @@ FocusScope {
 
   // The compact page is as wide as the others under a back-strip zone: the headline has only the gutter
   // beside it, and 320 leaves each gutter about 70.
-  readonly property real wantWidth: root.theme.space((root.current === "main" && root.zoneWidth <= 0) ? 320 : 400) + 2 * root.inset
+  // A tab page under a zone is as wide as its tabs need to sit beside the zone, up to 640.
+  readonly property real wantWidth: Math.max(root.theme.space((root.current === "main" && root.zoneWidth <= 0) ? 320 : 400),
+      root.onTab && root.zoneWidth > 0 ? Math.min(root.theme.space(640), 2 * (root.tabsWidth + root.theme.sp.sm) + root.zoneWidth) : 0) + 2 * root.inset
   // The foot line is reserved under the content: the kit's tips (placement foot) write to it.
   readonly property real footHeight: foot.implicitHeight
   implicitWidth: Math.min(root.maxWidth > 0 ? root.maxWidth : root.wantWidth, root.wantWidth)
