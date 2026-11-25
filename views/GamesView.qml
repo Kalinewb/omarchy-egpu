@@ -105,6 +105,19 @@ Column {
     })
   }
 
+  // `--adopt` keeps the game's own options in the backup and puts it under the switch.
+  function takeOver(g) {
+    if (view.busy || !view.engine) return
+    view.busy = true
+    view.engine.run(["steam", "set", String(g.appid), "on", "--adopt", "--queue"], function (r) {
+      if (!view) return
+      view.busy = false
+      if (r.ok) view.say(r.json && r.json.queued ? "Taken over. It runs on the eGPU once Steam closes." : "Taken over. It runs on the eGPU.", "secondary")
+      else view.say(Errors.forResult(r), "bad")
+      view.refresh()
+    })
+  }
+
   function setApp(a, on) {
     if (view.busy || !view.engine) return
     view.busy = true
@@ -194,6 +207,16 @@ Column {
         label: modelData.name
         value: Games.stateWord(modelData.state)
         valueQuiet: true
+        tip: Games.stateTip(modelData.state)
+        // A game with launch options of its own: eGPU takes it over only when asked.
+        UButton {
+          theme: view.theme
+          text: "Take over"
+          visible: modelData.state === "manual"
+          enabled: !view.busy
+          anchors.verticalCenter: parent.verticalCenter
+          onClicked: view.takeOver(modelData)
+        }
         USwitch {
           theme: view.theme
           label: modelData.name

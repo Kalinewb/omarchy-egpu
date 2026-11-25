@@ -15,14 +15,27 @@ function togglable(state) { return state !== "manual" && state !== "modified" }
 function stateWord(state) {
   switch (state) {
   case "stale": return "waiting for the eGPU"
-  case "pending_on": case "pending_off": return "when Steam closes"
-  case "manual": return "set by hand"
-  case "modified": return "edited by hand"
+  case "pending_on": case "pending_off": return "saved, applies when Steam closes"
+  case "manual": return "own launch options"
+  case "modified": return "edited in Steam"
   default: return ""
   }
 }
 
-function appWord(state) { return state === "manual" ? "set by hand" : "" }
+function appWord(state) { return state === "manual" ? "own settings" : "" }
+
+// The longer answer behind a row's word, shown as its tip (pulled, not printed).
+function stateTip(state) {
+  switch (state) {
+  case "pending_on": case "pending_off":
+    return "Steam rewrites game settings when it quits, so this change waits until Steam is closed."
+  case "manual":
+    return "This game has its own launch options in Steam. Clear them in Steam (Properties, Launch options), or press Take over to let eGPU manage it. Your old options are kept in the backup."
+  case "modified":
+    return "The launch options eGPU wrote were changed in Steam, so eGPU leaves them alone."
+  default: return ""
+  }
+}
 
 function pending(games) {
   var n = 0

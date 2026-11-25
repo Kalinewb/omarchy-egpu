@@ -154,7 +154,7 @@ function decide(s, ctx) {
     r.headline = bolt.domain === false ? "No port" : "No eGPU"
     r.detail = bolt.domain === false ? "No Thunderbolt or USB4 port" : "Plug in your eGPU"
     if (bolt.domain === false) r.facts = "A Thunderbolt eGPU cannot connect to this computer."
-    else if (enclosure !== "" && bolt.stored) r.facts = "Remembered: " + enclosure
+    else if (enclosure !== "" && bolt.stored) r.facts = "Saved enclosure: " + enclosure
     if (setup.neverSetUp) {
       // The button is the way to Setup; a sentence would say it twice.
       r.button = btn("Set up eGPU support", "setup")
