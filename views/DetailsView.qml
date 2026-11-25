@@ -60,6 +60,21 @@ Column {
   readonly property string errorCode: view.s && view.s.summary && view.s.summary.state === "error"
     ? (view.gpu.error ? String(view.gpu.error) : (view.bolt.status === "auth-error" ? "auth_error" : "")) : ""
 
+  // What is installed: read from the health rows, so it is filled even with nothing plugged in.
+  readonly property var healthRows: view.health && view.health.rows ? view.health.rows : []
+  function healthTitle(id) {
+    for (var i = 0; i < view.healthRows.length; i++)
+      if (view.healthRows[i] && view.healthRows[i].id === id) return String(view.healthRows[i].title || "")
+    return ""
+  }
+  // The row's title without the words the label already says ("System half 0.1.3 installed" -> "0.1.3 installed").
+  function healthShort(id, prefix) {
+    var t = view.healthTitle(id)
+    var low = t.toLowerCase(), p = prefix.toLowerCase()
+    if (low.indexOf(p) === 0) t = t.slice(p.length).replace(/^\s*(is\s+|:\s*)?/, "")
+    return view.orDash(t)
+  }
+
   function orDash(v) { return v === null || v === undefined || v === "" ? "—" : String(v) }
 
   function boltLine() {
@@ -71,7 +86,7 @@ Column {
     var words = { connected: "plugged in, waiting to be allowed", authorized: "connected", disconnected: "not plugged in",
                   "auth-error": "could not be allowed", authorizing: "being allowed" }
     var parts = [words[b.status] || String(b.status || "unknown")]
-    if (b.stored) parts.push("remembered")
+    if (b.stored) parts.push("saved")
     if (b.generation) parts.push(String(b.generation))
     return parts.join(" · ")
   }
@@ -172,6 +187,17 @@ Column {
         shown: (modelData.description ? String(modelData.description) + " · " : "") + (modelData.enabled ? "on" : "off")
       }
     }
+  }
+
+  USection {
+    theme: view.theme
+    visible: view.healthRows.length > 0
+    title: "Installed"
+    Fact { label: "System half"; shown: view.healthShort("system.helper", "System half") }
+    Fact { label: "Auto-connect"; shown: view.healthShort("system.autoconnect", "Auto-connect") }
+    Fact { label: "Sleep units"; shown: view.healthShort("driver.sleep", "NVIDIA sleep units") }
+    Fact { label: "Vulkan"; shown: view.healthShort("tools.vulkaninfo", "") }
+    Fact { label: "Steam"; shown: view.healthShort("steam.client", "") }
   }
 
   // ------------------------------------------------------------ components
