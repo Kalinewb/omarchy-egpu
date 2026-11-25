@@ -65,7 +65,7 @@ ShellRoot {
     readonly property real radius: 8
     readonly property string fontFamily: "JetBrainsMono Nerd Font"
     readonly property real restHeight: 32
-    readonly property real maxPanelWidth: 560
+    readonly property real maxPanelWidth: Number(Quickshell.env("UI_RENDER_MAXW") || 560)
     readonly property real maxPanelHeight: 600
     function radiusFor(size) { return Math.min(radius, size / 2) }
 
