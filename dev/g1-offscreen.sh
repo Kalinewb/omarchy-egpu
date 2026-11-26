@@ -422,6 +422,10 @@ check "a Fix the plugin can do runs its engine verb (display apply), the rows ar
 check "Setup opened on a row puts it first, details open" "yes" \
   "$(has "The desktop's graphics settings are not written yet ¦ Fix ¦ They keep the desktop and its apps on the laptop's graphics. ¦ Hide details ¦ hypr.session_env" "$(field texts "$out")")"
 
+out=$(view games in-use-procs)
+check "Games with a queued change and Steam closed applies it at once (steam apply, never --close)" "yes|no" \
+  "$(has '["steam","apply"]' "$(calls)")|$(has '"--close"' "$(calls)")"
+
 # =============================================================================
 step "Overview and Details from fixtures (§5.1, ui-scope.md §2.1-2.2)"
 out=$(view overview plugged-unauthorized EGPU_HARNESS_CLICK="Connect")

@@ -31,7 +31,7 @@ Item {
   // A read asked for while one runs: done once it ends.
   property bool again: false
 
-  function hold() { root.holders += 1; if (root.holders === 1) root.refresh() }
+  function hold() { root.holders += 1; if (root.holders === 1) { root.queueTried = false; root.refresh() } }
   function release() { root.holders = Math.max(0, root.holders - 1) }
 
   function refresh() {
@@ -44,10 +44,32 @@ Item {
       if (result.ok && result.json && typeof result.json.length === "number") {
         root.rows = result.json
         root.error = ""
+        root.applyWaitingQueue()
       } else {
         root.error = result.error || ("exit " + result.code)
       }
       if (root.again) { root.again = false; root.refresh() }
+    })
+  }
+
+  // A game change made while Steam ran is queued until Steam closes, and the queue survives a reboot.
+  // With Steam already closed nothing would ever apply it, so a panel that reads the health applies it
+  // at once (`steam apply`: no --close, so it can never close a Steam that is running). Once per opening.
+  property bool queueTried: false
+  signal queueApplied(int count)
+  function applyWaitingQueue() {
+    if (root.queueTried || !root.engine || !root.rows) return
+    if (!(root.status && root.status.steam && root.status.steam.running === false)) return
+    if (typeof root.engine.can === "function" && !root.engine.can("steam apply")) return
+    var waiting = false
+    for (var i = 0; i < root.rows.length; i++)
+      if (root.rows[i] && root.rows[i].id === "steam.pending" && root.rows[i].level !== "ok") waiting = true
+    if (!waiting) return
+    root.queueTried = true
+    root.engine.run(["steam", "apply"], function (r) {
+      if (!root) return
+      if (r.ok && r.json) root.queueApplied(Number(r.json.applied || 0))
+      root.refresh()
     })
   }
 

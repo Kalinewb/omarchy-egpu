@@ -199,7 +199,8 @@ function describe(row, rows) {
     else {
       var k = Number((title.match(/^(\d+)/) || [0, 0])[1])
       say((k === 1 ? "One game change waits" : k + " game changes wait") + " for Steam to close", "",
-          { kind: "engine", label: "Close Steam and apply", args: ["steam", "apply", "--close", "--relaunch"], verb: "steam apply" })
+          { kind: "engine", label: "Apply now", args: ["steam", "apply", "--close", "--relaunch"], verb: "steam apply",
+            note: "Closes Steam first if it is open, then opens it again." })
     }
     break
   case "steam.client":

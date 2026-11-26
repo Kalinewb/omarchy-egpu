@@ -27,7 +27,7 @@ import "egpu/ui" as EgpuUi
 //   popup       indicator, then the popup opened and grabbed to a PNG
 //   routes      the popup's route stack: tabs, pushes, Back, Escape, first run
 //   view        one view (EGPU_HARNESS_VIEW: overview, details, setup, eject,
-//               compact) from a fixture's status and health, text and buttons
+//               compact, games) from a fixture's status and health, text and buttons
 //               dumped, optionally one button clicked (EGPU_HARNESS_CLICK; "A|B" for two) and
 //               dumped again, PNG
 //   primaries   the Overview and the compact view for every document in
@@ -192,7 +192,8 @@ ShellRoot {
       width: 328
       active: rootObj.caseName === "view"
       sourceComponent: rootObj.viewName === "details" ? detailsComp : rootObj.viewName === "setup" ? setupComp
-                     : rootObj.viewName === "eject" ? ejectComp : rootObj.viewName === "compact" ? compactViewComp : overviewComp
+                     : rootObj.viewName === "eject" ? ejectComp : rootObj.viewName === "compact" ? compactViewComp
+                     : rootObj.viewName === "games" ? gamesComp : overviewComp
       onLoaded: {
         item.requestRoute.connect(function (n) { rootObj.routesAsked = rootObj.routesAsked.concat([String(n)]) })
         item.requestClose.connect(function () { rootObj.closesAsked += 1 })
@@ -205,6 +206,7 @@ ShellRoot {
   Component { id: detailsComp; EgpuViews.DetailsView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true; statusNote: Quickshell.env("EGPU_HARNESS_NOTE") || "" } }
   Component { id: setupComp; EgpuViews.SetupView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true; focusId: Quickshell.env("EGPU_HARNESS_FOCUS") || "" } }
   Component { id: ejectComp; EgpuViews.EjectFlow { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
+  Component { id: gamesComp; EgpuViews.GamesView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 328; active: true } }
   Component { id: compactViewComp; EgpuViews.CompactView { status: rootObj.viewStatus; engine: viewEngine; health: viewHealth; theme: rootObj.harnessTheme; maxWidth: 320; active: true } }
 
   // What a person can press, by its words: the kit's UButton (`text`, `clicked`) and a row that opens a

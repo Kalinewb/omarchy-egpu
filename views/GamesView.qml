@@ -76,7 +76,7 @@ Column {
     if (!view.engine) return
     if (view.can("steam list")) view.engine.run(["steam", "list"], function (r) {
       if (!view) return    // the view was closed while the call ran
-      if (r.ok && r.json) { view.steam = r.json; view.steamError = "" }
+      if (r.ok && r.json) { view.steam = r.json; view.steamError = ""; view.applyWaiting() }
       else { view.steam = null; view.steamError = r.error === "steam_not_found" ? "" : Errors.forResult(r) }
     })
     if (view.can("apps list")) view.engine.run(["apps", "list"], function (r) {
@@ -85,7 +85,23 @@ Column {
       else { view.apps = null; view.appsError = Errors.forResult(r) }
     })
   }
-  onActiveChanged: if (active) view.refresh(); else { view.note = ""; search.clear() }
+  onActiveChanged: if (active) view.refresh(); else { view.note = ""; view.queueTried = false; search.clear() }
+
+  // Changes queued while Steam ran wait for it to close. If it is closed already (after a reboot, say),
+  // apply them now: plain `steam apply` never closes a Steam that is running. Once per opening.
+  property bool queueTried: false
+  function applyWaiting() {
+    if (view.queueTried || view.busy || view.steamRunning || view.pendingCount === 0 || !view.can("steam apply")) return
+    view.queueTried = true
+    view.busy = true
+    view.engine.run(["steam", "apply"], function (r) {
+      if (!view) return
+      view.busy = false
+      if (r.ok) view.say("Steam was closed, so the waiting changes are applied.", "secondary")
+      else view.say(Errors.forResult(r), "bad")
+      view.refresh()
+    })
+  }
   Component.onCompleted: if (active) view.refresh()
 
   // ------------------------------------------------------------ changing
