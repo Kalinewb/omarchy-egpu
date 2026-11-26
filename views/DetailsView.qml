@@ -193,11 +193,12 @@ Column {
     theme: view.theme
     visible: view.healthRows.length > 0
     title: "Installed"
-    Fact { label: "System half"; shown: view.healthShort("system.helper", "System half") }
-    Fact { label: "Auto-connect"; shown: view.healthShort("system.autoconnect", "Auto-connect") }
-    Fact { label: "Sleep units"; shown: view.healthShort("driver.sleep", "NVIDIA sleep units") }
-    Fact { label: "Vulkan"; shown: view.healthShort("tools.vulkaninfo", "") }
-    Fact { label: "Steam"; shown: view.healthShort("steam.client", "") }
+    // A line the health does not answer is left out, not shown as a dash.
+    Fact { visible: view.healthTitle("system.helper") !== ""; label: "System half"; shown: view.healthShort("system.helper", "System half") }
+    Fact { visible: view.healthTitle("system.autoconnect") !== ""; label: "Auto-connect"; shown: view.healthShort("system.autoconnect", "Auto-connect") }
+    Fact { visible: view.healthTitle("driver.sleep") !== ""; label: "Sleep units"; shown: view.healthShort("driver.sleep", "NVIDIA sleep units") }
+    Fact { visible: view.healthTitle("tools.vulkaninfo") !== ""; label: "Vulkan"; shown: view.healthShort("tools.vulkaninfo", "") }
+    Fact { visible: view.healthTitle("steam.client") !== ""; label: "Steam"; shown: view.healthShort("steam.client", "") }
   }
 
   // ------------------------------------------------------------ components
