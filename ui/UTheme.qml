@@ -32,6 +32,9 @@ QtObject {
   readonly property bool styled: hosted && host.styled === true
   readonly property string mode: !hosted ? "standalone" : (styled ? "styled" : "hosted-opaque")
   readonly property string density: hosted ? "notch" : "standalone"
+  // The host draws the one way back (the notch's strip; Esc is its alias) and pressing outside closes it,
+  // so a panel inside it shows no close of its own (UClose hides itself).
+  readonly property bool hostHasBack: hosted && !!host.features && host.features.indexOf("panelBack") !== -1
 
   // ---- reduced motion: the host's, else OMARCHY_REDUCED_MOTION (alias NOTCH_REDUCED_MOTION)
   readonly property bool envReduced: Tokens.reducedFrom(function(name) { return Quickshell.env(name) || "" })

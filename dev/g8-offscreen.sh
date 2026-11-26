@@ -322,6 +322,8 @@ check "the compact page starts at the inset, not pushed down: its first row sits
   "$(IFS='|' read -r t lg z <<<"$(field strip.top "$o")"; [[ $t == "$lg" ]] && echo yes || echo "$t vs $lg")"
 check "at the root the strip's press is answered no, and nothing moved" "false:main" "$(field strip.mainAnswer "$o")"
 check "the full panel draws no back chevron of its own" "none" "$(field strip.full.back "$o")"
+check "…and no ✕, on the compact page or the full panel: the strip goes back, Esc and a press outside close" "none|none" \
+  "$(field strip.main.close "$o")|$(field strip.full.close "$o")"
 check "…and the pages with a header (tabs, a title, the close) start below the strip's zone, as the kit says" "yes" \
   "$(IFS='|' read -r t lg z <<<"$(field strip.fullTop "$o")"; (( t >= z )) && echo yes || echo "$t vs zone $z")"
 check "the strip's press goes through a view's dialog, the sheet, the tab, then says no at main, and never closes" \

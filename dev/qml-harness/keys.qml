@@ -211,10 +211,11 @@ ShellRoot {
     var p = t.make()
     p.open("main"); t.wait(300)
     if (shell.sets.indexOf("keys") !== -1) {
-      // Tab walks the controls in reading order: the close, the one primary, the row that opens the Overview.
+      // Tab walks the controls in reading order: the one primary, the row that opens the Overview. No close:
+      // this notch draws its own way back (panelBack), so the kit hides the ✕.
       var seen = []
-      for (var i = 0; i < 3; i++) { t.keyClick(Qt.Key_Tab); seen.push(shell.focusName(hostedWindow)) }
-      shell.check("Tab walks the compact page: the close, the primary, the row that opens the Overview", "✕|Safe eject|Open full panel", seen.join("|"))
+      for (var i = 0; i < 2; i++) { t.keyClick(Qt.Key_Tab); seen.push(shell.focusName(hostedWindow)) }
+      shell.check("Tab walks the compact page: the primary, the row that opens the Overview (no ✕ in the notch)", "Safe eject|Open full panel", seen.join("|"))
       t.keyClick(Qt.Key_Tab)
       shell.check("...and Tab goes on round (the ring is closed, nothing is trapped)", true, shell.focusName(hostedWindow) !== "")
       t.keyClick(Qt.Key_Backtab); t.keyClick(Qt.Key_Backtab)
@@ -249,13 +250,12 @@ ShellRoot {
         t.keyClick(Qt.Key_Left); t.wait(50)
         shell.check("Left twice picks Overview again", "main>overview", t.st())
       }
-      // The one close: Tab to it, Enter.
+      // No close in the notch: its strip goes back and Escape closes, so Tab never lands on a ✕.
       p = t.make(); p.open("full"); t.wait(300)
-      var close = null
-      for (var j = 0; j < 4 && !close; j++) { t.keyClick(Qt.Key_Tab); if (shell.focusName(hostedWindow) === "✕") close = true }
-      shell.check("Tab reaches the one close", true, !!close)
-      t.keyClick(Qt.Key_Return); t.wait(50)
-      shell.check("Enter on it closes the panel", 1, t.closes)
+      var close = false
+      for (var j = 0; j < 8 && !close; j++) { t.keyClick(Qt.Key_Tab); if (shell.focusName(hostedWindow) === "✕") close = true }
+      shell.check("the full panel in the notch has no ✕ for Tab to reach (the notch's own way back is the one)", false, close)
+      shell.check("...and nothing closed on the way round", 0, t.closes)
     }
   }
 

@@ -96,7 +96,8 @@ Item {
     cursorShape: Qt.PointingHandCursor
     onClicked: root.activated()
   }
-  HoverHandler { id: hover; enabled: root.clickable }
+  // On for a row with a tip too: a plain row is not clickable, but its tip still opens on hover.
+  HoverHandler { id: hover; enabled: root.clickable || root.tip !== "" }
 
   // The `current` mark: an accent bar in the margin.
   Rectangle {

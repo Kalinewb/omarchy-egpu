@@ -13,9 +13,12 @@ Item {
   property bool down: mouse.pressed
   property bool showFocus: activeFocus
 
-  implicitWidth: theme.controlHeight
+  // Not drawn inside a host that has its own way back and closes on a press outside (the notch):
+  // there it would be a second way out. A layout anchored to it gets its width back.
+  visible: !root.theme.hostHasBack
+  implicitWidth: visible ? theme.controlHeight : 0
   implicitHeight: theme.controlHeight
-  activeFocusOnTab: true
+  activeFocusOnTab: visible
   Accessible.role: Accessible.Button
   Accessible.name: "Close"
   Accessible.onPressAction: root.activated()

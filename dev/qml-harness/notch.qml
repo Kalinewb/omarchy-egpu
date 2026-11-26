@@ -425,6 +425,7 @@ ShellRoot {
     rootObj.log("strip.top", Math.round(fl.y) + "|" + p.theme.sp.lg + "|" + host.backZoneHeight)
     rootObj.log("strip.mainAnswer", String(p.goBackInside()) + ":" + st())
     rootObj.log("zone.main", rootObj.zoneReport(p) + " w=" + Math.round(p.width))
+    rootObj.log("strip.main.close", rootObj.findClose(p) ? "drawn" : "none")
     p.requestRoute("full")
     rootObj.log("zone.overview", rootObj.zoneReport(p) + " w=" + Math.round(p.width))
     p.requestRoute("setup")
@@ -437,6 +438,7 @@ ShellRoot {
     p.requestRoute("full")
     rootObj.log("strip.full.texts", rootObj.texts(p, []).join(" ¦ "))
     rootObj.log("strip.full.back", rootObj.findBack(p) ? "drawn" : "none")
+    rootObj.log("strip.full.close", rootObj.findClose(p) ? "drawn" : "none")
     rootObj.log("strip.fullTop", Math.round(fl.y) + "|" + p.theme.sp.lg + "|" + host.backZoneHeight)
     p.requestRoute("eject")
     var routes = {}

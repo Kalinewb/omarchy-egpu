@@ -177,7 +177,8 @@ Column {
       UClose {
         id: closeButton
         theme: view.theme
-        visible: view.showClose
+        // The kit hides it inside a host with its own way back (the notch's strip); this only adds the caller's say.
+        visible: view.showClose && !view.theme.hostHasBack
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         onActivated: view.requestClose()
