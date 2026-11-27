@@ -40,8 +40,9 @@ security review with conditions; the changes made for it (auto-connect switch, e
 script, the sleep guard (below): both await a security review before they are installed.
 0.1.2 (after two reviews) makes the helper's `remove` refuse while the NVIDIA modules are loaded, makes the sleep guard exit 0 on SIGTERM/SIGHUP/SIGINT, answers a repeated eject with the driver still loaded as `modules_held` (do not suspend) instead of "safe", and says when a failed eject left the driver unloaded. The version is bumped so the engine can tell this helper from the older installed one: after updating, reinstall the system half (below).
 
-- Connect, eject and rescan ask for no password at the active local session (polkit `allow_active=yes`). Turning
-  auto-connect on or off from the panel asks for your own password.
+- Connect, eject and rescan ask for no password at the active local session (polkit `allow_active=yes`). The
+  panel only shows whether auto-connect is on; changing it takes the `pkexec` command below, which asks for your own
+  password.
 - Safe eject refuses while a monitor on the eGPU is still lit, and after it the eGPU is left alone by
   auto-connect until you unplug it or press Connect.
 - Safe eject unloads the NVIDIA driver **before** it removes the card, and refuses while anything still holds
@@ -108,7 +109,8 @@ d="$HOME/.config/omarchy/plugins/kalinewb.egpu" && sum=$(curl -fsSL https://raw.
 - **Auto-connect is on after a first install.** Plugging in the eGPU then loads its driver through the helper; with
   it off, the panel's Connect does. Add `--autoconnect off` before `install` in the command to start with it off,
   or switch it later with `pkexec /usr/local/bin/omarchy-egpu-admin autoconnect off` (or `on`; asks for your
-  password), which the panel's Setup switch will run. Later installs keep whatever you chose. No reload is needed.
+  password). The panel's Setup shows the setting but cannot change it. Later installs keep whatever you chose. No
+  reload is needed.
 - The terminal Setup opens first asks GitHub whether the release the command points at is published, before
   any `sudo`. If it is not (HTTP 404, e.g. the tag `v0.1.3` was never pushed, or the repository is private) it
   says so, changes nothing and stops, instead of the command's own `curl: (22) ... 404`.
@@ -154,10 +156,10 @@ systemd and systemd-logind. Three separate causes, found from `fuser` and Hyprla
 
 ## The panel's UI
 
-The panel (Overview, Details, Setup, the eject sheet, the header) is built on the suite's shared UI kit,
+The panel (Overview, Details, Games, Setup, the eject sheet, the header) is built on the suite's shared UI kit,
 [omarchy-ui](https://github.com/Kalinewb/omarchy-ui): one set of tokens, motion and controls, so every kalinewb
 plugin looks and behaves the same. **External dependencies: none at run time.** `ui/` is vendored (copied,
-never linked) from omarchy-ui with `dev/sync-ui.sh --from ../omarchy-ui --only ...`, and `ui/KIT` records the
+never linked) from omarchy-ui with `dev/sync-ui.sh --from ../omarchy-ui --only ... --tools`, and `ui/KIT` records the
 kit's commit and a hash per file; `dev/check-ui.sh` fails if one was edited, so a fix goes to the kit and comes
 back through a re-sync. Only the parts the panel uses are copied. The old private controls (`views/ui/`: `Action`,
 `Link`, `Sentence`, `Spinner`, `Switch`) and the private palette in `common/Palette.js` are gone; `Palette.js`
@@ -173,11 +175,11 @@ keeps the glyphs, `look()` (the one state-to-look mapping the bar, the glance an
   (standalone only), `UClose`, `UEmpty`. Three text levels (primary, secondary, metadata) and a named spacing scale
   (`theme.sp.xs` to `xxl`).
 - **One back, one close.** Under the notch the strip at the top centre is the one way back (see below), so the panel
-  draws no back control there; the standalone popup draws the kit's `‹`. The one close is the `✕` at the top right of
-  every page.
+  draws no back control there, and no `✕` either: the strip goes back, Esc and a press outside close. The standalone
+  popup draws the kit's `‹` and the `✕` at the top right of every page, as does a notch without the strip.
 - **Keys** (all through the kit's `UKeys`, the one Esc handler). Esc closes, in order: a tip, a confirm that is asking
   (it cancels), Setup's Advanced, then one route back (Details and the eject sheet to the Overview, Setup to where it
-  was opened from), then, with nowhere to go back to, the panel. Tab and Shift+Tab walk every control (the `✕`, the
+  was opened from), then, with nowhere to go back to, the panel. Tab and Shift+Tab walk every control (the `✕` where it is drawn, the
   primary, the notice's link, the rows that open a page, Setup's Fix buttons); Enter or Space press the focused one;
   Left and Right on the tabs switch tab; Enter with nothing focused presses the page's one primary button. A Fix from
   the Overview opens Setup on its row, marks the row with an accent bar at its left edge (the selection, apart from the
@@ -192,7 +194,10 @@ keeps the glyphs, `look()` (the one state-to-look mapping the bar, the glance an
   springs are off, loops stop and show their final frame (the ring is a steady half arc; the bar glyph stops pulsing
   and stays at full strength), fades stay.
 
-### Changes since 0.1.0 (the UI migration; no engine, service, manifest or helper change)
+### Changes since 0.1.0, as of 2026-11-21 (the UI migration; no engine, service, manifest or helper change)
+
+This list is the migration as it landed. Since 2026-11-26 the notch draws no `✕`, and a tab page's tabs sit beside
+the strip's zone when they fit (see "In the notch").
 
 The UI migration alone left the version at 0.1.0: it is pinned in `system/` (the helper's and the installer's
 `VERSION`, their checksums and `install.sh.sha256`), which a UI-only change does not touch, so a bump would have broken
@@ -235,6 +240,6 @@ files, so everything is at 0.1.2 together (`manifest.json`, the helper, the inst
 
 ## In the notch
 
-Under the notch the strip at the top centre is the one way back (and Esc its invisible alias): the panel draws no back control and answers the strip through `goBackInside()` (confirm, then Setup's Advanced, then the route, then the notch goes back to where it was opened from). The strip's 180 x 32 zone is kept clear of controls and text by the layout. The compact page keeps its first row in the gutters beside the zone, so headlines are a word or two (`No eGPU`, `In use`, `Ejected`, `Setup issue`) with the full sentence on the line under, and the glyph and the `✕` sit in the right gutter. The pages with a header (the tabs, a title, the `✕`) start below the zone, as the kit says for a header narrower than three zones. Without a notch strip (the standalone popup, an older notch) the header draws the kit's back chevron. `dev/g8-offscreen.sh` checks both, and runs the notch's `backZone` rule on every route and state.
+Under the notch the strip at the top centre is the one way back (and Esc its invisible alias): the panel draws no back control and answers the strip through `goBackInside()` (confirm, then Setup's Advanced, then the route, then the notch goes back to where it was opened from). The strip's 180 x 32 zone is kept clear of controls and text by the layout. The compact page keeps its first row in the gutters beside the zone, so headlines are a word or two (`No eGPU`, `In use`, `Ejected`, `Setup issue`) with the full sentence on the line under, and the glyph sits in the right gutter. A tab page's tabs sit in the left gutter of that same row when they fit there (the panel widens up to 640 for it); otherwise, and for a sub-page's title (Details, Safe eject), the header starts below the zone. Under the strip no page draws a `✕`. Without a notch strip (the standalone popup, an older notch) the header draws the kit's back chevron and the `✕`. `dev/g8-offscreen.sh` checks the panel with and without the strip, and runs the notch's `backZone` rule on every route and state.
 
 License: MIT

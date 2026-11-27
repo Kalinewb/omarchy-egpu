@@ -8,10 +8,12 @@ import "../ui"
 // only where nothing else goes back, the one back, a chevron at the left.
 //
 // Under the notch the strip at the top centre is the one visible way back
-// (and Esc its invisible alias), so there is no chevron: the shell leaves
-// `canBack` false and starts this row below the strip's zone, so nothing of
-// it sits where a press goes back. The standalone popup has no strip: the
-// chevron is always drawn when there is somewhere to go back to.
+// (and Esc its invisible alias), so there is no chevron (the shell leaves
+// `canBack` false) and no close (the kit's UClose hides itself there). The
+// shell puts the tabs beside the strip's zone when they fit in the left gutter
+// and otherwise starts this row below it, so nothing of it sits where a press
+// goes back. The standalone popup has no strip: it draws the close, and the
+// chevron whenever there is somewhere to go back to.
 //
 // It never repeats the state: the Overview says that once, in its headline
 // (ui-scope.md §0.3). Setup carries a mark while something needs fixing, as a

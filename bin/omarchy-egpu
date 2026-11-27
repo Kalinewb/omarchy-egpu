@@ -10,7 +10,7 @@
 #   display <verb> [args]       eGPU monitors, display.policy, the toggle file (§7; lib/display.sh)
 #   device connect [opts]       bolt → PCI → driver → verify (§6.1; lib/device.sh)
 #   connect [opts]              the same
-#   device eject [--close]      monitors off → holders → PCI remove → unload if free (§6.3)
+#   device eject [--close]      monitors off → holders → unload → PCI remove (§6.3)
 #   device rescan               bring an ejected card back without replugging (§6.4)
 #   device holders              who holds or uses the card, classified (§6.2)
 #

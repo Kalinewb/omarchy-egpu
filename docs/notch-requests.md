@@ -134,21 +134,8 @@ The error's `phase` is the phase the card is left in (`ready`).
 
 Since the review fixes, `driver_in_use` is answered BEFORE any monitor is touched whenever only the session, incidental holders or kernel references hold the driver (`display.touched: false`). The screens are only turned off, and then back on, when apps had to be closed first. `holders_present` and `hdmi_still_active` still leave the screens off (the answer lists them in `display`).
 
-Today `common/Errors.js` has no entry, so the sheet falls back to "Something went wrong." with the code under
-Details, and `EjectFlow.qml` shows its generic `failed` step. Suggested wording:
-
-- `Errors.sentences.driver_in_use`: "The driver is still in use, so the eGPU was left connected. Close what is using
-  it, or log out, then eject again."
-- With names, under it: "Still using it: quickshell, voxtype-osd-gtk and nvidia-persiste." (join `names` as
-  `EjectFlow.joined()` does). When `session_holds` is true add: "Your session itself holds the driver; logging out
-  lets go of it." When `shared_driver` is true use instead: "This computer's own NVIDIA GPU shares the driver, so
-  the eGPU cannot be ejected safely. Shut down before unplugging."
-- No "Close them" button: `can_close` is false in practice, and the shell and the compositor are never closed by
-  the plugin. For `driver_in_use` the engine now turns the screens back on itself; a "Turn the screens back on"
-  action is still worth offering for `holders_present` (they stay off) and when `display.restore_failed` is not
-  empty.
-- `held_after_eject` (`Errors.note`) now only describes a card that was pulled without an eject: "Log out before
-  plugging the eGPU in again." stays right. A clean eject's answer has `modules.held_after_eject: false`.
+Done: `common/Errors.js` words `driver_in_use` and `views/EjectFlow.qml` draws its failed step (see "UI work for the
+merge" below).
 
 ## New use of `modules_held` in `device eject` (do not suspend)
 

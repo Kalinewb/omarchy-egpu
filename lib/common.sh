@@ -3,8 +3,10 @@
 # common.sh — shared by every engine module.
 #
 # Paths, JSON output, config, PCI/sysfs readers, backend loading and enclosure
-# profiles. Sourced, never run. Each module (status.sh, health.sh, ...) sources
-# this and nothing else from lib/ except the backend it loads.
+# profiles. Sourced, never run. Every module uses this; some also source each
+# other (status.sh: health.sh; health.sh: steam/steam.sh and display.sh;
+# steam.sh: apps.sh; device.sh: status.sh and steam/steam.sh). Backends are
+# loaded through backend_load.
 #
 # Every system location is read through a variable so the test suite can point
 # the engine at a fixture tree (plan-engine.md §4.1). External tools are called

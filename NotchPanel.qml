@@ -13,7 +13,7 @@ import "views"
 // integration, which exists once.
 //
 // Routes:  main     CompactView (§7.6)
-//          overview, setup (and display, games once built)
+//          overview, games, setup (and display once built)
 //                   the standalone tabs, in the same Header; "full" is
 //                   the Overview
 //          details  the Details page, pushed over the Overview
@@ -33,13 +33,15 @@ import "views"
 // The notch draws an integration's panel from its top edge with no padding
 // of its own (notch:Bar.qml integrationHost), so the inset is ours: the kit's
 // `sp.lg` on every side, and at the top at least the back strip's zone
-// (`surfaceHost.backZoneHeight`) on every page but the compact one, because a
-// press anywhere in that zone goes back and nothing of ours may sit in it.
-// The compact page (main) keeps its first row in the gutters beside the zone:
-// a headline of a word or two on the left, the glyph and the close on the
-// right. The pages that open with a header (the tabs, a title, the close)
-// start that row below the zone, as the kit says for a header narrower than
-// three zones.
+// (`surfaceHost.backZoneHeight`) wherever the first row does not sit beside
+// it, because a press anywhere in that zone goes back and nothing of ours may
+// sit in it. The compact page (main) keeps its first row in the gutters beside
+// the zone: a headline of a word or two on the left, the glyph on the right. A
+// tab page's header sits in that row too, the tabs in the left gutter, when
+// they fit there (the panel widens up to 640 for it); otherwise, and for a
+// sub-page's title, the header starts below the zone. Under a host with its
+// own way back the kit draws no close (ui/UClose.qml): the strip goes back,
+// Esc and a press outside close.
 //
 // Colours come only from surfaceHost, through the kit's theme, as solids.
 // Nothing reads Color.
@@ -81,9 +83,9 @@ FocusScope {
   // otherwise the whole content starts below the zone.
   readonly property real zoneWidth: root.surfaceHost && root.surfaceHost.backZoneWidth > 0 ? root.surfaceHost.backZoneWidth : 0
   readonly property bool besideZone: root.zoneWidth > 0 && (root.implicitWidth - root.zoneWidth) / 2 - root.inset >= root.theme.space(56)
-  // Only the compact page has a first row that fits beside the zone; a header starts below it.
-  // A tab page's header (the tabs on the left, the close on the right) also sits beside the zone, in the
-  // same row as the strip, when the tabs fit in the left gutter; the panel widens a little for it (below).
+  // The compact page's first row sits beside the zone. So does a tab page's header (the tabs on the left;
+  // the close on the right, where the kit draws one), in the same row as the strip, when the tabs fit in
+  // the left gutter; the panel widens a little for it (below). Anything else starts below the zone.
   readonly property real tabsWidth: header.tabsImplicitWidth
   readonly property bool headerBeside: root.onTab && root.zoneWidth > 0 && root.tabsWidth > 0
                                        && (root.implicitWidth - 2 * root.inset - root.zoneWidth) / 2 - root.theme.sp.sm >= root.tabsWidth

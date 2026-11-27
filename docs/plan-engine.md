@@ -243,11 +243,12 @@ rule and to the facts it rests on.**
 ## 3. Configuration (REVISION 3)
 
 One file: `${XDG_CONFIG_HOME:-~/.config}/omarchy-egpu/config.json`. It is absent on a
-fresh machine. Every key has an auto-detected default. `omarchy-egpu config show`
-prints the effective config with an `origin` per key (`default` | `detected` | `file`).
-The engine writes only keys the user changed, through `config set <key> <json>`, using
-an atomic write (temp file plus rename). The file is outside the watched plugins
-directory.
+fresh machine. Every key has an auto-detected default. The engine's only write to it
+is `display policy set`, which changes `display.policy` with an atomic write (temp
+file plus rename); other keys are edited by hand. The file is outside the watched
+plugins directory. `config show` (the effective config with an `origin` per key:
+`default` | `detected` | `file`) and `config set <key> <json>` are planned, not built.
+Rows marked "not built" below are never read.
 
 | key | default | notes |
 |---|---|---|
@@ -257,18 +258,20 @@ directory.
 | `connect.auto` | `true` after setup | udev loads the KMS module on plug (§10.3). Not stored in this file: it IS the root flag `/etc/omarchy-egpu/autoconnect` (install.sh creates it on a first install; the helper's `autoconnect on\|off` switches it, with the user's password). `config_get connect.auto` and status `connect.auto` read the flag |
 | `connect.timeout_s` | `30` | |
 | `eject.close_timeout_s` | `10` | SIGTERM grace before asking about SIGKILL |
-| `display.policy` | `"extend"` | `extend` \| `mirror` \| `off`, applied on hot-add |
+| `display.policy` | `"igpu"` | `igpu` \| `egpu-hdmi`: what the toggle file contains (§7.2); takes effect at login |
 | `display.position` | `"right"` | relative to the primary panel |
 | `display.vrr` | `false` | see §11 |
 | `display.mgpu_no_explicit` | `false` | sets `AQ_MGPU_NO_EXPLICIT` (§11), relogin |
 | `steam.roots` | detected | native and Flatpak installs (§8.1) |
 | `steam.account` | detected | `MostRecent` login (§8.1) |
-| `steam.on_unplug` | `"leave"` | `leave` \| `remove` (§8.6) |
-| `steam.relaunch` | `true` | reopen Steam after a close-and-apply (§8.4) |
+| `steam.on_unplug` | `"leave"` | not built. `leave` \| `remove` (§8.6) |
+| `steam.relaunch` | `true` | not built: Steam is reopened only with `steam apply --relaunch` (§8.4) |
+| `steam.client_args` | `["-cef-disable-gpu"]` | arguments `steam client apply` puts into the copy of Steam's launcher |
+| `apps.run_path` | `<plugin folder>/bin/egpu-run` | the wrapper that managed desktop entries call |
 | `notify` | `true` | plug/unplug notifications |
 | `profile` | `"auto"` | enclosure profile id (§4.3) |
-| `gui.hide_when_absent` | `false` | bar indicator hidden while no eGPU was ever seen this session (plan-gui.md §4) |
-| `gui.recent_commands` | `[]` | last 8 commands launched via "Run on eGPU" (plan-gui.md §5.1) |
+| `gui.hide_when_absent` | `false` | not built. bar indicator hidden while no eGPU was ever seen this session (plan-gui.md §4) |
+| `gui.recent_commands` | `[]` | not built. last 8 commands launched via "Run on eGPU" (plan-gui.md §5.1) |
 
 No user name, PCI address or path is hardcoded anywhere in code (REVISION 3).
 Machine-specific values are detected at run time or come from this file.
@@ -280,7 +283,7 @@ Machine-specific values are detected at run time or come from this file.
 ```
 omarchy-egpu/
   manifest.json          id kalinewb.egpu, kinds [bar-widget, service], surface contract 1
-  LICENSE  README.md  preview.png
+  LICENSE  README.md      (preview.png: planned)
   Panel.qml  Service.qml  NotchIntegration.qml  views/  common/   (plan-gui.md)
   bin/
     omarchy-egpu         dispatcher: omarchy-egpu <module> <verb> [args]
@@ -288,13 +291,15 @@ omarchy-egpu/
   lib/
     common.sh            json out, lock, paths (all roots overridable), config
     status.sh            module: status, watch
-    device.sh            module: connect, eject, holders
+    device.sh            module: connect, eject, rescan, holders
     display.sh           module: Hyprland monitors, toggle file
+    apps.sh              module: "run on eGPU" for desktop apps
+    apps.py              .desktop reader and writer for apps.sh and Steam's launcher copy
     steam/               module (§8)
       steam.sh           verbs, Steam process control, pending queue
       vdf.py             KeyValues parse-to-locate / splice editor (python3 stdlib)
       tools.json         non-game appids and name prefixes to hide
-    health.sh            module: checks, fix
+    health.sh            module: checks (`fix`: planned)
     backends/
       nvidia.sh          v1, implemented
       amdgpu.sh          documented stub
@@ -307,11 +312,14 @@ omarchy-egpu/
     omarchy-egpu-admin   root helper
     no.kalinewb.egpu.policy
     61-omarchy-egpu.rules
+    72-omarchy-egpu-seat.rules  takes the seat tags off the eGPU's card node
     omarchy-egpu-modules.conf   modules-load mask template (§9)
+    omarchy-egpu-sleep-guard  omarchy-egpu-sleep-guard.conf   (§10.5)
   tests/
     run.sh  lib.sh  fakes/bin/{boltctl,hyprctl,nvidia-smi,pkexec,udevadm,lsinitcpio,vulkaninfo,steam,flatpak}
     schema/status-1.json   JSON Schema of the §5 document
-    fixtures/<scenario>/{sys,dev,proc,bolt.json,hypr/*.json,steam/}
+    fixtures/<scenario>/{setup.sh,expect.json,fake tools' data}
+                         setup.sh builds the fake sysfs, /dev, /proc at test time
   dev/
     lint.sh  check-pins.sh  update-pins.sh  bin/ (stub engine for the GUI, plan-gui.md §9)
   dev-sync.sh            rsync into the plugin dir, as profiles:dev-sync.sh:14-23
@@ -320,7 +328,8 @@ omarchy-egpu/
 Each module can be sourced alone with `common.sh` and has its own verbs. The CLI is
 `omarchy-egpu status`, `omarchy-egpu device connect`,
 `omarchy-egpu display off`, `omarchy-egpu steam set 1234 on`,
-`omarchy-egpu health`, `omarchy-egpu health fix <id>`, `omarchy-egpu config show`.
+`omarchy-egpu health`. `omarchy-egpu health fix <id>` and `omarchy-egpu config show`
+are planned, not built.
 `steam` and `display` work without any eGPU attached. `steam` works without Hyprland.
 
 ### 4.1 Overridable roots (the test seam)
@@ -747,12 +756,13 @@ refused while `modules.held_after_eject` is set, because of the freeze risk (O2)
 
 ### 7.4 `egpu-run`
 
-`egpu-run [--check] <cmd…>`:
+`egpu-run [--strict] [--quiet] [--] <cmd…>` (also `--check` and `--env`):
 
 - Resolves the attached device and backend, exports `be_offload_env`, and `exec`s
   the command.
-- If no eGPU is ready, it refuses with exit 1 and a notification. It does not fall
-  back silently to the iGPU.
+- If no eGPU is ready, it says so on stderr (and as a notification, unless `--quiet`
+  or `notify` is false) and runs the command on the default GPU, so a launch still
+  starts. With `--strict` it refuses instead: `{"error":…}` on stdout, exit 1.
 - From the panel, apps are launched through `uwsm-app -- egpu-run <cmd>`, matching
   Omarchy's launch convention (omarchy:default/agents/skills/omarchy/hyprland.md:38).
 
@@ -1023,8 +1033,8 @@ On a machine with no eGPU history, every row still answers. Missing pieces show 
   (`/etc/mkinitcpio.conf.d/omarchy_hooks.conf:1,7-9`).
   - **Doubt:** the dkms modules live outside `drivers/gpu`, so I expected the kms hook
     not to pick them up. The check exists either way.
-- The plugin installs a pacman hook. Before `mkinitcpio` runs, it prints a warning
-  when an external display device is present. It does not block.
+- Planned, not built: a pacman hook that, before `mkinitcpio` runs, prints a warning
+  when an external display device is present. It would not block.
 
 ### 9.2 modules-load mask (binding fact 2, verified)
 
@@ -1138,12 +1148,19 @@ annotation copies face:system/no.user.face.policy:26-35.
 
 - `system/install.sh` is face's mechanism, with egpu names: terminal command, fetched
   checksum, pinned snapshot, owner checks (O4).
-- It installs: the helper, the policy, the udev rule, the modules-load mask (Fix
-  `boot.modules_load_mask`), the sleep guard and its three systemd drop-ins (§10.5, since
-  0.1.1; it runs `systemctl daemon-reload` after installing and after removing them),
-  and the pacman hook (§9.1).
-- Optionally, each behind its own confirmation printed in the terminal: the
-  modprobe options and removal of `/etc/mkinitcpio.conf.d/nvidia.conf`.
+- It installs: the helper, the policy, the udev rules (`61-omarchy-egpu.rules` and,
+  since 0.1.3, `72-omarchy-egpu-seat.rules`), the modules-load mask (Fix
+  `boot.modules_load_mask`), `/etc/omarchy-egpu/` with the auto-connect flag, and the
+  sleep guard and its three systemd drop-ins (§10.5, since 0.1.1; it runs
+  `systemctl daemon-reload` after installing and after removing them). It asks in the
+  terminal before moving a stale empty mask to the backup folder (§9.2).
+- Planned, not built: the pacman hook (§9.1), and, each behind its own confirmation
+  printed in the terminal, the modprobe options and removal of
+  `/etc/mkinitcpio.conf.d/nvidia.conf`. install.sh changes no modprobe, mkinitcpio or
+  thunderbolt configuration today. The rows `kernel.thunderbolt_early`,
+  `boot.mkinitcpio_conf`, `kernel.modprobe_options`, `kernel.nouveau_blacklist` and
+  `driver.modeset` can still report a `system` fix, for which Setup offers Install,
+  but installing does not change what they check.
 - Every replaced `/etc` file goes first to `/var/backups/omarchy-egpu/<UTC>/`.
 - `install.sh --uninstall` restores from backup and removes everything it installed,
   the auto-connect flag whatever its content, and warns loudly when a shipped
@@ -1437,8 +1454,11 @@ with root.
 ## 13. Test strategy (REVISION 3)
 
 - `tests/run.sh` is a plain bash runner; bats is not assumed. For each scenario it
-  sets `EGPU_SYS/DEV/PROC/ETC/USRLIB` to `tests/fixtures/<scenario>/…` and puts
-  `tests/fakes/bin` first on `PATH`.
+  builds a fake machine in a temp directory with
+  `tests/fixtures/<scenario>/setup.sh` (builders in `tests/lib.sh`; no sysfs tree is
+  committed, so no symlink enters the repo), points `EGPU_SYS/DEV/PROC/ETC/USRLIB`
+  and the other roots at it, puts `tests/fakes/bin` first on `PATH` and checks the
+  scenario's `expect.json`.
 - **Fakes:**
   - `boltctl`: reads `bolt.json` and appends invocations to a log the test asserts on.
   - `hyprctl`: returns `hypr/monitors.json`, `workspaces.json`, records `eval`/`dispatch`

@@ -14,7 +14,7 @@ import "egpu" as Egpu
 //
 //   UI_RENDER_MODE    hosted | standalone
 //   UI_RENDER_HOST    black | white       (the stand-in host's colour)
-//   UI_RENDER_ROUTE   main | overview | setup | setup:<row id> | details | eject
+//   UI_RENDER_ROUTE   main | overview | setup | setup:<row id> | details | eject | games
 //   UI_RENDER_ADV     1 opens Setup's Advanced
 //   UI_RENDER_ZONE    1 draws the notch's back zone (180 x 32, top centre) as a box over the panel
 //   UI_RENDER_WAIT    ms to wait for the engine's answers before the grab (default 1600)

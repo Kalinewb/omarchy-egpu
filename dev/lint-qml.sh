@@ -34,7 +34,8 @@
 # Omarchy's shipped QML produces it too).
 #
 # dev/qml-harness/ is not linted: it imports the plugin as "egpu" from a
-# config root that only dev/g1-offscreen.sh builds.
+# config root that only the offscreen scripts build (dev/g1-offscreen.sh,
+# dev/g8-offscreen.sh, dev/keys.sh, dev/render.sh).
 
 set -uo pipefail
 

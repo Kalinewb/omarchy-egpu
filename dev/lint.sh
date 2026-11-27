@@ -8,8 +8,8 @@
 # fakes, fixtures) must parse with `bash -n`. When shellcheck is installed it
 # runs too: errors fail the lint, warnings are listed but do not.
 #
-# QML lint (qmllint against the installed Omarchy shell, as omarchy-profiles'
-# dev/lint.sh does) joins this script with the first QML file (gate G1).
+# When the repo has QML it runs dev/lint-qml.sh as well (qmllint against the
+# installed Omarchy shell, gate G1).
 #
 # Fails when:
 #   - any script does not parse, or

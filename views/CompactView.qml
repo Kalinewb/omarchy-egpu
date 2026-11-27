@@ -15,8 +15,10 @@ import "../common/Overview.js" as Overview
 //   Open full panel                     a row that opens the Overview
 //
 // Under the notch's back strip the first row is the headline in the left
-// gutter and the glyph and the one close in the right gutter; the strip's
-// zone at the top centre is clear of text and controls.
+// gutter and the glyph in the right one; the strip's zone at the top centre is
+// clear of text and controls. There is no close there: the kit hides it under
+// a host with its own way back (ui/UClose.qml). Without the strip the close
+// ends the first row.
 //
 // Every button is gated on its verb existing in this engine (Engine.qml
 // `can`); a button that can only answer "usage" is worse than none.

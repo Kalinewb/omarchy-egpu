@@ -15,8 +15,8 @@ import "common/SetupRows.js" as SetupRows
 // bin/omarchy-egpu (the "summary" it computes is even the indicator's state and
 // tooltip), and every view is a shared component in views/ that the notch will
 // instantiate as well (REVISION 4). What this file owns is the chrome: the
-// button, the popup, the route stack with its Back, and the palette it fills
-// from Omarchy's theme for the views.
+// button, the popup, the route stack with its Back, and the kit theme
+// (ui/UTheme.qml) it makes from Omarchy's own for the views.
 //
 // Nothing here writes under ~/.config/omarchy/plugins: any write there reloads
 // every plugin (omarchy:shell/services/PluginRegistry.qml:663-679). All state is
@@ -328,9 +328,9 @@ Panel {
     foreground: Qt.rgba(roleTint.r, roleTint.g, roleTint.b, roleTint.a * root.pulse)
 
     // Left opens the notch's panel or the popup (press()). Right will run `display off` while an eGPU monitor
-    // is on (§4, the second fast path to "monitor off"); the display verbs
-    // land with E4/G4, so until then right does nothing at all rather than
-    // something else.
+    // is on (§4, the second fast path to "monitor off"). The engine has the
+    // display verbs (lib/display.sh) but the panel's side (G4) is not built,
+    // so until then right does nothing at all rather than something else.
     onPressed: function (buttonCode) {
       if (buttonCode === Qt.LeftButton) root.press()
     }
