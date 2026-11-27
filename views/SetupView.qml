@@ -82,13 +82,11 @@ Column {
   }
 
   readonly property string title: "Setup"
-  readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
   readonly property var sp: view.theme.sp
   readonly property var rows: view.health ? view.health.rows : null
   readonly property var sum: SetupRows.summarize(view.rows)
-  readonly property bool loading: !!view.health && !!view.health.loading
   readonly property string readError: view.health && view.health.error ? String(view.health.error) : ""
   // Problems first, the focused one at the very top.
   // (Not a sort: the JS engine's sort is not stable, and the engine's order
@@ -250,7 +248,6 @@ Column {
       font.pixelSize: view.theme.bodySize
     }
     UButton {
-      id: firstRunButton
       width: parent.width
       visible: view.installState !== "preparing"
       theme: view.theme
@@ -483,7 +480,6 @@ Column {
         spacing: view.sp.xs
 
         Item {
-          id: firstLine
           width: parent.width
           implicitHeight: Math.max(sentenceText.implicitHeight, view.theme.controlHeight)
 

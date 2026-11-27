@@ -32,9 +32,6 @@ Item {
   property var service: null
   // Runs the one-shot fallback. Without one the file is all there is.
   property var engine: null
-  // Whether a watcher is meant to be running. False only for a consumer that
-  // knows there is none, so a stale file is not reported as a fault.
-  property bool expectWatcher: true
   // False parks the file source entirely (no watch, no timer). The Service
   // sets it while its own watcher is the source.
   property bool reading: true
@@ -143,7 +140,7 @@ Item {
     // A newer engine: a one-shot would answer in the same newer schema, so
     // there is nothing to retry until the plugin is updated.
     if (root.schemaNewer) { root.fileOutcome = "schema_newer"; return }
-    if (fresh || (!root.expectWatcher && root.fileStatus)) { root.fileOutcome = ""; return }
+    if (fresh) { root.fileOutcome = ""; return }
     if (!root.fileStatus && root.oneShotError !== "") root.fileOutcome = "engine:" + root.oneShotError
     else if (root.path === "") root.fileOutcome = root.fileStatus ? "stale" : "no_runtime_dir"
     else root.fileOutcome = "stale"

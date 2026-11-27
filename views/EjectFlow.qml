@@ -73,7 +73,6 @@ Column {
   }
 
   readonly property string title: "Safe eject"
-  readonly property string meta: ""
 
   // ------------------------------------------------------------ state
   readonly property var sp: view.theme.sp

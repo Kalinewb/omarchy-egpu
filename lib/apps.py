@@ -168,13 +168,6 @@ def managed(path):
     return r is not None and r[0].get(MARK_KEY) == "managed"
 
 
-def state_of(user_dir, app_id, source):
-    p = os.path.join(user_dir, app_id)
-    if source == "user":
-        return "on" if managed(p) else "manual"
-    return "off"
-
-
 def cmd_list(a):
     found = scan(a.user_dir, a.sys_dirs)
     apps = []

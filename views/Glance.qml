@@ -103,7 +103,6 @@ Item {
 
       // "+ HDMI monitor": a small monitor under the dot's corner.
       Text {
-        id: monitorMark
         visible: view.look.monitor
         textFormat: Text.PlainText
         text: Palette.monitorGlyph
@@ -123,7 +122,6 @@ Item {
     }
 
     Text {
-      id: wordText
       anchors.verticalCenter: parent.verticalCenter
       visible: view.showWord && view.word !== ""
       textFormat: Text.PlainText

@@ -40,7 +40,6 @@ Column {
   function activatePrimary() { return false }
 
   readonly property string title: "Games"
-  readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
   readonly property var sp: view.theme.sp
@@ -209,7 +208,6 @@ Column {
 
   // ---- Steam games
   USection {
-    id: steamSection
     theme: view.theme
     first: true
     visible: view.steamGames.length > 0

@@ -24,8 +24,6 @@
 // way. If the launcher is missing or fails, Setup shows the command with a
 // Copy button instead.
 
-var LAUNCHER = "omarchy-launch-floating-terminal-with-presentation"
-
 // Shown in the panel above the button, and printed first in the terminal.
 var EXPLAIN = [
   "This installs the eGPU plugin's system helper, once.",
@@ -77,8 +75,9 @@ function releaseCheck(cmd) {
          "esac\n"
 }
 
-// The script the terminal runs (one argv element of LAUNCHER, which runs it
-// with bash -c after Omarchy's logo). The release check runs first, and the
+// The script the terminal runs (one argv element of
+// omarchy-launch-floating-terminal-with-presentation, which runs it with
+// bash -c after Omarchy's logo). The release check runs first, and the
 // command is the last line, so the launcher's "Done" shows its own status.
 function terminalScript(cmd, title) {
   var lines = ["", String(title || "Set up eGPU support"), ""].concat(EXPLAIN).concat(["", "The command:", "", String(cmd).replace(/\n+$/, ""), ""])

@@ -117,7 +117,6 @@ dv_error() {
 }
 
 dv_log_has() { grep -qE -- "$1" "$EGPU_FAKE_LOG" 2>/dev/null; }
-dv_log_count() { grep -cE -- "$1" "$EGPU_FAKE_LOG" 2>/dev/null; }
 
 dv_assert() { # dv_assert <label> <command...>
   local label=$1

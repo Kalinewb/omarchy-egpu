@@ -56,7 +56,6 @@ Item {
   // With Steam already closed nothing would ever apply it, so a panel that reads the health applies it
   // at once (`steam apply`: no --close, so it can never close a Steam that is running). Once per opening.
   property bool queueTried: false
-  signal queueApplied(int count)
   function applyWaitingQueue() {
     if (root.queueTried || !root.engine || !root.rows) return
     if (!(root.status && root.status.steam && root.status.steam.running === false)) return
@@ -66,9 +65,8 @@ Item {
       if (root.rows[i] && root.rows[i].id === "steam.pending" && root.rows[i].level !== "ok") waiting = true
     if (!waiting) return
     root.queueTried = true
-    root.engine.run(["steam", "apply"], function (r) {
+    root.engine.run(["steam", "apply"], function () {
       if (!root) return
-      if (r.ok && r.json) root.queueApplied(Number(r.json.applied || 0))
       root.refresh()
     })
   }

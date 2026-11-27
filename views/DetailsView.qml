@@ -40,7 +40,6 @@ Column {
   function activatePrimary() { return false }
 
   readonly property string title: "Details"
-  readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
   readonly property var s: view.status

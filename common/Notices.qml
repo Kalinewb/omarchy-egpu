@@ -32,11 +32,6 @@ Item {
     return n
   }
 
-  function clear() {
-    clock.stop()
-    root.notice = null
-  }
-
   Timer {
     id: clock
     interval: NoticeRules.TTL_MS

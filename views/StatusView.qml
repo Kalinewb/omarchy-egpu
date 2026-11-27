@@ -51,7 +51,6 @@ Column {
   // The shell's header shows tabs over this view, never a title: the
   // headline below is the one place the state is said (ui-scope.md §0.3).
   readonly property string title: ""
-  readonly property string meta: ""
 
   // ------------------------------------------------------------ derived
   readonly property var sp: view.theme.sp
@@ -205,7 +204,6 @@ Column {
     UTip { theme: view.theme; placement: "foot"; text: view.d.button ? view.tipFor(view.d.button.action) : "" }
   }
   URing {
-    id: busyRing
     anchors.horizontalCenter: parent.horizontalCenter
     visible: !!view.d.button && view.d.button.busy
     height: view.theme.rowHeight
