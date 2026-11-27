@@ -22,7 +22,7 @@ dev/g1-offscreen.sh   # the bar, Overview, Details, Setup and eject sheet, offsc
 dev/g8-offscreen.sh   # the notch integration, offscreen, against the notch checkout's rules
 dev/keys.sh           # real key presses (Esc, Tab, Enter, Space, arrows) in the notch panel and the popup
 dev/check-ui.sh --score --walk dev/walk-root.qml   # the UI kit's gate: ui/ is the kit, no literals, one Esc, the walk
-dev/render.sh --all docs/screens/after   # every state, hosted black and white and standalone, to PNG
+out=$(mktemp -d) && dev/render.sh --all "$out" && echo "$out"   # every state, hosted black and white and standalone, to PNG
 dev/check-pins.sh     # the root half's pins, checksum, versions and the command below agree
 ```
 
@@ -235,8 +235,6 @@ files, so everything is at 0.1.2 together (`manifest.json`, the helper, the inst
   `Do not suspend. Log out first.`, no retry. A failed remove with the driver unloaded: `The driver is unloaded. Open the
   lid or press Connect to bring the eGPU back.`, Connect is the primary action. Monitors the eject left off: `Turn the
   screens back on` (the engine's `display enable`; with a hung driver it says to open the lid instead).
-- Screenshots of each state, before (the UI-kit main) and after, are in `docs/screens/` (`eject-in-use*`,
-  `eject-modules-held`, `eject-unloaded`, `eject-hung-screens`, `held-ejected`, `held-no-card`).
 
 ## In the notch
 

@@ -3,14 +3,14 @@
 # Render the panel to PNGs, offscreen, from the fixtures: every state the plugin has a fixture for, on a
 # stand-in notch host (black, white) and in the standalone popup.
 #
-#   ./dev/render.sh --all <dir>                       every picture the docs use
+#   ./dev/render.sh --all <dir>                       every state below (give a temp folder)
 #   ./dev/render.sh --out <png> --fixture <name> [--route <route>] [--mode hosted|standalone]
 #                   [--host black|white] [--adv] [--zone] [--panel <dir>] [--reduced]
 #
-# `--panel <dir>` renders the plugin in another checkout (the "before" pictures come from a checkout of the
-# commit before the kit). The harness (dev/qml-harness/render.qml) is always this repo's. Offscreen with the
-# OpenGL RHI, as dev/g1-offscreen.sh and the kit's gallery.sh; no real window opens, the engine is the dev
-# stub, and nothing touches the running shell, the live plugin or the machine's own eGPU state.
+# `--panel <dir>` renders the plugin in another checkout (say an older commit, to compare). The harness
+# (dev/qml-harness/render.qml) is always this repo's. Offscreen with the OpenGL RHI, as dev/g1-offscreen.sh
+# and the kit's gallery.sh; no real window opens, the engine is the dev stub, and nothing touches the running
+# shell, the live plugin or the machine's own eGPU state.
 
 set -uo pipefail
 
